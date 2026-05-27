@@ -4,6 +4,7 @@ import capstone.api.Instruction;
 import capstone.api.RegsAccess;
 import com.alibaba.fastjson.JSONObject;
 import com.github.unidbg.*;
+import com.github.unidbg.Module;
 import com.github.unidbg.arm.backend.*;
 import com.github.unidbg.debugger.*;
 import com.github.unidbg.mcp.McpServer;
@@ -724,7 +725,7 @@ public abstract class AbstractARMDebugger implements Debugger {
                 return false;
         }
         if (line.startsWith("mcp")) {
-            startMcpServer(line);
+            startMcpServerFromCommand(line);
             return false;
         }
         if ("_mcp".equals(line)) {
@@ -1341,7 +1342,7 @@ public abstract class AbstractARMDebugger implements Debugger {
         }
     }
 
-    private void startMcpServer(String line) {
+    private void startMcpServerFromCommand(String line) {
         if (mcpServer != null) {
             int p = mcpServer.getPort();
             System.out.println("MCP server already running on port " + p);
@@ -1356,7 +1357,25 @@ public abstract class AbstractARMDebugger implements Debugger {
             } catch (NumberFormatException ignored) {
             }
         }
+        try {
+            McpServer server = startMcpServer(port);
+            server.setDebugIdle(true);
+            int p = server.getPort();
+            System.out.println("MCP server started on port " + p);
+            printMcpConfig(p, mcpServerIndex);
+        } catch (IOException e) {
+            System.err.println("Failed to start MCP server: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public McpServer startMcpServer(int preferredPort) throws IOException {
+        if (mcpServer != null) {
+            return mcpServer;
+        }
+        int port = preferredPort > 0 ? preferredPort : 9239;
         int maxRetries = 10;
+        IOException lastException = null;
         for (int i = 0; i < maxRetries; i++) {
             try {
                 mcpServer = new McpServer(emulator, port);
@@ -1366,20 +1385,29 @@ public abstract class AbstractARMDebugger implements Debugger {
                 pendingMcpTools.clear();
                 mcpServer.start();
                 scannerNeedsRefresh = true;
-                mcpServer.setDebugIdle(true);
                 mcpServerIndex = i;
-                System.out.println("MCP server started on port " + port);
-                printMcpConfig(port, i);
-                return;
+                return mcpServer;
             } catch (IOException e) {
                 mcpServer = null;
+                lastException = e;
                 if (i < maxRetries - 1) {
-                    System.out.println("Port " + port + " is in use, trying " + (port + 1) + "...");
                     port++;
-                } else {
-                    System.err.println("Failed to start MCP server: " + e.getMessage());
                 }
             }
+        }
+        throw lastException != null ? lastException : new IOException("Failed to start MCP server");
+    }
+
+    @Override
+    public McpServer getMcpServer() {
+        return mcpServer;
+    }
+
+    @Override
+    public void stopMcpServer() {
+        if (mcpServer != null) {
+            mcpServer.stop();
+            mcpServer = null;
         }
     }
 
@@ -1457,10 +1485,7 @@ public abstract class AbstractARMDebugger implements Debugger {
 
     @Override
     public void close() {
-        if (mcpServer != null) {
-            mcpServer.stop();
-            mcpServer = null;
-        }
+        stopMcpServer();
     }
 
 }

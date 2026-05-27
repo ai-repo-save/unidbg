@@ -4,7 +4,9 @@ import com.github.unidbg.Emulator;
 import com.github.unidbg.Module;
 import com.github.unidbg.arm.backend.BlockHook;
 import com.github.unidbg.arm.backend.DebugHook;
+import com.github.unidbg.mcp.McpServer;
 
+import java.io.IOException;
 import java.util.Map;
 
 public interface Debugger extends Breaker, DebugHook, BlockHook {
@@ -40,6 +42,12 @@ public interface Debugger extends Breaker, DebugHook, BlockHook {
     void disassembleBlock(Emulator<?> emulator, long address, boolean thumb);
 
     void addMcpTool(String name, String description, String... paramNames);
+
+    McpServer startMcpServer(int preferredPort) throws IOException;
+
+    McpServer getMcpServer();
+
+    void stopMcpServer();
 
     boolean removeBreakPoint(long address);
 

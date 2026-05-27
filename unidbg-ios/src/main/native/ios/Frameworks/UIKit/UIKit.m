@@ -253,6 +253,9 @@ const CGRect g_frame = { 0, 0, 768, 1024 };
 - (id) m_appViewControllerMgr {
     return nil;
 }
+- (void) application:(UIApplication *) application didRegisterForRemoteNotificationsWithDeviceToken:(NSData *) deviceToken {
+    NSLog(@"didRegisterForRemoteNotificationsWithDeviceToken: %@", deviceToken);
+}
 @end
 
 @implementation UIEvent

@@ -17,12 +17,7 @@ import java.io.File;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryMXBean;
 import java.lang.management.MemoryUsage;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
+import java.util.*;
 
 public abstract class BaseVM implements VM, DvmClassFactory {
 
@@ -112,10 +107,27 @@ public abstract class BaseVM implements VM, DvmClassFactory {
         this.dvmClassFactory = factory;
     }
 
+    private HashFunction hashFunction = Hasher.Default;
+
+    @Override
+    public void setHashFunction(HashFunction hashFunction) {
+        if (hashFunction == null) {
+            throw new NullPointerException("hashFunction == null");
+        }
+        if (!classMap.isEmpty()) {
+            throw new IllegalStateException("Must set hash function before resolving any class");
+        }
+        this.hashFunction = hashFunction;
+    }
+
+    public final int hash(String className) {
+        return hashFunction.hash(className);
+    }
+
     @Override
     public final DvmClass resolveClass(String className, DvmClass... interfaceClasses) {
         className = className.replace('.', '/');
-        int hash = Objects.hash(className);
+        int hash = this.hash(className);
         DvmClass dvmClass = classMap.get(hash);
         DvmClass superClass = null;
         if (interfaceClasses != null && interfaceClasses.length > 0) {
@@ -129,7 +141,10 @@ public abstract class BaseVM implements VM, DvmClassFactory {
             if (dvmClass == null) {
                 dvmClass = this.createClass(this, className, superClass, interfaceClasses);
             }
-            classMap.put(hash, dvmClass);
+            DvmClass oldClass = classMap.put(hash, dvmClass);
+            if (oldClass != null && !oldClass.getClassName().equals(className)) {
+                throw new IllegalStateException("Hash collision: " + oldClass.getClassName() + " and " + className + " have the same hash=0x" + Integer.toHexString(hash));
+            }
         }
         addGlobalObject(dvmClass);
         return dvmClass;
@@ -201,7 +216,7 @@ public abstract class BaseVM implements VM, DvmClassFactory {
 
     @Override
     public final DvmClass findClass(String className) {
-        return classMap.get(Objects.hash(className));
+        return classMap.get(this.hash(className));
     }
 
     final void deleteLocalRefs() {

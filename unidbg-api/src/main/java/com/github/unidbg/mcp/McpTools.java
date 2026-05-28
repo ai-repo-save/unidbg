@@ -46,6 +46,8 @@ public class McpTools {
     private final McpServer server;
     private final List<CustomTool> customTools = new ArrayList<>();
     private final Map<Long, Allocation> allocatedBlocks = new LinkedHashMap<>();
+    private final Map<Integer, Watchpoint> watchpoints = new LinkedHashMap<>();
+    private int nextWatchpointId = 1;
     private TraceHook activeTraceCode;
     private TraceHook activeTraceRead;
     private TraceHook activeTraceWrite;
@@ -58,6 +60,43 @@ public class McpTools {
             this.block = block;
             this.runtime = runtime;
             this.size = size;
+        }
+    }
+
+    private static class Watchpoint {
+        final int id;
+        final long begin;
+        final long end;
+        final String access;
+        final boolean temporary;
+        TraceHook readHook;
+        TraceHook writeHook;
+
+        Watchpoint(int id, long begin, long end, String access, boolean temporary) {
+            this.id = id;
+            this.begin = begin;
+            this.end = end;
+            this.access = access;
+            this.temporary = temporary;
+        }
+
+        boolean reads() {
+            return "read".equals(access) || "rw".equals(access);
+        }
+
+        boolean writes() {
+            return "write".equals(access) || "rw".equals(access);
+        }
+
+        void stop() {
+            if (readHook != null) {
+                readHook.stopTrace();
+                readHook = null;
+            }
+            if (writeHook != null) {
+                writeHook.stopTrace();
+                writeHook = null;
+            }
         }
     }
 
@@ -143,6 +182,15 @@ public class McpTools {
                 param("begin", "string", "Hex start address"),
                 param("end", "string", "Hex end address"),
                 param("break_on", "string", "Optional. Hex PC to pause on when reached.")));
+        tools.add(toolSchema("add_watchpoint", "Break when memory in address range is read or written. Events via poll_events.",
+                param("begin", "string", "Hex start address"),
+                param("end", "string", "Hex end address"),
+                param("access", "string", "read, write, or rw. Default rw."),
+                param("temporary", "boolean", "Auto-remove after first hit. Default false.")));
+        tools.add(toolSchema("remove_watchpoint", "Remove a memory access watchpoint by id.",
+                param("id", "integer", "Watchpoint id returned by add_watchpoint.")));
+        tools.add(toolSchema("list_watchpoints", "List active memory access watchpoints."));
+        tools.add(toolSchema("clear_watchpoints", "Remove all memory access watchpoints."));
         tools.add(toolSchema("get_callstack", "Get call stack (backtrace) with PC, module, offset and nearest symbol."));
         tools.add(toolSchema("find_symbol", "Find symbol by name in module, or find nearest symbol to an address.",
                 param("module_name", "string", "Optional. Module name"),
@@ -265,6 +313,10 @@ public class McpTools {
             case "trace_read": return traceRead(args);
             case "trace_write": return traceWrite(args);
             case "trace_code": return traceCode(args);
+            case "add_watchpoint": return addWatchpoint(args);
+            case "remove_watchpoint": return removeWatchpoint(args);
+            case "list_watchpoints": return listWatchpoints();
+            case "clear_watchpoints": return clearWatchpoints();
             case "get_callstack": return getCallstack();
             case "find_symbol": return findSymbol(args);
             case "read_string": return readString(args);
@@ -1143,6 +1195,120 @@ public class McpTools {
         }
     }
 
+    private JSONObject addWatchpoint(JSONObject args) {
+        long begin = parseAddress(args.getString("begin"));
+        long end = parseAddress(args.getString("end"));
+        if (begin >= end) {
+            return errorResult("Invalid watchpoint range: begin must be less than end.");
+        }
+        String access = args.getString("access");
+        if (access == null || access.isEmpty()) {
+            access = "rw";
+        }
+        access = access.toLowerCase(Locale.ROOT);
+        if (!"read".equals(access) && !"write".equals(access) && !"rw".equals(access)) {
+            return errorResult("Invalid access: " + access + ". Supported: read, write, rw.");
+        }
+        boolean temporary = args.containsKey("temporary") && args.getBooleanValue("temporary");
+        Watchpoint watchpoint = new Watchpoint(nextWatchpointId++, begin, end, access, temporary);
+        try {
+            if (watchpoint.reads()) {
+                watchpoint.readHook = emulator.traceRead(begin, end, (emu, address, data, hex) -> {
+                    onWatchpointHit(watchpoint, emu, "read", address, data.length, hex, null);
+                    return false;
+                });
+            }
+            if (watchpoint.writes()) {
+                watchpoint.writeHook = emulator.traceWrite(begin, end, (emu, address, size, value) -> {
+                    onWatchpointHit(watchpoint, emu, "write", address, size, null, value);
+                    return false;
+                });
+            }
+            watchpoints.put(watchpoint.id, watchpoint);
+            return textResult("Watchpoint " + watchpoint.id + " added: " + access + " 0x" +
+                    Long.toHexString(begin) + "-0x" + Long.toHexString(end) +
+                    (temporary ? " [temporary]" : ""));
+        } catch (Exception e) {
+            watchpoint.stop();
+            return errorResult("Failed to add watchpoint: " + e.getClass().getName() + ": " + exMsg(e));
+        }
+    }
+
+    private void onWatchpointHit(
+            Watchpoint watchpoint,
+            Emulator<?> emu,
+            String access,
+            long address,
+            int size,
+            String hex,
+            Long value) {
+        if (watchpoint.temporary) {
+            removeWatchpoint(watchpoint.id);
+        }
+        long pc = currentPc(emu);
+        JSONObject event = new JSONObject(true);
+        event.put("event", "watchpoint_hit");
+        event.put("id", watchpoint.id);
+        event.put("access", access);
+        event.put("pc", "0x" + Long.toHexString(pc));
+        event.put("address", "0x" + Long.toHexString(address));
+        event.put("size", size);
+        if (hex != null) {
+            event.put("hex", hex);
+        }
+        if (value != null) {
+            event.put("value", "0x" + Long.toHexString(value));
+        }
+        putPcModuleInfo(event, emu, pc);
+        server.queueEvent(event);
+        emu.attach().debug("watchpoint " + watchpoint.id + " " + access + " hit at 0x" +
+                Long.toHexString(address));
+    }
+
+    private JSONObject removeWatchpoint(JSONObject args) {
+        int id = args.getIntValue("id");
+        Watchpoint watchpoint = removeWatchpoint(id);
+        if (watchpoint == null) {
+            return errorResult("No watchpoint found with id " + id + ".");
+        }
+        return textResult("Watchpoint " + id + " removed.");
+    }
+
+    private Watchpoint removeWatchpoint(int id) {
+        Watchpoint watchpoint = watchpoints.remove(id);
+        if (watchpoint != null) {
+            watchpoint.stop();
+        }
+        return watchpoint;
+    }
+
+    private JSONObject listWatchpoints() {
+        if (watchpoints.isEmpty()) {
+            return textResult("No watchpoints set.");
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format("Total: %d watchpoint(s)%n", watchpoints.size()));
+        for (Watchpoint watchpoint : watchpoints.values()) {
+            sb.append(String.format(
+                    "#%d  %s  0x%x-0x%x%s%n",
+                    watchpoint.id,
+                    watchpoint.access,
+                    watchpoint.begin,
+                    watchpoint.end,
+                    watchpoint.temporary ? " [temporary]" : ""));
+        }
+        return textResult(sb.toString());
+    }
+
+    private JSONObject clearWatchpoints() {
+        int count = watchpoints.size();
+        for (Watchpoint watchpoint : new ArrayList<>(watchpoints.values())) {
+            watchpoint.stop();
+        }
+        watchpoints.clear();
+        return textResult("Cleared " + count + " watchpoint(s).");
+    }
+
 
     private JSONObject getCallstack() {
         try {
@@ -1996,6 +2162,19 @@ public class McpTools {
             event.put("module", module.name);
             event.put("offset", "0x" + Long.toHexString(address - module.base));
         }
+    }
+
+    private static void putPcModuleInfo(JSONObject event, Emulator<?> emu, long pc) {
+        Module module = emu.getMemory().findModuleByAddress(pc);
+        if (module != null) {
+            event.put("module", module.name);
+            event.put("offset", "0x" + Long.toHexString(pc - module.base));
+        }
+    }
+
+    private static long currentPc(Emulator<?> emu) {
+        return emu.getBackend().reg_read(
+                emu.is64Bit() ? Arm64Const.UC_ARM64_REG_PC : ArmConst.UC_ARM_REG_PC).longValue();
     }
 
     private static JSONObject buildInputSchema(String... paramNames) {

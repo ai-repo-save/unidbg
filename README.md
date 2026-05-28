@@ -111,6 +111,7 @@ When the debugger breaks, type `mcp` (or `mcp 9239` to specify port) in the cons
 | `next_block` | Break at next basic block (Unicorn only) |
 | `step_until_mnemonic` | Break at next instruction matching mnemonic, e.g. `bl`, `ret` (Unicorn only) |
 | `poll_events` | Poll for breakpoint_hit, execution_completed, trace events |
+| `add_watchpoint` / `remove_watchpoint` / `list_watchpoints` / `clear_watchpoints` | Manage memory access watchpoints that break on read, write, or rw ranges |
 
 **Tracing**
 
@@ -369,4 +370,3 @@ More tests:
 ## Stargazers over time
 
 [![Stargazers over time](https://starchart.cc/zhkl0228/unidbg.svg)](https://starchart.cc/zhkl0228/unidbg)
-

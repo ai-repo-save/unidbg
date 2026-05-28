@@ -217,6 +217,15 @@ class Unicorn2Backend extends AbstractBackend implements Backend {
         if ((type & UnicornConst.UC_HOOK_MEM_FETCH_UNMAPPED) != 0) {
             hookEventMem(callback, UnicornConst.UC_HOOK_MEM_FETCH_UNMAPPED, user_data, EventMemHook.UnmappedType.Fetch);
         }
+        if ((type & UnicornConst.UC_HOOK_MEM_READ_PROT) != 0) {
+            hookEventMem(callback, UnicornConst.UC_HOOK_MEM_READ_PROT, user_data, EventMemHook.UnmappedType.ReadProt);
+        }
+        if ((type & UnicornConst.UC_HOOK_MEM_WRITE_PROT) != 0) {
+            hookEventMem(callback, UnicornConst.UC_HOOK_MEM_WRITE_PROT, user_data, EventMemHook.UnmappedType.WriteProt);
+        }
+        if ((type & UnicornConst.UC_HOOK_MEM_FETCH_PROT) != 0) {
+            hookEventMem(callback, UnicornConst.UC_HOOK_MEM_FETCH_PROT, user_data, EventMemHook.UnmappedType.FetchProt);
+        }
     }
 
     private void hookEventMem(final EventMemHook callback, final int type, Object user_data, final EventMemHook.UnmappedType unmappedType) {

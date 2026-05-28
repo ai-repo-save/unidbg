@@ -12,6 +12,9 @@ import com.github.unidbg.TraceHook;
 import com.github.unidbg.arm.ARM;
 import com.github.unidbg.arm.Cpsr;
 import com.github.unidbg.arm.backend.Backend;
+import com.github.unidbg.arm.backend.BlockHook;
+import com.github.unidbg.arm.backend.EventMemHook;
+import com.github.unidbg.arm.backend.UnHook;
 import com.github.unidbg.debugger.BreakPoint;
 import com.github.unidbg.debugger.Debugger;
 import com.github.unidbg.memory.Memory;
@@ -36,8 +39,8 @@ import unicorn.UnicornConst;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
-import java.util.Locale;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 public class McpTools {
@@ -51,6 +54,8 @@ public class McpTools {
     private TraceHook activeTraceCode;
     private TraceHook activeTraceRead;
     private TraceHook activeTraceWrite;
+    private ManagedBlockTrace activeBlockTrace;
+    private ManagedMemoryFaultHook activeMemoryFaultHook;
 
     private static class Allocation {
         final MemoryBlock block;
@@ -100,6 +105,95 @@ public class McpTools {
         }
     }
 
+    private static class ManagedBlockTrace implements BlockHook {
+        final long begin;
+        final long end;
+        final long breakOn;
+        final McpServer server;
+        final Emulator<?> emulator;
+        private UnHook unHook;
+
+        ManagedBlockTrace(long begin, long end, long breakOn, McpServer server, Emulator<?> emulator) {
+            this.begin = begin;
+            this.end = end;
+            this.breakOn = breakOn;
+            this.server = server;
+            this.emulator = emulator;
+        }
+
+        @Override
+        public void hookBlock(Backend backend, long address, int size, Object user) {
+            JSONObject event = new JSONObject(true);
+            event.put("event", "trace_block");
+            event.put("address", "0x" + Long.toHexString(address));
+            event.put("size", size);
+            putModuleInfo(event, emulator, address);
+            server.queueEvent(event);
+            if (breakOn != -1 && address == breakOn) {
+                emulator.attach().debug("trace_block break_on address hit: 0x" + Long.toHexString(address));
+            }
+        }
+
+        @Override
+        public void onAttach(UnHook unHook) {
+            this.unHook = unHook;
+        }
+
+        @Override
+        public void detach() {
+            if (unHook != null) {
+                unHook.unhook();
+                unHook = null;
+            }
+        }
+    }
+
+    private static class ManagedMemoryFaultHook implements EventMemHook {
+        final int mask;
+        final long breakOn;
+        final McpServer server;
+        final Emulator<?> emulator;
+        private final List<UnHook> unHooks = new ArrayList<>();
+
+        ManagedMemoryFaultHook(int mask, long breakOn, McpServer server, Emulator<?> emulator) {
+            this.mask = mask;
+            this.breakOn = breakOn;
+            this.server = server;
+            this.emulator = emulator;
+        }
+
+        @Override
+        public boolean hook(Backend backend, long address, int size, long value, Object user, UnmappedType unmappedType) {
+            long pc = currentPc(emulator);
+            JSONObject event = new JSONObject(true);
+            event.put("event", "memory_fault");
+            event.put("type", memoryFaultType(unmappedType));
+            event.put("pc", "0x" + Long.toHexString(pc));
+            event.put("address", "0x" + Long.toHexString(address));
+            event.put("size", size);
+            event.put("value", "0x" + Long.toHexString(value));
+            putPcModuleInfo(event, emulator, pc);
+            server.queueEvent(event);
+            if (breakOn != -1 && address == breakOn) {
+                emulator.attach().debug("memory_fault break_on address hit: 0x" + Long.toHexString(address));
+            }
+            return false;
+        }
+
+        @Override
+        public void onAttach(UnHook unHook) {
+            unHooks.add(unHook);
+        }
+
+        @Override
+        public void detach() {
+            for (UnHook unHook : new ArrayList<>(unHooks)) {
+                unHook.unhook();
+            }
+            unHooks.clear();
+        }
+    }
+
     public McpTools(Emulator<?> emulator, McpServer server) {
         this.emulator = emulator;
         this.server = server;
@@ -119,6 +213,18 @@ public class McpTools {
                 param("address", "string", "Hex address"),
                 param("hex_bytes", "string", "Hex-encoded bytes, e.g. \"48656c6c6f\". Also accepts: data, hex_data, bytes.")));
         tools.add(toolSchema("list_memory_map", "List all memory mapped regions with base, size and permissions"));
+        tools.add(toolSchema("map_memory", "Map page-aligned memory with permissions.",
+                param("address", "string", "Hex page-aligned start address"),
+                param("size", "integer", "Page-aligned size in bytes"),
+                param("perms", "string", "Permissions: r, w, x, rw, rx, wx, rwx, or none")));
+        tools.add(toolSchema("protect_memory", "Change page-aligned memory permissions.",
+                param("address", "string", "Hex page-aligned start address"),
+                param("size", "integer", "Page-aligned size in bytes"),
+                param("perms", "string", "Permissions: r, w, x, rw, rx, wx, rwx, or none")));
+        tools.add(toolSchema("unmap_memory", "Unmap page-aligned memory.",
+                param("address", "string", "Hex page-aligned start address"),
+                param("size", "integer", "Page-aligned size in bytes")));
+        tools.add(toolSchema("memory_stats", "Show backend page size and mapped memory statistics."));
         tools.add(toolSchema("search_memory", "Search memory for hex pattern (with ?? wildcards) or text string.",
                 param("pattern", "string", "Hex bytes with optional ?? wildcards, or text if type='string'"),
                 param("type", "string", "Optional. 'hex' (default) or 'string'"),
@@ -182,6 +288,11 @@ public class McpTools {
                 param("begin", "string", "Hex start address"),
                 param("end", "string", "Hex end address"),
                 param("break_on", "string", "Optional. Hex PC to pause on when reached.")));
+        tools.add(toolSchema("trace_blocks", "Trace basic block execution in range. Events via poll_events.",
+                param("begin", "string", "Hex start address"),
+                param("end", "string", "Hex end address"),
+                param("break_on", "string", "Optional. Hex block address to pause on when reached.")));
+        tools.add(toolSchema("stop_trace_blocks", "Stop active basic block trace."));
         tools.add(toolSchema("add_watchpoint", "Break when memory in address range is read or written. Events via poll_events.",
                 param("begin", "string", "Hex start address"),
                 param("end", "string", "Hex end address"),
@@ -191,6 +302,11 @@ public class McpTools {
                 param("id", "integer", "Watchpoint id returned by add_watchpoint.")));
         tools.add(toolSchema("list_watchpoints", "List active memory access watchpoints."));
         tools.add(toolSchema("clear_watchpoints", "Remove all memory access watchpoints."));
+        tools.add(toolSchema("add_memory_fault_hook", "Listen for unmapped/protected memory read/write/fetch faults. Events via poll_events.",
+                param("events", "string", "Optional comma-separated events. Default all. Values: read_unmapped, write_unmapped, fetch_unmapped, read_prot, write_prot, fetch_prot."),
+                param("break_on", "string", "Optional. Hex fault address to pause on when hit.")));
+        tools.add(toolSchema("remove_memory_fault_hook", "Remove active memory fault hook."));
+        tools.add(toolSchema("list_memory_fault_hooks", "List active memory fault hook."));
         tools.add(toolSchema("get_callstack", "Get call stack (backtrace) with PC, module, offset and nearest symbol."));
         tools.add(toolSchema("find_symbol", "Find symbol by name in module, or find nearest symbol to an address.",
                 param("module_name", "string", "Optional. Module name"),
@@ -291,6 +407,10 @@ public class McpTools {
             case "read_memory": return readMemory(args);
             case "write_memory": return writeMemory(args);
             case "list_memory_map": return listMemoryMap();
+            case "map_memory": return mapMemory(args);
+            case "protect_memory": return protectMemory(args);
+            case "unmap_memory": return unmapMemory(args);
+            case "memory_stats": return memoryStats();
             case "search_memory": return searchMemory(args);
             case "get_registers": return getRegisters();
             case "get_register": return getRegister(args);
@@ -313,10 +433,15 @@ public class McpTools {
             case "trace_read": return traceRead(args);
             case "trace_write": return traceWrite(args);
             case "trace_code": return traceCode(args);
+            case "trace_blocks": return traceBlocks(args);
+            case "stop_trace_blocks": return stopTraceBlocks();
             case "add_watchpoint": return addWatchpoint(args);
             case "remove_watchpoint": return removeWatchpoint(args);
             case "list_watchpoints": return listWatchpoints();
             case "clear_watchpoints": return clearWatchpoints();
+            case "add_memory_fault_hook": return addMemoryFaultHook(args);
+            case "remove_memory_fault_hook": return removeMemoryFaultHook();
+            case "list_memory_fault_hooks": return listMemoryFaultHooks();
             case "get_callstack": return getCallstack();
             case "find_symbol": return findSymbol(args);
             case "read_string": return readString(args);
@@ -466,6 +591,76 @@ public class McpTools {
         for (long[] r : anonymous) {
             sb.append(String.format("0x%x-0x%x 0x%x %s\n", r[0], r[1], r[1] - r[0], permString((int) r[2])));
         }
+        return textResult(sb.toString());
+    }
+
+    private JSONObject mapMemory(JSONObject args) {
+        long address = parseAddress(args.getString("address"));
+        long size = args.getLongValue("size");
+        int perms;
+        try {
+            perms = parseMemoryPerms(args.getString("perms"));
+        } catch (IllegalArgumentException e) {
+            return errorResult(e.getMessage());
+        }
+        JSONObject alignmentError = validatePageRange(address, size);
+        if (alignmentError != null) {
+            return alignmentError;
+        }
+        try {
+            emulator.getBackend().mem_map(address, size, perms);
+            return textResult("Mapped 0x" + Long.toHexString(size) + " bytes at 0x" +
+                    Long.toHexString(address) + " perms=" + permString(perms));
+        } catch (Exception e) {
+            return errorResult("Failed to map memory at 0x" + Long.toHexString(address) + ": " + exMsg(e));
+        }
+    }
+
+    private JSONObject protectMemory(JSONObject args) {
+        long address = parseAddress(args.getString("address"));
+        long size = args.getLongValue("size");
+        int perms;
+        try {
+            perms = parseMemoryPerms(args.getString("perms"));
+        } catch (IllegalArgumentException e) {
+            return errorResult(e.getMessage());
+        }
+        JSONObject alignmentError = validatePageRange(address, size);
+        if (alignmentError != null) {
+            return alignmentError;
+        }
+        try {
+            emulator.getBackend().mem_protect(address, size, perms);
+            return textResult("Protected 0x" + Long.toHexString(size) + " bytes at 0x" +
+                    Long.toHexString(address) + " perms=" + permString(perms));
+        } catch (Exception e) {
+            return errorResult("Failed to protect memory at 0x" + Long.toHexString(address) + ": " + exMsg(e));
+        }
+    }
+
+    private JSONObject unmapMemory(JSONObject args) {
+        long address = parseAddress(args.getString("address"));
+        long size = args.getLongValue("size");
+        JSONObject alignmentError = validatePageRange(address, size);
+        if (alignmentError != null) {
+            return alignmentError;
+        }
+        try {
+            emulator.getBackend().mem_unmap(address, size);
+            return textResult("Unmapped 0x" + Long.toHexString(size) + " bytes at 0x" + Long.toHexString(address));
+        } catch (Exception e) {
+            return errorResult("Failed to unmap memory at 0x" + Long.toHexString(address) + ": " + exMsg(e));
+        }
+    }
+
+    private JSONObject memoryStats() {
+        Backend backend = emulator.getBackend();
+        StringBuilder sb = new StringBuilder();
+        sb.append("backend=").append(backend.getClass().getSimpleName()).append('\n');
+        sb.append("page_size=0x").append(Long.toHexString(emulator.getPageAlign())).append('\n');
+        sb.append("allocated_size=0x").append(Long.toHexString(backend.getMemAllocatedSize())).append('\n');
+        sb.append("resident_size=0x").append(Long.toHexString(backend.getMemResidentSize())).append('\n');
+        sb.append("hypervisor=").append(backend.isHypervisor()).append('\n');
         return textResult(sb.toString());
     }
 
@@ -1195,6 +1390,47 @@ public class McpTools {
         }
     }
 
+    private JSONObject traceBlocks(JSONObject args) {
+        long begin = parseAddress(args.getString("begin"));
+        long end = parseAddress(args.getString("end"));
+        String breakOnStr = args.getString("break_on");
+        final long breakOn = breakOnStr != null ? parseAddress(breakOnStr) : -1;
+        String backendClass = emulator.getBackend().getClass().getSimpleName();
+        if (backendClass.contains("Hypervisor") || backendClass.contains("Dynarmic") || backendClass.contains("Kvm")) {
+            return errorResult("trace_blocks is not supported on " + backendClass +
+                    " backend. Only Unicorn/Unicorn2 backends support BlockHook.");
+        }
+        try {
+            if (activeBlockTrace != null) {
+                activeBlockTrace.detach();
+                activeBlockTrace = null;
+            }
+            activeBlockTrace = new ManagedBlockTrace(begin, end, breakOn, server, emulator);
+            emulator.getBackend().hook_add_new((BlockHook) activeBlockTrace, begin, end, emulator);
+            StringBuilder msg = new StringBuilder("Trace blocks started: 0x" + Long.toHexString(begin) + " - 0x" + Long.toHexString(end));
+            if (breakOn != -1) {
+                msg.append(", will break on block 0x").append(Long.toHexString(breakOn));
+            }
+            msg.append(".");
+            return textResult(msg.toString());
+        } catch (Exception e) {
+            if (activeBlockTrace != null) {
+                activeBlockTrace.detach();
+                activeBlockTrace = null;
+            }
+            return errorResult("Failed to start trace blocks: " + e.getClass().getName() + ": " + exMsg(e));
+        }
+    }
+
+    private JSONObject stopTraceBlocks() {
+        if (activeBlockTrace == null) {
+            return textResult("No active block trace.");
+        }
+        activeBlockTrace.detach();
+        activeBlockTrace = null;
+        return textResult("Trace blocks stopped.");
+    }
+
     private JSONObject addWatchpoint(JSONObject args) {
         long begin = parseAddress(args.getString("begin"));
         long end = parseAddress(args.getString("end"));
@@ -1307,6 +1543,65 @@ public class McpTools {
         }
         watchpoints.clear();
         return textResult("Cleared " + count + " watchpoint(s).");
+    }
+
+    private JSONObject addMemoryFaultHook(JSONObject args) {
+        String events = args.getString("events");
+        String breakOnStr = args.getString("break_on");
+        long breakOn = breakOnStr != null ? parseAddress(breakOnStr) : -1;
+        int mask;
+        try {
+            mask = parseMemoryFaultEvents(events);
+        } catch (IllegalArgumentException e) {
+            return errorResult(e.getMessage());
+        }
+        String backendClass = emulator.getBackend().getClass().getSimpleName();
+        if (backendClass.contains("Hypervisor") || backendClass.contains("Dynarmic") || backendClass.contains("Kvm")) {
+            return errorResult("memory fault hooks are not supported on " + backendClass +
+                    " backend. Only Unicorn/Unicorn2 backends support EventMemHook.");
+        }
+        try {
+            if (activeMemoryFaultHook != null) {
+                activeMemoryFaultHook.detach();
+                activeMemoryFaultHook = null;
+            }
+            activeMemoryFaultHook = new ManagedMemoryFaultHook(mask, breakOn, server, emulator);
+            emulator.getBackend().hook_add_new((EventMemHook) activeMemoryFaultHook, mask, emulator);
+            StringBuilder msg = new StringBuilder("Memory fault hook added: ").append(formatMemoryFaultMask(mask));
+            if (breakOn != -1) {
+                msg.append(", will break on address 0x").append(Long.toHexString(breakOn));
+            }
+            msg.append(".");
+            return textResult(msg.toString());
+        } catch (Exception e) {
+            if (activeMemoryFaultHook != null) {
+                activeMemoryFaultHook.detach();
+                activeMemoryFaultHook = null;
+            }
+            return errorResult("Failed to add memory fault hook: " + e.getClass().getName() + ": " + exMsg(e));
+        }
+    }
+
+    private JSONObject removeMemoryFaultHook() {
+        if (activeMemoryFaultHook == null) {
+            return textResult("No active memory fault hook.");
+        }
+        activeMemoryFaultHook.detach();
+        activeMemoryFaultHook = null;
+        return textResult("Memory fault hook removed.");
+    }
+
+    private JSONObject listMemoryFaultHooks() {
+        if (activeMemoryFaultHook == null) {
+            return textResult("No active memory fault hook.");
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("Memory fault hook: ").append(formatMemoryFaultMask(activeMemoryFaultHook.mask));
+        if (activeMemoryFaultHook.breakOn != -1) {
+            sb.append(" break_on=0x").append(Long.toHexString(activeMemoryFaultHook.breakOn));
+        }
+        sb.append('\n');
+        return textResult(sb.toString());
     }
 
 
@@ -2096,6 +2391,108 @@ public class McpTools {
             return Long.parseUnsignedLong(address.substring(2), 16);
         }
         return Long.parseUnsignedLong(address, 16);
+    }
+
+    private JSONObject validatePageRange(long address, long size) {
+        long pageSize = emulator.getPageAlign();
+        if (size <= 0) {
+            return errorResult("Invalid memory range: size must be greater than zero.");
+        }
+        if ((address % pageSize) != 0) {
+            return errorResult("Invalid memory range: address 0x" + Long.toHexString(address) +
+                    " is not page-aligned to 0x" + Long.toHexString(pageSize) + ".");
+        }
+        if ((size % pageSize) != 0) {
+            return errorResult("Invalid memory range: size 0x" + Long.toHexString(size) +
+                    " is not page-aligned to 0x" + Long.toHexString(pageSize) + ".");
+        }
+        return null;
+    }
+
+    private static int parseMemoryPerms(String perms) {
+        if (perms == null || perms.trim().isEmpty() || "none".equalsIgnoreCase(perms.trim())) {
+            return 0;
+        }
+        int value = 0;
+        String normalized = perms.trim().toLowerCase(Locale.ROOT);
+        for (int i = 0; i < normalized.length(); i++) {
+            char c = normalized.charAt(i);
+            switch (c) {
+                case 'r': value |= UnicornConst.UC_PROT_READ; break;
+                case 'w': value |= UnicornConst.UC_PROT_WRITE; break;
+                case 'x': value |= UnicornConst.UC_PROT_EXEC; break;
+                default:
+                    throw new IllegalArgumentException("Invalid memory permission '" + perms +
+                            "'. Supported: r, w, x, rw, rx, wx, rwx, none.");
+            }
+        }
+        return value;
+    }
+
+    private static int parseMemoryFaultEvents(String events) {
+        if (events == null || events.trim().isEmpty() || "all".equalsIgnoreCase(events.trim())) {
+            return allMemoryFaultEvents();
+        }
+        int mask = 0;
+        String[] parts = events.split(",");
+        for (String raw : parts) {
+            String event = raw.trim().toLowerCase(Locale.ROOT);
+            if (event.isEmpty()) {
+                continue;
+            }
+            if ("read_unmapped".equals(event)) {
+                mask |= UnicornConst.UC_HOOK_MEM_READ_UNMAPPED;
+            } else if ("write_unmapped".equals(event)) {
+                mask |= UnicornConst.UC_HOOK_MEM_WRITE_UNMAPPED;
+            } else if ("fetch_unmapped".equals(event)) {
+                mask |= UnicornConst.UC_HOOK_MEM_FETCH_UNMAPPED;
+            } else if ("read_prot".equals(event)) {
+                mask |= UnicornConst.UC_HOOK_MEM_READ_PROT;
+            } else if ("write_prot".equals(event)) {
+                mask |= UnicornConst.UC_HOOK_MEM_WRITE_PROT;
+            } else if ("fetch_prot".equals(event)) {
+                mask |= UnicornConst.UC_HOOK_MEM_FETCH_PROT;
+            } else {
+                throw new IllegalArgumentException("Invalid memory fault event '" + event +
+                        "'. Supported: read_unmapped, write_unmapped, fetch_unmapped, read_prot, write_prot, fetch_prot.");
+            }
+        }
+        if (mask == 0) {
+            throw new IllegalArgumentException("No memory fault events selected.");
+        }
+        return mask;
+    }
+
+    private static int allMemoryFaultEvents() {
+        return UnicornConst.UC_HOOK_MEM_READ_UNMAPPED |
+                UnicornConst.UC_HOOK_MEM_WRITE_UNMAPPED |
+                UnicornConst.UC_HOOK_MEM_FETCH_UNMAPPED |
+                UnicornConst.UC_HOOK_MEM_READ_PROT |
+                UnicornConst.UC_HOOK_MEM_WRITE_PROT |
+                UnicornConst.UC_HOOK_MEM_FETCH_PROT;
+    }
+
+    private static String formatMemoryFaultMask(int mask) {
+        List<String> events = new ArrayList<>();
+        if ((mask & UnicornConst.UC_HOOK_MEM_READ_UNMAPPED) != 0) events.add("read_unmapped");
+        if ((mask & UnicornConst.UC_HOOK_MEM_WRITE_UNMAPPED) != 0) events.add("write_unmapped");
+        if ((mask & UnicornConst.UC_HOOK_MEM_FETCH_UNMAPPED) != 0) events.add("fetch_unmapped");
+        if ((mask & UnicornConst.UC_HOOK_MEM_READ_PROT) != 0) events.add("read_prot");
+        if ((mask & UnicornConst.UC_HOOK_MEM_WRITE_PROT) != 0) events.add("write_prot");
+        if ((mask & UnicornConst.UC_HOOK_MEM_FETCH_PROT) != 0) events.add("fetch_prot");
+        return String.join(",", events);
+    }
+
+    private static String memoryFaultType(EventMemHook.UnmappedType type) {
+        switch (type) {
+            case Read: return "read_unmapped";
+            case Write: return "write_unmapped";
+            case Fetch: return "fetch_unmapped";
+            case ReadProt: return "read_prot";
+            case WriteProt: return "write_prot";
+            case FetchProt: return "fetch_prot";
+            default: return type.name();
+        }
     }
 
     private static String permString(int prot) {

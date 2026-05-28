@@ -5,7 +5,10 @@ public interface EventMemHook extends Detachable {
     enum UnmappedType {
         Read,
         Write,
-        Fetch
+        Fetch,
+        ReadProt,
+        WriteProt,
+        FetchProt
     }
 
     boolean hook(Backend backend, long address, int size, long value, Object user, UnmappedType unmappedType);

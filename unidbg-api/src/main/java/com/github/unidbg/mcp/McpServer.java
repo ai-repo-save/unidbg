@@ -410,6 +410,11 @@ public class McpServer {
                 "- Unicorn/Unicorn2: FULL (all tools)\n" +
                 "- Hypervisor: PARTIAL (limited hw breakpoints, 1 code trace, no next_block/step_until_mnemonic)\n" +
                 "- Dynarmic/KVM: MINIMAL (breakpoints only, no trace/step)\n\n" +
+                "## Native Debug Primitives\n" +
+                "- save_context/restore_context snapshot CPU/backend state only; guest memory is not snapshotted.\n" +
+                "- get_vector_register/set_vector_register expose ARM64 Q0..Q31 or ARM32 D0..D15 as 16-byte hex.\n" +
+                "- add_interrupt_hook reports SVC/interrupt events through poll_events.\n" +
+                "- After patching executable code, use remove_jit_code_cache for the patched range.\n\n" +
                 "## Tips\n" +
                 "- Prefer add_breakpoint_by_symbol/add_breakpoint_by_offset over find_symbol + add_breakpoint.\n" +
                 "- Use read_string/read_std_string/read_typed/read_pointer for structured data.\n" +

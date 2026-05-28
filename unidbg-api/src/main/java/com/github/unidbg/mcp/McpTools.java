@@ -14,6 +14,7 @@ import com.github.unidbg.arm.Cpsr;
 import com.github.unidbg.arm.backend.Backend;
 import com.github.unidbg.arm.backend.BlockHook;
 import com.github.unidbg.arm.backend.EventMemHook;
+import com.github.unidbg.arm.backend.InterruptHook;
 import com.github.unidbg.arm.backend.UnHook;
 import com.github.unidbg.debugger.BreakPoint;
 import com.github.unidbg.debugger.Debugger;
@@ -50,12 +51,15 @@ public class McpTools {
     private final List<CustomTool> customTools = new ArrayList<>();
     private final Map<Long, Allocation> allocatedBlocks = new LinkedHashMap<>();
     private final Map<Integer, Watchpoint> watchpoints = new LinkedHashMap<>();
+    private final Map<Integer, ManagedContext> contexts = new LinkedHashMap<>();
     private int nextWatchpointId = 1;
+    private int nextContextId = 1;
     private TraceHook activeTraceCode;
     private TraceHook activeTraceRead;
     private TraceHook activeTraceWrite;
     private ManagedBlockTrace activeBlockTrace;
     private ManagedMemoryFaultHook activeMemoryFaultHook;
+    private ManagedInterruptHook activeInterruptHook;
 
     private static class Allocation {
         final MemoryBlock block;
@@ -102,6 +106,18 @@ public class McpTools {
                 writeHook.stopTrace();
                 writeHook = null;
             }
+        }
+    }
+
+    private static class ManagedContext {
+        final int id;
+        final long handle;
+        final long savedPc;
+
+        ManagedContext(int id, long handle, long savedPc) {
+            this.id = id;
+            this.handle = handle;
+            this.savedPc = savedPc;
         }
     }
 
@@ -194,6 +210,47 @@ public class McpTools {
         }
     }
 
+    private static class ManagedInterruptHook implements InterruptHook {
+        final int breakOnSwi;
+        final McpServer server;
+        final Emulator<?> emulator;
+        private UnHook unHook;
+
+        ManagedInterruptHook(int breakOnSwi, McpServer server, Emulator<?> emulator) {
+            this.breakOnSwi = breakOnSwi;
+            this.server = server;
+            this.emulator = emulator;
+        }
+
+        @Override
+        public void hook(Backend backend, int intno, int swi, Object user) {
+            long pc = currentPc(emulator);
+            JSONObject event = new JSONObject(true);
+            event.put("event", "interrupt");
+            event.put("pc", "0x" + Long.toHexString(pc));
+            event.put("intno", intno);
+            event.put("swi", swi);
+            putPcModuleInfo(event, emulator, pc);
+            server.queueEvent(event);
+            if (breakOnSwi != -1 && breakOnSwi == swi) {
+                emulator.attach().debug("interrupt break_on_swi hit: 0x" + Integer.toHexString(swi));
+            }
+        }
+
+        @Override
+        public void onAttach(UnHook unHook) {
+            this.unHook = unHook;
+        }
+
+        @Override
+        public void detach() {
+            if (unHook != null) {
+                unHook.unhook();
+                unHook = null;
+            }
+        }
+    }
+
     public McpTools(Emulator<?> emulator, McpServer server) {
         this.emulator = emulator;
         this.server = server;
@@ -241,6 +298,12 @@ public class McpTools {
         tools.add(toolSchema("set_register", "Write a value to a specific register",
                 param("name", "string", "Register name"),
                 param("value", "string", "Hex value to write")));
+        tools.add(toolSchema("get_vector_registers", "Read all SIMD/FP vector registers."));
+        tools.add(toolSchema("get_vector_register", "Read a SIMD/FP vector register.",
+                param("name", "string", "ARM64 Q0..Q31 or ARM32 D0..D15")));
+        tools.add(toolSchema("set_vector_register", "Write a 16-byte SIMD/FP vector register value.",
+                param("name", "string", "ARM64 Q0..Q31 or ARM32 D0..D15"),
+                param("hex_bytes", "string", "Exactly 16 bytes encoded as hex")));
 
         tools.add(toolSchema("disassemble", "Disassemble instructions at address. Branch targets auto-annotated with symbol names.",
                 param("address", "string", "Hex address"),
@@ -275,6 +338,13 @@ public class McpTools {
                 param("mnemonic", "string", "e.g. 'bl', 'ret'. Lowercase.")));
         tools.add(toolSchema("poll_events", "Poll runtime events (breakpoint_hit, execution_completed, trace_code/read/write). Call after execution tools.",
                 param("timeout_ms", "integer", "Max ms to wait. Default 10000. 0=no wait.")));
+        tools.add(toolSchema("save_context", "Save current CPU/backend context and return a context id."));
+        tools.add(toolSchema("restore_context", "Restore a saved CPU/backend context.",
+                param("id", "integer", "Context id returned by save_context.")));
+        tools.add(toolSchema("free_context", "Free a saved CPU/backend context.",
+                param("id", "integer", "Context id returned by save_context.")));
+        tools.add(toolSchema("list_contexts", "List saved CPU/backend contexts."));
+        tools.add(toolSchema("clear_contexts", "Free all saved CPU/backend contexts."));
 
         tools.add(toolSchema("trace_read", "Trace memory reads in address range. Events via poll_events. Auto-removed on bp/step/finish.",
                 param("begin", "string", "Hex start address"),
@@ -307,6 +377,16 @@ public class McpTools {
                 param("break_on", "string", "Optional. Hex fault address to pause on when hit.")));
         tools.add(toolSchema("remove_memory_fault_hook", "Remove active memory fault hook."));
         tools.add(toolSchema("list_memory_fault_hooks", "List active memory fault hook."));
+        tools.add(toolSchema("add_interrupt_hook", "Listen for CPU interrupt/SVC events. Events via poll_events.",
+                param("break_on_swi", "string", "Optional. Hex SWI/SVC immediate to pause on when hit.")));
+        tools.add(toolSchema("remove_interrupt_hook", "Remove active interrupt hook."));
+        tools.add(toolSchema("list_interrupt_hooks", "List active interrupt hook."));
+        tools.add(toolSchema("remove_jit_code_cache", "Invalidate backend translated code cache for an address range.",
+                param("begin", "string", "Hex start address"),
+                param("end", "string", "Hex end address")));
+        tools.add(toolSchema("set_fast_debug", "Set backend fast debug mode.",
+                param("enabled", "boolean", "true to enable fast debug, false to disable")));
+        tools.add(toolSchema("cpu_features", "Show backend CPU feature flags."));
         tools.add(toolSchema("get_callstack", "Get call stack (backtrace) with PC, module, offset and nearest symbol."));
         tools.add(toolSchema("find_symbol", "Find symbol by name in module, or find nearest symbol to an address.",
                 param("module_name", "string", "Optional. Module name"),
@@ -415,6 +495,9 @@ public class McpTools {
             case "get_registers": return getRegisters();
             case "get_register": return getRegister(args);
             case "set_register": return setRegister(args);
+            case "get_vector_registers": return getVectorRegisters();
+            case "get_vector_register": return getVectorRegister(args);
+            case "set_vector_register": return setVectorRegister(args);
             case "disassemble": return disassemble(args);
             case "assemble": return assemble(args);
             case "patch": return patch(args);
@@ -430,6 +513,11 @@ public class McpTools {
             case "next_block": return nextBlock();
             case "step_until_mnemonic": return stepUntilMnemonic(args);
             case "poll_events": return pollEvents(args);
+            case "save_context": return saveContext();
+            case "restore_context": return restoreContext(args);
+            case "free_context": return freeContext(args);
+            case "list_contexts": return listContexts();
+            case "clear_contexts": return clearContexts();
             case "trace_read": return traceRead(args);
             case "trace_write": return traceWrite(args);
             case "trace_code": return traceCode(args);
@@ -442,6 +530,12 @@ public class McpTools {
             case "add_memory_fault_hook": return addMemoryFaultHook(args);
             case "remove_memory_fault_hook": return removeMemoryFaultHook();
             case "list_memory_fault_hooks": return listMemoryFaultHooks();
+            case "add_interrupt_hook": return addInterruptHook(args);
+            case "remove_interrupt_hook": return removeInterruptHook();
+            case "list_interrupt_hooks": return listInterruptHooks();
+            case "remove_jit_code_cache": return removeJitCodeCache(args);
+            case "set_fast_debug": return setFastDebug(args);
+            case "cpu_features": return cpuFeatures();
             case "get_callstack": return getCallstack();
             case "find_symbol": return findSymbol(args);
             case "read_string": return readString(args);
@@ -841,6 +935,20 @@ public class McpTools {
         return textResult(sb.toString());
     }
 
+    private String registerSummary() {
+        Backend backend = emulator.getBackend();
+        if (emulator.is64Bit()) {
+            return "X0=0x" + Long.toHexString(backend.reg_read(Arm64Const.UC_ARM64_REG_X0).longValue()) +
+                    " X1=0x" + Long.toHexString(backend.reg_read(Arm64Const.UC_ARM64_REG_X1).longValue()) +
+                    " SP=0x" + Long.toHexString(backend.reg_read(Arm64Const.UC_ARM64_REG_SP).longValue()) +
+                    " LR=0x" + Long.toHexString(backend.reg_read(Arm64Const.UC_ARM64_REG_LR).longValue());
+        }
+        return "R0=0x" + Long.toHexString(backend.reg_read(ArmConst.UC_ARM_REG_R0).intValue() & 0xffffffffL) +
+                " R1=0x" + Long.toHexString(backend.reg_read(ArmConst.UC_ARM_REG_R1).intValue() & 0xffffffffL) +
+                " SP=0x" + Long.toHexString(backend.reg_read(ArmConst.UC_ARM_REG_SP).intValue() & 0xffffffffL) +
+                " LR=0x" + Long.toHexString(backend.reg_read(ArmConst.UC_ARM_REG_LR).intValue() & 0xffffffffL);
+    }
+
     private JSONObject getRegister(JSONObject args) {
         String raw = args.getString("name");
         if (raw == null || raw.isEmpty()) {
@@ -878,6 +986,66 @@ public class McpTools {
             return textResult(name + " set to 0x" + Long.toHexString(value));
         } catch (Exception e) {
             return errorResult("Failed to set register " + name + ": " + exMsg(e));
+        }
+    }
+
+    private JSONObject getVectorRegisters() {
+        try {
+            Backend backend = emulator.getBackend();
+            StringBuilder sb = new StringBuilder();
+            int max = emulator.is64Bit() ? 31 : 15;
+            String prefix = emulator.is64Bit() ? "Q" : "D";
+            for (int i = 0; i <= max; i++) {
+                int regId = resolveVectorRegister(prefix + i);
+                sb.append(prefix).append(i).append("=0x")
+                        .append(Hex.encodeHexString(backend.reg_read_vector(regId))).append('\n');
+            }
+            return textResult(sb.toString());
+        } catch (Exception e) {
+            return errorResult("Failed to read vector registers: " + exMsg(e));
+        }
+    }
+
+    private JSONObject getVectorRegister(JSONObject args) {
+        String raw = args.getString("name");
+        if (raw == null || raw.isEmpty()) {
+            return errorResult("Missing required parameter 'name'. Specify Q0..Q31 on ARM64 or D0..D15 on ARM32.");
+        }
+        String name = raw.toUpperCase(Locale.ROOT);
+        try {
+            int regId = resolveVectorRegister(name);
+            byte[] value = emulator.getBackend().reg_read_vector(regId);
+            return textResult(name + " = 0x" + Hex.encodeHexString(value));
+        } catch (Exception e) {
+            return errorResult("Failed to read vector register " + name + ": " + exMsg(e));
+        }
+    }
+
+    private JSONObject setVectorRegister(JSONObject args) {
+        String raw = args.getString("name");
+        if (raw == null || raw.isEmpty()) {
+            return errorResult("Missing required parameter 'name'. Specify Q0..Q31 on ARM64 or D0..D15 on ARM32.");
+        }
+        String name = raw.toUpperCase(Locale.ROOT);
+        String hex = args.getString("hex_bytes");
+        if (hex == null) {
+            hex = args.getString("value");
+        }
+        if (hex == null) {
+            return errorResult("Missing required parameter 'hex_bytes'.");
+        }
+        try {
+            byte[] value = Hex.decodeHex(hex.replace(" ", "").toCharArray());
+            if (value.length != 16) {
+                return errorResult("Vector register value must be exactly 16 bytes, got " + value.length + ".");
+            }
+            int regId = resolveVectorRegister(name);
+            emulator.getBackend().reg_write_vector(regId, value);
+            return textResult(name + " set to 0x" + Hex.encodeHexString(value));
+        } catch (DecoderException e) {
+            return errorResult("Invalid hex_bytes for vector register " + name + ": " + exMsg(e));
+        } catch (Exception e) {
+            return errorResult("Failed to set vector register " + name + ": " + exMsg(e));
         }
     }
 
@@ -1195,6 +1363,78 @@ public class McpTools {
             sb.append(event.toJSONString()).append('\n');
         }
         return textResult(sb.toString());
+    }
+
+    private JSONObject saveContext() {
+        try {
+            Backend backend = emulator.getBackend();
+            long handle = backend.context_alloc();
+            try {
+                backend.context_save(handle);
+                int id = nextContextId++;
+                long pc = currentPc(emulator);
+                contexts.put(id, new ManagedContext(id, handle, pc));
+                return textResult("Context " + id + " saved at PC=0x" + Long.toHexString(pc));
+            } catch (Exception e) {
+                backend.context_free(handle);
+                throw e;
+            }
+        } catch (Exception e) {
+            return errorResult("Failed to save context: " + exMsg(e));
+        }
+    }
+
+    private JSONObject restoreContext(JSONObject args) {
+        int id = args.getIntValue("id");
+        ManagedContext context = contexts.get(id);
+        if (context == null) {
+            return errorResult("No context found with id " + id + ".");
+        }
+        try {
+            emulator.getBackend().context_restore(context.handle);
+            long pc = currentPc(emulator);
+            return textResult("Context " + id + " restored. PC=0x" + Long.toHexString(pc) +
+                    "\n" + registerSummary());
+        } catch (Exception e) {
+            return errorResult("Failed to restore context " + id + ": " + exMsg(e));
+        }
+    }
+
+    private JSONObject freeContext(JSONObject args) {
+        int id = args.getIntValue("id");
+        ManagedContext context = contexts.remove(id);
+        if (context == null) {
+            return errorResult("No context found with id " + id + ".");
+        }
+        try {
+            emulator.getBackend().context_free(context.handle);
+            return textResult("Context " + id + " freed.");
+        } catch (Exception e) {
+            return errorResult("Failed to free context " + id + ": " + exMsg(e));
+        }
+    }
+
+    private JSONObject listContexts() {
+        if (contexts.isEmpty()) {
+            return textResult("No saved contexts.");
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format("Total: %d context(s)%n", contexts.size()));
+        for (ManagedContext context : contexts.values()) {
+            sb.append(String.format("#%d  handle=0x%x  saved_pc=0x%x%n",
+                    context.id, context.handle, context.savedPc));
+        }
+        return textResult(sb.toString());
+    }
+
+    private JSONObject clearContexts() {
+        int count = contexts.size();
+        Backend backend = emulator.getBackend();
+        for (ManagedContext context : new ArrayList<>(contexts.values())) {
+            backend.context_free(context.handle);
+        }
+        contexts.clear();
+        return textResult("Cleared " + count + " context(s).");
     }
 
     private JSONObject traceRead(JSONObject args) {
@@ -1602,6 +1842,93 @@ public class McpTools {
         }
         sb.append('\n');
         return textResult(sb.toString());
+    }
+
+    private JSONObject addInterruptHook(JSONObject args) {
+        String breakOnSwiStr = args.getString("break_on_swi");
+        int breakOnSwi = breakOnSwiStr != null ? (int) parseAddress(breakOnSwiStr) : -1;
+        try {
+            if (activeInterruptHook != null) {
+                activeInterruptHook.detach();
+                activeInterruptHook = null;
+            }
+            activeInterruptHook = new ManagedInterruptHook(breakOnSwi, server, emulator);
+            emulator.getBackend().hook_add_new((InterruptHook) activeInterruptHook, emulator);
+            StringBuilder msg = new StringBuilder("Interrupt hook added");
+            if (breakOnSwi != -1) {
+                msg.append(", will break on SWI 0x").append(Integer.toHexString(breakOnSwi));
+            }
+            msg.append(".");
+            return textResult(msg.toString());
+        } catch (Exception e) {
+            if (activeInterruptHook != null) {
+                activeInterruptHook.detach();
+                activeInterruptHook = null;
+            }
+            return errorResult("Failed to add interrupt hook: " + e.getClass().getName() + ": " + exMsg(e));
+        }
+    }
+
+    private JSONObject removeInterruptHook() {
+        if (activeInterruptHook == null) {
+            return textResult("No active interrupt hook.");
+        }
+        activeInterruptHook.detach();
+        activeInterruptHook = null;
+        return textResult("Interrupt hook removed.");
+    }
+
+    private JSONObject listInterruptHooks() {
+        if (activeInterruptHook == null) {
+            return textResult("No active interrupt hook.");
+        }
+        StringBuilder sb = new StringBuilder("Interrupt hook active");
+        if (activeInterruptHook.breakOnSwi != -1) {
+            sb.append(" break_on_swi=0x").append(Integer.toHexString(activeInterruptHook.breakOnSwi));
+        }
+        sb.append('\n');
+        return textResult(sb.toString());
+    }
+
+    private JSONObject removeJitCodeCache(JSONObject args) {
+        long begin = parseAddress(args.getString("begin"));
+        long end = parseAddress(args.getString("end"));
+        if (begin >= end) {
+            return errorResult("Invalid JIT cache range: begin must be less than end.");
+        }
+        try {
+            emulator.getBackend().removeJitCodeCache(begin, end);
+            return textResult("Removed JIT code cache for 0x" + Long.toHexString(begin) +
+                    "-0x" + Long.toHexString(end) + ".");
+        } catch (Exception e) {
+            return errorResult("Failed to remove JIT code cache: " + exMsg(e));
+        }
+    }
+
+    private JSONObject setFastDebug(JSONObject args) {
+        boolean enabled = args.containsKey("enabled") && args.getBooleanValue("enabled");
+        try {
+            emulator.getBackend().setFastDebug(enabled);
+            return textResult("Fast debug " + (enabled ? "enabled." : "disabled."));
+        } catch (Exception e) {
+            return errorResult("Failed to set fast debug: " + exMsg(e));
+        }
+    }
+
+    private JSONObject cpuFeatures() {
+        try {
+            Map<String, Integer> features = emulator.getBackend().getCpuFeatures();
+            if (features == null || features.isEmpty()) {
+                return textResult("No CPU feature flags reported by backend.");
+            }
+            StringBuilder sb = new StringBuilder();
+            for (Map.Entry<String, Integer> entry : features.entrySet()) {
+                sb.append(entry.getKey()).append('=').append(entry.getValue()).append('\n');
+            }
+            return textResult(sb.toString());
+        } catch (Exception e) {
+            return errorResult("Failed to read CPU features: " + exMsg(e));
+        }
     }
 
 
@@ -2382,6 +2709,28 @@ public class McpTools {
                 default: throw new IllegalArgumentException("Unknown ARM register: " + name);
             }
         }
+    }
+
+    private int resolveVectorRegister(String name) {
+        String normalized = name.toUpperCase(Locale.ROOT);
+        if (emulator.is64Bit()) {
+            if (!normalized.startsWith("Q")) {
+                throw new IllegalArgumentException("ARM64 vector register must be Q0..Q31: " + name);
+            }
+            int num = Integer.parseInt(normalized.substring(1));
+            if (num >= 0 && num <= 31) {
+                return Arm64Const.UC_ARM64_REG_Q0 + num;
+            }
+            throw new IllegalArgumentException("Invalid Q register number: " + num);
+        }
+        if (!normalized.startsWith("D")) {
+            throw new IllegalArgumentException("ARM32 vector register must be D0..D15: " + name);
+        }
+        int num = Integer.parseInt(normalized.substring(1));
+        if (num >= 0 && num <= 15) {
+            return ArmConst.UC_ARM_REG_D0 + num;
+        }
+        throw new IllegalArgumentException("Invalid D register number: " + num);
     }
 
     private static long parseAddress(String address) {

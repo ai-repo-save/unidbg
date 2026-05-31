@@ -18,6 +18,8 @@ public class NetLinkSocket extends SocketIO implements FileIO {
 
     private static final short RTM_NEWADDR = 0x14;
     private static final short RTM_GETADDR = 0x16;
+    private static final short NETLINK_SOCK_DIAG = 0x1a;
+    private static final short NLMSG_DONE = 0x3;
 
     private final Emulator<?> emulator;
 
@@ -61,6 +63,21 @@ public class NetLinkSocket extends SocketIO implements FileIO {
     private static final short NLM_F_MATCH = 0x200;
 
     protected int handleType(Pointer buffer, int count, short netlinkType) {
+        if (netlinkType == NETLINK_SOCK_DIAG) {
+            ByteBuffer bb = ByteBuffer.allocate(16);
+            bb.order(ByteOrder.LITTLE_ENDIAN);
+            bb.putInt(16);
+            bb.putShort(NLMSG_DONE);
+            bb.putShort((short) 0);
+            bb.putInt(netlinkSeq);
+            bb.putInt(emulator.getPid());
+            byte[] response = bb.array();
+            if (count >= response.length) {
+                buffer.write(0, response, 0, response.length);
+                this.netlinkType = -1;
+                return response.length;
+            }
+        }
         if (netlinkType == RTM_GETADDR && netlinkFlags == (NLM_F_REQUEST | NLM_F_MATCH)) {
             try {
                 List<NetworkIF> list = getNetworkIFs(emulator);

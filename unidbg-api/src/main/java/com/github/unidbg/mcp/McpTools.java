@@ -17,6 +17,7 @@ import com.github.unidbg.arm.backend.EventMemHook;
 import com.github.unidbg.arm.backend.InterruptHook;
 import com.github.unidbg.arm.backend.UnHook;
 import com.github.unidbg.debugger.BreakPoint;
+import com.github.unidbg.debugger.BreakPointCallback;
 import com.github.unidbg.debugger.Debugger;
 import com.github.unidbg.memory.Memory;
 import com.github.unidbg.memory.MemoryBlock;
@@ -50,6 +51,7 @@ public class McpTools {
     private final McpServer server;
     private final List<CustomTool> customTools = new ArrayList<>();
     private final Map<Long, Allocation> allocatedBlocks = new LinkedHashMap<>();
+    private final Map<Long, String> breakpointConditions = new LinkedHashMap<>();
     private final Map<Integer, Watchpoint> watchpoints = new LinkedHashMap<>();
     private final Map<Integer, ManagedContext> contexts = new LinkedHashMap<>();
     private int nextWatchpointId = 1;
@@ -316,18 +318,24 @@ public class McpTools {
                 param("assembly", "string", "Assembly instruction text")));
         tools.add(toolSchema("add_breakpoint", "Add breakpoint at address.",
                 param("address", "string", "Hex address"),
-                param("temporary", "boolean", "Auto-remove after first hit. Default false.")));
+                param("temporary", "boolean", "Auto-remove after first matching hit. Default false."),
+                param("register", "string", "Optional condition register, e.g. X16, W0, PC."),
+                param("value", "string", "Optional condition value. Break only when register equals this hex value.")));
         tools.add(toolSchema("remove_breakpoint", "Remove breakpoint at address.",
                 param("address", "string", "Hex address")));
         tools.add(toolSchema("list_breakpoints", "List all breakpoints with address, module info and disassembly."));
         tools.add(toolSchema("add_breakpoint_by_symbol", "Add breakpoint at module symbol (preferred over find_symbol + add_breakpoint).",
                 param("module_name", "string", "Module name"),
                 param("symbol_name", "string", "Symbol name, e.g. JNI_OnLoad"),
-                param("temporary", "boolean", "Auto-remove after first hit. Default false.")));
+                param("temporary", "boolean", "Auto-remove after first matching hit. Default false."),
+                param("register", "string", "Optional condition register, e.g. X16, W0, PC."),
+                param("value", "string", "Optional condition value. Break only when register equals this hex value.")));
         tools.add(toolSchema("add_breakpoint_by_offset", "Add breakpoint at module base + offset (for IDA/Ghidra offsets).",
                 param("module_name", "string", "Module name"),
                 param("offset", "string", "Hex offset, e.g. 0x1234"),
-                param("temporary", "boolean", "Auto-remove after first hit. Default false.")));
+                param("temporary", "boolean", "Auto-remove after first matching hit. Default false."),
+                param("register", "string", "Optional condition register, e.g. X16, W0, PC."),
+                param("value", "string", "Optional condition value. Break only when register equals this hex value.")));
         tools.add(toolSchema("continue_execution", "Resume execution from current PC."));
         tools.add(toolSchema("step_over", "Step over current instruction (skip function calls)."));
         tools.add(toolSchema("step_into", "Execute N instructions then stop.",
@@ -362,6 +370,9 @@ public class McpTools {
                 param("begin", "string", "Hex start address"),
                 param("end", "string", "Hex end address"),
                 param("break_on", "string", "Optional. Hex block address to pause on when reached.")));
+        tools.add(toolSchema("stop_trace_code", "Stop active instruction trace."));
+        tools.add(toolSchema("stop_trace_read", "Stop active memory read trace."));
+        tools.add(toolSchema("stop_trace_write", "Stop active memory write trace."));
         tools.add(toolSchema("stop_trace_blocks", "Stop active basic block trace."));
         tools.add(toolSchema("add_watchpoint", "Break when memory in address range is read or written. Events via poll_events.",
                 param("begin", "string", "Hex start address"),
@@ -522,6 +533,9 @@ public class McpTools {
             case "trace_write": return traceWrite(args);
             case "trace_code": return traceCode(args);
             case "trace_blocks": return traceBlocks(args);
+            case "stop_trace_code": return stopTraceCode();
+            case "stop_trace_read": return stopTraceRead();
+            case "stop_trace_write": return stopTraceWrite();
             case "stop_trace_blocks": return stopTraceBlocks();
             case "add_watchpoint": return addWatchpoint(args);
             case "remove_watchpoint": return removeWatchpoint(args);
@@ -1152,14 +1166,18 @@ public class McpTools {
 
     private JSONObject addBreakpoint(JSONObject args) {
         long address = parseAddress(args.getString("address"));
+        address &= (~1L);
         boolean temporary = args.containsKey("temporary") && args.getBooleanValue("temporary");
         try {
-            BreakPoint bp = emulator.attach().addBreakPoint(address);
-            if (temporary) {
+            BreakPointCallback callback = createBreakpointCondition(address, temporary, args);
+            BreakPoint bp = emulator.attach().addBreakPoint(address, callback);
+            if (temporary && callback == null) {
                 bp.setTemporary(true);
             }
             String type = temporary ? "Temporary breakpoint" : "Breakpoint";
-            return textResult(type + " added at 0x" + Long.toHexString(address));
+            String condition = breakpointConditions.get(address);
+            return textResult(type + " added at 0x" + Long.toHexString(address) +
+                    (condition != null ? " if " + condition : ""));
         } catch (Exception e) {
             return errorResult("Failed to add breakpoint: " + exMsg(e));
         }
@@ -1175,11 +1193,12 @@ public class McpTools {
                 return errorResult("Module not found: " + moduleName);
             }
             Debugger debugger = emulator.attach();
-            BreakPoint bp = debugger.addBreakPoint(module, symbolName);
+            BreakPointCallback callback = createBreakpointCondition(-1, temporary, args);
+            BreakPoint bp = debugger.addBreakPoint(module, symbolName, callback);
             if (bp == null) {
                 return errorResult("Symbol '" + symbolName + "' not found in " + moduleName);
             }
-            if (temporary) {
+            if (temporary && callback == null) {
                 bp.setTemporary(true);
             }
             long addr = 0;
@@ -1189,9 +1208,11 @@ public class McpTools {
                     break;
                 }
             }
+            registerBreakpointConditionAddress(addr, callback, temporary, args);
             String typeStr = temporary ? "Temporary breakpoint" : "Breakpoint";
             return textResult(typeStr + " added at " + symbolName + " (0x" + Long.toHexString(addr) +
-                    ", " + moduleName + "+0x" + Long.toHexString(addr - module.base) + ")");
+                    ", " + moduleName + "+0x" + Long.toHexString(addr - module.base) + ")" +
+                    formatBreakpointCondition(addr));
         } catch (Exception e) {
             return errorResult("Failed to add breakpoint by symbol: " + exMsg(e));
         }
@@ -1206,17 +1227,102 @@ public class McpTools {
             if (module == null) {
                 return errorResult("Module not found: " + moduleName);
             }
-            BreakPoint bp = emulator.attach().addBreakPoint(module, offset);
-            if (temporary) {
+            long addr = module.base + offset;
+            BreakPointCallback callback = createBreakpointCondition(addr, temporary, args);
+            BreakPoint bp = emulator.attach().addBreakPoint(module, offset, callback);
+            if (temporary && callback == null) {
                 bp.setTemporary(true);
             }
-            long addr = module.base + offset;
             String typeStr = temporary ? "Temporary breakpoint" : "Breakpoint";
             return textResult(typeStr + " added at " + moduleName + "+0x" + Long.toHexString(offset) +
-                    " (0x" + Long.toHexString(addr) + ")");
+                    " (0x" + Long.toHexString(addr) + ")" + formatBreakpointCondition(addr));
         } catch (Exception e) {
             return errorResult("Failed to add breakpoint by offset: " + exMsg(e));
         }
+    }
+
+    private BreakPointCallback createBreakpointCondition(long address, boolean temporary, JSONObject args) {
+        String registerName = conditionRegister(args);
+        if (registerName == null) {
+            return null;
+        }
+        String valueText = conditionValue(args);
+        if (valueText == null) {
+            throw new IllegalArgumentException("Breakpoint condition requires 'value' when 'register' is set.");
+        }
+        String normalizedRegister = registerName.toUpperCase(Locale.ROOT);
+        final int regId = resolveRegister(normalizedRegister);
+        final long expected = parseAddress(valueText);
+        if (address >= 0) {
+            registerBreakpointConditionAddress(address, temporary, normalizedRegister, expected);
+        }
+        return (emu, hitAddress) -> {
+            long actual = emu.getBackend().reg_read(regId).longValue();
+            if (normalizedRegister.startsWith("W") || emu.is32Bit()) {
+                actual &= 0xffffffffL;
+            }
+            long comparableExpected = (normalizedRegister.startsWith("W") || emu.is32Bit()) ? (expected & 0xffffffffL) : expected;
+            if (actual != comparableExpected) {
+                return true;
+            }
+            long normalizedAddress = hitAddress & (~1L);
+            if (address < 0) {
+                registerBreakpointConditionAddress(normalizedAddress, temporary, normalizedRegister, expected);
+            }
+            if (temporary) {
+                breakpointConditions.remove(normalizedAddress);
+                emu.attach().removeBreakPoint(normalizedAddress);
+            }
+            JSONObject event = new JSONObject(true);
+            event.put("event", "conditional_breakpoint_hit");
+            event.put("address", "0x" + Long.toHexString(normalizedAddress));
+            event.put("register", normalizedRegister);
+            event.put("value", "0x" + Long.toHexString(actual));
+            server.queueEvent(event);
+            return false;
+        };
+    }
+
+    private void registerBreakpointConditionAddress(long address, BreakPointCallback callback, boolean temporary, JSONObject args) {
+        if (callback != null) {
+            String registerName = conditionRegister(args);
+            String valueText = conditionValue(args);
+            registerBreakpointConditionAddress(address, temporary, registerName.toUpperCase(Locale.ROOT), parseAddress(valueText));
+        }
+    }
+
+    private void registerBreakpointConditionAddress(long address, boolean temporary, String registerName, long expected) {
+        if (address >= 0) {
+            breakpointConditions.put(address & (~1L), registerName + "==0x" + Long.toHexString(expected) +
+                    (temporary ? " [temporary]" : ""));
+        }
+    }
+
+    private String formatBreakpointCondition(long address) {
+        String condition = breakpointConditions.get(address & (~1L));
+        return condition != null ? " if " + condition : "";
+    }
+
+    private static String conditionRegister(JSONObject args) {
+        String registerName = args.getString("register");
+        if (registerName == null) {
+            registerName = args.getString("condition_register");
+        }
+        if (registerName == null || registerName.trim().isEmpty()) {
+            return null;
+        }
+        return registerName.trim();
+    }
+
+    private static String conditionValue(JSONObject args) {
+        String value = args.getString("value");
+        if (value == null) {
+            value = args.getString("condition_value");
+        }
+        if (value == null || value.trim().isEmpty()) {
+            return null;
+        }
+        return value.trim();
     }
 
     private JSONObject listBreakpoints() {
@@ -1241,7 +1347,9 @@ public class McpTools {
                     location = "unknown";
                 }
                 String temp = bp.isTemporary() ? " [temporary]" : "";
-                sb.append(String.format("0x%x  %s%s", addr, location, temp));
+                String condition = breakpointConditions.get(addr);
+                sb.append(String.format("0x%x  %s%s%s", addr, location, temp,
+                        condition != null ? " if " + condition : ""));
                 try {
                     byte[] code = backend.mem_read(addr, 4);
                     boolean thumb = emulator.is32Bit() && (addr & 1) != 0;
@@ -1265,6 +1373,7 @@ public class McpTools {
         try {
             boolean removed = emulator.attach().removeBreakPoint(address);
             if (removed) {
+                breakpointConditions.remove(address & (~1L));
                 return textResult("Breakpoint removed at 0x" + Long.toHexString(address));
             } else {
                 return errorResult("No breakpoint found at 0x" + Long.toHexString(address));
@@ -1660,6 +1769,35 @@ public class McpTools {
             }
             return errorResult("Failed to start trace blocks: " + e.getClass().getName() + ": " + exMsg(e));
         }
+    }
+
+    private JSONObject stopTraceCode() {
+        if (activeTraceCode == null) {
+            return textResult("No active instruction trace.");
+        }
+        activeTraceCode.stopTrace();
+        activeTraceCode = null;
+        lastTraceWriteRegs = null;
+        lastTraceInsn = null;
+        return textResult("Trace code stopped.");
+    }
+
+    private JSONObject stopTraceRead() {
+        if (activeTraceRead == null) {
+            return textResult("No active memory read trace.");
+        }
+        activeTraceRead.stopTrace();
+        activeTraceRead = null;
+        return textResult("Trace read stopped.");
+    }
+
+    private JSONObject stopTraceWrite() {
+        if (activeTraceWrite == null) {
+            return textResult("No active memory write trace.");
+        }
+        activeTraceWrite.stopTrace();
+        activeTraceWrite = null;
+        return textResult("Trace write stopped.");
     }
 
     private JSONObject stopTraceBlocks() {

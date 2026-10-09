@@ -1,6 +1,7 @@
 package com.github.unidbg.linux.android.dvm.array;
 
 import com.github.unidbg.linux.android.dvm.Array;
+import com.github.unidbg.linux.android.dvm.DvmClass;
 import com.github.unidbg.linux.android.dvm.DvmObject;
 import com.github.unidbg.linux.android.dvm.StringObject;
 import com.github.unidbg.linux.android.dvm.VM;
@@ -18,11 +19,25 @@ public class ArrayObject extends BaseArray<DvmObject<?>[]> implements Array<DvmO
                 objects[i] = new StringObject(vm, str);
             }
         }
-        return new ArrayObject(objects);
+        return new ArrayObject(typeOf(vm, vm.resolveClass("java/lang/String")), objects);
     }
 
     public ArrayObject(DvmObject<?>... value) {
         super(null, value);
+    }
+
+    public ArrayObject(DvmClass objectType, DvmObject<?>[] value) {
+        super(objectType, value);
+    }
+
+    public static DvmClass typeOf(VM vm, DvmClass element) {
+        String name = element.getClassName();
+        DvmClass objectArray = vm.resolveClass("[Ljava/lang/Object;", vm.resolveClass("java/lang/Object"));
+        if ("java/lang/Object".equals(name)) {
+            return objectArray;
+        }
+        String arrayName = name.startsWith("[") ? "[" + name : "[L" + name + ";";
+        return vm.resolveClass(arrayName, objectArray);
     }
 
     @Override

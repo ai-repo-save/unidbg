@@ -75,7 +75,7 @@ public class DalvikVM extends BaseVM implements VM {
                 }
 
                 if (notFound) {
-                    throwable = resolveClass("java/lang/NoClassDefFoundError").newObject(name);
+                    throwException(resolveClass("java/lang/NoClassDefFoundError").newObject(name));
                     return 0;
                 }
 
@@ -183,7 +183,7 @@ public class DalvikVM extends BaseVM implements VM {
                 UnidbgPointer object = context.getPointerArg(1);
                 DvmObject<?> dvmObject = getObject(object.toIntPeer());
                 log.warn("Throw dvmObject={}, class={}", dvmObject, dvmObject != null ? dvmObject.getObjectType() : null);
-                throwable = dvmObject;
+                throwException(dvmObject);
                 return 0;
             }
         });
@@ -2674,7 +2674,7 @@ public class DalvikVM extends BaseVM implements VM {
                 DvmObject<?>[] array = new DvmObject[size];
                 Arrays.fill(array, obj);
 
-                return addLocalObject(new ArrayObject(array));
+                return addLocalObject(new ArrayObject(ArrayObject.typeOf(DalvikVM.this, dvmClass), array));
             }
         });
 

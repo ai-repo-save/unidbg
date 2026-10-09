@@ -71,7 +71,7 @@ public class DalvikVM64 extends BaseVM implements VM {
                 }
 
                 if (notFound) {
-                    throwable = resolveClass("java/lang/NoClassDefFoundError").newObject(name);
+                    throwException(resolveClass("java/lang/NoClassDefFoundError").newObject(name));
                     return 0;
                 }
 
@@ -182,7 +182,7 @@ public class DalvikVM64 extends BaseVM implements VM {
                 UnidbgPointer object = context.getPointerArg(1);
                 DvmObject<?> dvmObject = getObject(object.toIntPeer());
                 log.warn("Throw dvmObject={}, class={}", dvmObject, dvmObject != null ? dvmObject.getObjectType() : null);
-                throwable = dvmObject;
+                throwException(dvmObject);
                 return 0;
             }
         });
@@ -196,7 +196,7 @@ public class DalvikVM64 extends BaseVM implements VM {
                 DvmClass dvmClass = classMap.get(clazz.toIntPeer());
                 DvmObject<?> dvmObject = dvmClass.newObject(message);
                 log.debug("ThrowNew clazz={}, lr={}", dvmClass, context.getLRPointer());
-                throwable = dvmObject;
+                throwException(dvmObject);
                 return 0;
             }
         });
@@ -2698,7 +2698,7 @@ public class DalvikVM64 extends BaseVM implements VM {
                 DvmObject<?> obj = size == 0 ? null : initialElement == null ? null : getObject(initialElement.toIntPeer());
                 DvmObject<?>[] array = new DvmObject[size];
                 Arrays.fill(array, obj);
-                ArrayObject arrayObject = new ArrayObject(array);
+                ArrayObject arrayObject = new ArrayObject(ArrayObject.typeOf(DalvikVM64.this, dvmClass), array);
                 if (verbose || verboseMethodOperation) {
                     System.out.printf("JNIEnv->NewObjectArray(%s => %s) was called from %s%n", arrayObject, size, context.getLRPointer());
                 }

@@ -68,7 +68,8 @@ public class ProxyDvmObject extends DvmObject<Object> {
             for (int i = 0; i < array.length; i++) {
                 dvmArray[i] = createObject(vm, array[i]);
             }
-            return new ArrayObject(dvmArray);
+            DvmClass element = getObjectType(vm, clazz.getComponentType());
+            return new ArrayObject(ArrayObject.typeOf(vm, element), dvmArray);
         }
 
         return new ProxyDvmObject(vm, value);

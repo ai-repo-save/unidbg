@@ -59,6 +59,11 @@ public abstract class BaseVM implements VM, DvmClassFactory {
     @Override
     public void throwException(DvmObject<?> throwable) {
         this.throwable = throwable;
+        if (throwable == null) {
+            return;
+        }
+        addLocalObject(throwable);
+        log.warn("throwException class={} lr={}", throwable.getObjectType().getClassName(), emulator.getContext().getLRPointer(), throwable.getValue());
     }
 
     @Override

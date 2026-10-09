@@ -153,7 +153,7 @@ public abstract class AbstractJni implements Jni {
                     for (int i = 0; i < metas.length; i++) {
                         signatures[i] = new Signature(vm, metas[i]);
                     }
-                    return new ArrayObject(signatures);
+                    return new ArrayObject(ArrayObject.typeOf(vm, vm.resolveClass("android/content/pm/Signature")), signatures);
                 }
             }
         }

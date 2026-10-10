@@ -3167,98 +3167,56 @@ public class DalvikVM64 extends BaseVM implements VM {
         Pointer _GetBooleanArrayRegion = svcMemory.registerSvc(new Arm64Svc() {
             @Override
             public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
+                return JniArrayRegion.read(DalvikVM64.this, emulator, JniArrayRegion.Type.Boolean);
             }
         });
 
         Pointer _GetByteArrayRegion = svcMemory.registerSvc(new Arm64Svc() {
             @Override
             public long handle(Emulator<?> emulator) {
-                RegisterContext context = emulator.getContext();
-                UnidbgPointer object = context.getPointerArg(1);
-                int start = context.getIntArg(2);
-                int length = context.getIntArg(3);
-                Pointer buf = context.getPointerArg(4);
-                ByteArray array = getObject(object.toIntPeer());
-                if (verbose || verboseFieldOperation) {
-                    System.out.printf("JNIEnv->GetByteArrayRegion(%s, %d, %d, %s) was called from %s%n", array, start, length, buf, context.getLRPointer());
-                }
-                byte[] data = Arrays.copyOfRange(Objects.requireNonNull(array).value, start, start + length);
-                if (log.isDebugEnabled()) {
-                    Inspector.inspect(data, "GetByteArrayRegion array=" + array + ", start=" + start + ", length=" + length + ", buf=" + buf);
-                }
-                buf.write(0, data, 0, data.length);
-                return 0;
+                return JniArrayRegion.read(DalvikVM64.this, emulator, JniArrayRegion.Type.Byte);
             }
         });
 
         Pointer _GetCharArrayRegion = svcMemory.registerSvc(new Arm64Svc() {
             @Override
             public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
+                return JniArrayRegion.read(DalvikVM64.this, emulator, JniArrayRegion.Type.Char);
             }
         });
 
         Pointer _GetShortArrayRegion = svcMemory.registerSvc(new Arm64Svc() {
             @Override
             public long handle(Emulator<?> emulator) {
-                RegisterContext context = emulator.getContext();
-                UnidbgPointer object = context.getPointerArg(1);
-                int start = context.getIntArg(2);
-                int length = context.getIntArg(3);
-                Pointer buf = context.getPointerArg(4);
-                ShortArray array = getObject(object.toIntPeer());
-                if (verbose || verboseFieldOperation) {
-                    System.out.printf("JNIEnv->GetShortArrayRegion(%s, %d, %d, %s) was called from %s%n", array, start, length, buf, context.getLRPointer());
-                }
-                short[] data = Arrays.copyOfRange(Objects.requireNonNull(array).value, start, start + length);
-                if (log.isDebugEnabled()) {
-                    log.debug("GetShortArrayRegion array={}, start={}, length={}, buf={}", array, start, length, buf);
-                }
-                buf.write(0, data, 0, data.length);
-                return 0;
+                return JniArrayRegion.read(DalvikVM64.this, emulator, JniArrayRegion.Type.Short);
             }
         });
 
         Pointer _GetIntArrayRegion = svcMemory.registerSvc(new Arm64Svc() {
             @Override
             public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
+                return JniArrayRegion.read(DalvikVM64.this, emulator, JniArrayRegion.Type.Int);
             }
         });
 
         Pointer _GetLongArrayRegion = svcMemory.registerSvc(new Arm64Svc() {
             @Override
             public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
+                return JniArrayRegion.read(DalvikVM64.this, emulator, JniArrayRegion.Type.Long);
             }
         });
 
         Pointer _GetFloatArrayRegion = svcMemory.registerSvc(new Arm64Svc() {
             @Override
             public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
+                return JniArrayRegion.read(DalvikVM64.this, emulator, JniArrayRegion.Type.Float);
             }
         });
 
         Pointer _GetDoubleArrayRegion = svcMemory.registerSvc(new Arm64Svc() {
             @Override
             public long handle(Emulator<?> emulator) {
-                RegisterContext context = emulator.getContext();
-                UnidbgPointer object = context.getPointerArg(1);
-                int start = context.getIntArg(2);
-                int length = context.getIntArg(3);
-                Pointer buf = context.getPointerArg(4);
-                DoubleArray array = getObject(object.toIntPeer());
-                if (verbose || verboseFieldOperation) {
-                    System.out.printf("JNIEnv->GetDoubleArrayRegion(%s, %d, %d, %s) was called from %s%n", array, start, length, buf, context.getLRPointer());
-                }
-                double[] data = Arrays.copyOfRange(Objects.requireNonNull(array).value, start, start + length);
-                if (log.isDebugEnabled()) {
-                    log.debug("GetDoubleArrayRegion array={}, start={}, length={}, buf={}", array, start, length, buf);
-                }
-                buf.write(0, data, 0, data.length);
-                return 0;
+                return JniArrayRegion.read(DalvikVM64.this, emulator, JniArrayRegion.Type.Double);
             }
         });
 

@@ -186,7 +186,7 @@ public class UnidbgPointer extends Pointer implements PointerArg {
 
     @Override
     public void write(long offset, short[] buf, int index, int length) {
-        for (int i = index; i < length; i++) {
+        for (int i = index; i < index + length; i++) {
             setShort((i - index) * 2L + offset, buf[i]);
         }
     }
@@ -198,28 +198,28 @@ public class UnidbgPointer extends Pointer implements PointerArg {
 
     @Override
     public void write(long offset, int[] buf, int index, int length) {
-        for (int i = index; i < length; i++) {
+        for (int i = index; i < index + length; i++) {
             setInt((i - index) * 4L + offset, buf[i]);
         }
     }
 
     @Override
     public void write(long offset, long[] buf, int index, int length) {
-        for (int i = index; i < length; i++) {
+        for (int i = index; i < index + length; i++) {
             setLong((i - index) * 8L + offset, buf[i]);
         }
     }
 
     @Override
     public void write(long offset, float[] buf, int index, int length) {
-        for (int i = index; i < length; i++) {
+        for (int i = index; i < index + length; i++) {
             setFloat((i - index) * 4L + offset, buf[i]);
         }
     }
 
     @Override
     public void write(long offset, double[] buf, int index, int length) {
-        for (int i = index; i < length; i++) {
+        for (int i = index; i < index + length; i++) {
             setDouble((i - index) * 8L + offset, buf[i]);
         }
     }

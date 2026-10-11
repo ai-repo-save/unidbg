@@ -117,7 +117,9 @@ public abstract class UnixSyscallHandler<T extends NewFileIO> implements Syscall
                 emulator.getMemory().setErrno(0);
                 return result;
             } else if (result != null) {
-                if (failResult == null || !failResult.isFallback()) {
+                // Resolvers are ordered by priority. Preserve the first errno while
+                // retaining the existing preference for a usable fallback over failure.
+                if (failResult == null || (!failResult.isFallback() && result.isFallback())) {
                     failResult = result;
                 }
             }

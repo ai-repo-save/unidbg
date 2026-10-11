@@ -2739,8 +2739,7 @@ public class DalvikVM64 extends BaseVM implements VM {
                 if (verbose || verboseFieldOperation) {
                     System.out.printf("JNIEnv->SetObjectArrayElement(%s, %d) => %s was called from %s%n", array, index, obj, context.getLRPointer());
                 }
-                DvmObject<?>[] objs = Objects.requireNonNull(array).getValue();
-                objs[index] = obj;
+                Objects.requireNonNull(array).setObject(index, obj);
                 return 0;
             }
         });

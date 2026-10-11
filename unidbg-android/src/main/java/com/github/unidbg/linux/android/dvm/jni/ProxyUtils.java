@@ -87,9 +87,12 @@ class ProxyUtils {
         return new MethodArgs(types, args);
     }
 
-    private static Object unpack(DvmObject<?> dvmObject) {
+    static Object unpack(DvmObject<?> dvmObject) {
         if (dvmObject == null) {
             return null;
+        }
+        if (dvmObject instanceof ProxyArrayObject) {
+            return ((ProxyArrayObject) dvmObject).backingArray();
         }
         Object obj = dvmObject.getValue();
         if (obj == null) {

@@ -45,6 +45,10 @@ public class ArrayObject extends BaseArray<DvmObject<?>[]> implements Array<DvmO
         return value.length;
     }
 
+    public void setObject(int index, DvmObject<?> object) {
+        value[index] = object;
+    }
+
     @Override
     public void setData(int start, DvmObject<?>[] data) {
         System.arraycopy(data, 0, value, start, data.length);

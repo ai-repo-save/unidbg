@@ -2708,8 +2708,7 @@ public class DalvikVM extends BaseVM implements VM {
                 if (log.isDebugEnabled()) {
                     log.debug("setObjectArrayElement array={}, index={}, obj={}", array, index, obj);
                 }
-                DvmObject<?>[] objs = Objects.requireNonNull(array).getValue();
-                objs[index] = obj;
+                Objects.requireNonNull(array).setObject(index, obj);
                 return 0;
             }
         });

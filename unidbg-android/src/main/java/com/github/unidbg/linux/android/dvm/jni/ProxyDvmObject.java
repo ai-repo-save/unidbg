@@ -64,12 +64,8 @@ public class ProxyDvmObject extends DvmObject<Object> {
                 throw new UnsupportedOperationException(String.valueOf(value));
             }
             Object[] array = (Object[]) value;
-            DvmObject<?>[] dvmArray = new DvmObject[array.length];
-            for (int i = 0; i < array.length; i++) {
-                dvmArray[i] = createObject(vm, array[i]);
-            }
             DvmClass element = getObjectType(vm, clazz.getComponentType());
-            return new ArrayObject(ArrayObject.typeOf(vm, element), dvmArray);
+            return new ProxyArrayObject(vm, ArrayObject.typeOf(vm, element), array);
         }
 
         return new ProxyDvmObject(vm, value);

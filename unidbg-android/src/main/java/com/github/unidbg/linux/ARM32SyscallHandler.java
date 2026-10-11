@@ -1879,6 +1879,10 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
         int mode = context.getIntArg(3);
         String pathname = pathname_p.getString(0);
         log.debug("openat dirfd={}, pathname={}, oflags=0x{}, mode={}", dirfd, pathname, Integer.toHexString(oflags), Integer.toHexString(mode));
+        if (pathname.isEmpty()) {
+            emulator.getMemory().setErrno(UnixEmulator.ENOENT);
+            return -UnixEmulator.ENOENT;
+        }
         pathname = FilenameUtils.normalize(pathname, true);
         if ("/data/misc/zoneinfo/current/tzdata".equals(pathname) || "/dev/pmsg0".equals(pathname)) {
             emulator.getMemory().setErrno(UnixEmulator.ENOENT);

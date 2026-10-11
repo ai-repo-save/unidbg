@@ -969,7 +969,28 @@ public class DalvikVM64 extends BaseVM implements VM {
         Pointer _CallFloatMethodA = svcMemory.registerSvc(new Arm64Svc() {
             @Override
             public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
+                RegisterContext context = emulator.getContext();
+                UnidbgPointer object = context.getPointerArg(1);
+                UnidbgPointer jmethodID = context.getPointerArg(2);
+                UnidbgPointer jvalue = context.getPointerArg(3);
+                if (log.isDebugEnabled()) {
+                    log.debug("CallFloatMethodA object={}, jmethodID={}, jvalue={}", object, jmethodID, jvalue);
+                }
+                DvmObject<?> dvmObject = getObject(object.toIntPeer());
+                DvmClass dvmClass = dvmObject == null ? null : dvmObject.getObjectType();
+                DvmMethod dvmMethod = dvmClass == null ? null : dvmClass.getMethod(jmethodID.toIntPeer());
+                if (dvmMethod == null) {
+                    throw new BackendException();
+                }
+                VaList vaList = new JValueList(DalvikVM64.this, jvalue, dvmMethod);
+                float ret = dvmMethod.callFloatMethodV(dvmObject, vaList);
+                if (verbose || verboseMethodOperation) {
+                    System.out.printf("JNIEnv->CallFloatMethodA(%s, %s(%s) => %s) was called from %s%n", dvmObject, dvmMethod.methodName, vaList.formatArgs(), ret, context.getLRPointer());
+                }
+                ByteBuffer buffer = ByteBuffer.allocate(16).order(ByteOrder.LITTLE_ENDIAN);
+                buffer.putFloat(ret);
+                emulator.getBackend().reg_write_vector(Arm64Const.UC_ARM64_REG_Q0, buffer.array());
+                return context.getLongArg(0);
             }
         });
 

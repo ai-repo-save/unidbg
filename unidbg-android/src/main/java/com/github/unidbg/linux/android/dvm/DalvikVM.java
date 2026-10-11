@@ -961,7 +961,25 @@ public class DalvikVM extends BaseVM implements VM {
         Pointer _CallFloatMethodA = svcMemory.registerSvc(new ArmSvc() {
             @Override
             public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
+                RegisterContext context = emulator.getContext();
+                UnidbgPointer object = context.getPointerArg(1);
+                UnidbgPointer jmethodID = context.getPointerArg(2);
+                UnidbgPointer jvalue = context.getPointerArg(3);
+                if (log.isDebugEnabled()) {
+                    log.debug("CallFloatMethodA object={}, jmethodID={}, jvalue={}", object, jmethodID, jvalue);
+                }
+                DvmObject<?> dvmObject = getObject(object.toIntPeer());
+                DvmClass dvmClass = dvmObject == null ? null : dvmObject.getObjectType();
+                DvmMethod dvmMethod = dvmClass == null ? null : dvmClass.getMethod(jmethodID.toIntPeer());
+                if (dvmMethod == null) {
+                    throw new BackendException();
+                }
+                VaList vaList = new JValueList(DalvikVM.this, jvalue, dvmMethod);
+                float ret = dvmMethod.callFloatMethodV(dvmObject, vaList);
+                if (verbose) {
+                    System.out.printf("JNIEnv->CallFloatMethodA(%s, %s(%s) => %s) was called from %s%n", dvmObject, dvmMethod.methodName, vaList.formatArgs(), ret, context.getLRPointer());
+                }
+                return Float.floatToRawIntBits(ret) & 0xffffffffL;
             }
         });
 

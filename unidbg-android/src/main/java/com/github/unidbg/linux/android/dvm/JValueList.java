@@ -43,7 +43,7 @@ class JValueList extends VaList {
                     break;
                 }
                 case 'F': {
-                    args.add((float) pointer.getDouble(0));
+                    args.add(pointer.getFloat(0));
                     break;
                 }
                 case 'D': {

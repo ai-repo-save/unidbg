@@ -38,6 +38,10 @@ public class MadviseIntegrationTest {
                     memory.setInt(4096, 0x12345678);
                     expected[4096] = 0x78; expected[4097] = 0x56; expected[4098] = 0x34; expected[4099] = 0x12;
                     assertArrayEquals(expected, memory.getByteArray(0, expected.length));
+                    assertEquals(-1, libc.findSymbolByName("madvise").call(emulator, memory.share(1), 4096, 4).intValue());
+                    UnidbgPointer errno = UnidbgPointer.pointer(emulator, libc.findSymbolByName("__errno").call(emulator).longValue());
+                    assertEquals(22, errno.getInt(0));
+                    assertArrayEquals(expected, memory.getByteArray(0, expected.length));
                     // Advice about access patterns must not discard storage.
                     for (int advice : new int[] {0, 1, 2, 3}) {
                         assertEquals(0, libc.findSymbolByName("madvise").call(emulator, memory, dirty.length, advice).intValue());

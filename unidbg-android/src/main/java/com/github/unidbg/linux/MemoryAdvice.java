@@ -25,8 +25,7 @@ final class MemoryAdvice {
         int pageSize = emulator.getPageAlign();
         if (address % pageSize != 0) {
             log.debug("madvise rejected unaligned address=0x{}, length={}, advice={}", Long.toHexString(address), length, advice);
-            emulator.getMemory().setErrno(UnixEmulator.EINVAL);
-            return -1;
+            return -UnixEmulator.EINVAL;
         }
         if (advice < 0 || advice > 4) {
             throw new UnsupportedOperationException("madvise advice=" + advice + ", address=0x" + Long.toHexString(address) + ", length=" + length);
@@ -42,8 +41,7 @@ final class MemoryAdvice {
         }
         if (cursor != end) {
             log.debug("madvise rejected unmapped address=0x{}, length={}, advice={}", Long.toHexString(address), length, advice);
-            emulator.getMemory().setErrno(UnixEmulator.ENOMEM);
-            return -1;
+            return -UnixEmulator.ENOMEM;
         }
         if (advice == 4) {
             // MADV_DONTNEED preserves the mapping and its protections. Kernel writes do not

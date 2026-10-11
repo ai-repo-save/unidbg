@@ -308,8 +308,7 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
                     backend.reg_write(Arm64Const.UC_ARM64_REG_X0, getdents64(emulator));
                     return;
                 case 233:
-                    syscall = "madvise";
-                    backend.reg_write(Arm64Const.UC_ARM64_REG_X0, 0);
+                    backend.reg_write(Arm64Const.UC_ARM64_REG_X0, MemoryAdvice.madvise(emulator));
                     return;
                 case 25:
                     backend.reg_write(Arm64Const.UC_ARM64_REG_X0, fcntl(emulator));

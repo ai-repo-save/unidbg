@@ -21,6 +21,14 @@ public class SystemProperties extends VirtualModule<Void> {
 
     private static final Logger log = LoggerFactory.getLogger(SystemProperties.class);
 
+    // AOSP prop_info preserves name at +96; read-only long values use a relative offset at +60.
+    private static Pointer propertyValue(Pointer pi, Pointer name, int serial) {
+        if ((serial & (1 << 16)) != 0 && name.getString(0).startsWith("ro.")) {
+            return pi.share(Integer.toUnsignedLong(pi.getInt(60)));
+        }
+        return pi.share(4);
+    }
+
     public SystemProperties(Emulator<?> emulator, Void extra) {
         super(emulator, extra, "libsystemproperties.so");
     }
@@ -37,12 +45,13 @@ public class SystemProperties extends VirtualModule<Void> {
                 Pointer callback = context.getPointerArg(1);
                 Pointer cookie = context.getPointerArg(2);
                 log.debug("__system_property_read_callback pi={}, callback={}, cookie={}", pi, callback, cookie);
-                Pointer key = pi.share(SystemPropertyHook.PROP_VALUE_MAX + 4);
-                Pointer value = pi.share(4);
+                int serial = pi.getInt(0);
+                Pointer name = pi.share(SystemPropertyHook.PROP_VALUE_MAX + 4);
+                Pointer value = propertyValue(pi, name, serial);
                 context.setXLong(0, UnidbgPointer.nativeValue(cookie));
-                context.setXLong(1, UnidbgPointer.nativeValue(value));
-                context.setXLong(2, UnidbgPointer.nativeValue(key));
-                context.setXLong(3, pi.getInt(0));
+                context.setXLong(1, UnidbgPointer.nativeValue(name));
+                context.setXLong(2, UnidbgPointer.nativeValue(value));
+                context.setXLong(3, Integer.toUnsignedLong(serial));
                 return HookStatus.RET(emulator, UnidbgPointer.nativeValue(callback));
             }
         } : new ArmHook() {
@@ -53,12 +62,13 @@ public class SystemProperties extends VirtualModule<Void> {
                 Pointer callback = context.getPointerArg(1);
                 Pointer cookie = context.getPointerArg(2);
                 log.debug("__system_property_read_callback pi={}, callback={}, cookie={}", pi, callback, cookie);
-                Pointer key = pi.share(SystemPropertyHook.PROP_VALUE_MAX + 4);
-                Pointer value = pi.share(4);
+                int serial = pi.getInt(0);
+                Pointer name = pi.share(SystemPropertyHook.PROP_VALUE_MAX + 4);
+                Pointer value = propertyValue(pi, name, serial);
                 context.setR0((int) UnidbgPointer.nativeValue(cookie));
-                context.setR1((int) UnidbgPointer.nativeValue(value));
-                context.setR2((int) UnidbgPointer.nativeValue(key));
-                context.setR3(pi.getInt(0));
+                context.setR1((int) UnidbgPointer.nativeValue(name));
+                context.setR2((int) UnidbgPointer.nativeValue(value));
+                context.setR3(serial);
                 return HookStatus.RET(emulator, UnidbgPointer.nativeValue(callback));
             }
         }));

@@ -4,9 +4,15 @@
 # dependencies = []
 # ///
 
+import io
+import json
+import logging
 import os
+import subprocess
+import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr
 from pathlib import Path
 from unittest.mock import patch
 
@@ -63,6 +69,55 @@ class ReleaseIntegrationTest(unittest.TestCase):
                 if path.is_file()
             }
             self.assertEqual(actual, published)
+
+    def test_probe_failures_preserve_original_output(self):
+        target = release.ROOT / "target"
+        target.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(
+            prefix="release-probe-test-", dir=target
+        ) as directory:
+            root = Path(directory)
+            for probe in ("java", "maven"):
+                with self.subTest(probe=probe):
+                    expected = f"{probe} stdout fixture\n{probe} stderr fixture\n"
+                    command = [
+                        sys.executable,
+                        "-c",
+                        (
+                            "import sys; "
+                            f"print('{probe} stdout fixture', flush=True); "
+                            f"print('{probe} stderr fixture', file=sys.stderr, flush=True); "
+                            "sys.exit(23)"
+                        ),
+                    ]
+                    events = root / f"{probe}.jsonl"
+                    raw = root / f"{probe}.log"
+                    handler = logging.FileHandler(events)
+                    handler.setFormatter(release.JsonFormatter("probe-test"))
+                    release.LOGGER.addHandler(handler)
+                    try:
+                        with (
+                            redirect_stderr(io.StringIO()) as diagnostics,
+                            raw.open("w") as output,
+                            self.assertRaises(subprocess.CalledProcessError) as failure,
+                        ):
+                            release.run(
+                                command, os.environ.copy(), output, capture=True
+                            )
+                    finally:
+                        release.LOGGER.removeHandler(handler)
+                        handler.close()
+                    self.assertEqual(failure.exception.returncode, 23)
+                    self.assertEqual(failure.exception.output, expected)
+                    self.assertEqual(raw.read_text(), expected)
+                    self.assertEqual(diagnostics.getvalue(), expected)
+                    records = [
+                        json.loads(line) for line in events.read_text().splitlines()
+                    ]
+                    self.assertEqual(
+                        [record["output"] for record in records if "output" in record],
+                        [expected],
+                    )
 
 
 if __name__ == "__main__":

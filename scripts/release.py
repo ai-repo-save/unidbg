@@ -54,8 +54,9 @@ def sha256(path):
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
-def run(command, env, output):
+def run(command, env, output, *, capture=False):
     LOGGER.info("command.started", extra={"context": {"command": command}})
+    captured = []
     with subprocess.Popen(
         command,
         cwd=ROOT,
@@ -70,14 +71,28 @@ def run(command, env, output):
                 sys.stderr.write(line)
                 output.write(line)
                 output.flush()
+                if capture:
+                    captured.append(line)
             result = process.wait()
         except BaseException:
             os.killpg(process.pid, signal.SIGTERM)
             process.wait()
             raise
+    captured_output = "".join(captured)
     if result:
-        raise subprocess.CalledProcessError(result, command)
+        LOGGER.error(
+            "command.failed",
+            extra={
+                "context": {
+                    "command": command,
+                    "returncode": result,
+                    "output": captured_output,
+                }
+            },
+        )
+        raise subprocess.CalledProcessError(result, command, output=captured_output)
     LOGGER.info("command.completed", extra={"context": {"command": command}})
+    return captured_output
 
 
 def reactor_modules():
@@ -132,11 +147,15 @@ def release(args, run_id, raw_log):
     env = os.environ.copy()
     env["JAVA_HOME"] = str(args.java_home.resolve())
     env["PATH"] = str(args.java_home.resolve() / "bin") + os.pathsep + env["PATH"]
-    java = subprocess.check_output(
-        [str(args.java_home / "bin/java"), "-XshowSettings:properties", "-version"],
-        stderr=subprocess.STDOUT,
-        text=True,
-        env=env,
+    java = run(
+        [
+            str(args.java_home.resolve() / "bin/java"),
+            "-XshowSettings:properties",
+            "-version",
+        ],
+        env,
+        raw_log,
+        capture=True,
     )
     if "java.specification.version = 21\n" not in java:
         raise ValueError("Release requires JDK 21")
@@ -148,9 +167,7 @@ def release(args, run_id, raw_log):
             "context": {"source": source, "repository": str(repository), "java": java}
         },
     )
-    maven_version = subprocess.check_output(
-        maven + ["--version"], env=env, cwd=ROOT, stderr=subprocess.STDOUT, text=True
-    )
+    maven_version = run(maven + ["--version"], env, raw_log, capture=True)
     commands = [clean_command(maven)]
     run(commands[-1], env, raw_log)
     reports = []

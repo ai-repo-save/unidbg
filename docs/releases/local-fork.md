@@ -55,7 +55,7 @@ Default outputs:
 - Structured release events: `logs/release-<run-id>.jsonl`.
 - Original Maven output: `logs/release-<run-id>.maven.log`.
 
-stdout contains the final JSON result. Events and Maven diagnostics go to stderr. Failure returns exit code 1; cancellation returns 130 and terminates the active Maven process group. A failed attempt may leave partial Maven installations or file-repository artifacts; only a repository with the final manifest is a verified release. Retain the two per-run log files through release acceptance, then remove them when no longer needed for diagnosis. No automatic retention cleanup runs.
+stdout contains the final JSON result. Events and subprocess diagnostics go to stderr. Java and Maven version probes use the same command boundary as build commands; their combined stdout/stderr is also persisted in the per-run Maven log. A failed probe retains its original output in the structured failure event and the propagated subprocess exception. Failure returns exit code 1; cancellation returns 130 and terminates the active Maven process group. A failed attempt may leave partial Maven installations or file-repository artifacts; only a repository with the final manifest is a verified release. Retain the two per-run log files through release acceptance, then remove them when no longer needed for diagnosis. No automatic retention cleanup runs.
 
 ## Release entry point verification
 
@@ -66,6 +66,13 @@ JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 \
 PATH=/usr/lib/jvm/java-21-openjdk-amd64/bin:$PATH \
 uv run --python 3.12 scripts/test_release.py \
   ReleaseIntegrationTest.test_clean_preserves_published_files
+```
+
+Run the subprocess-diagnostic integration test separately. Its two local child processes emit fixed stdout/stderr and exit with code 23. The test independently reads the persistent raw and JSON logs and compares the complete emitted diagnostics.
+
+```sh
+uv run --python 3.12 scripts/test_release.py \
+  ReleaseIntegrationTest.test_probe_failures_preserve_original_output
 ```
 
 ## Consume

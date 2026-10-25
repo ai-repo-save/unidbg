@@ -70,14 +70,27 @@ PATH=/usr/lib/jvm/java-21-openjdk-amd64/bin:$PATH \
 
 ## 验证
 
-环境为 Linux amd64、OpenJDK `21.0.12.1+1-1-24.04.4-Ubuntu`、仓库 Maven Wrapper `3.5.4`、Unicorn2 后端。
+环境为 Linux amd64、OpenJDK `21.0.12.1+1-1-24.04.4-Ubuntu` 和 `11.0.32.1+1-post-1ubuntu1-24.04-Ubuntu`、仓库 Maven Wrapper `3.5.4`、Unicorn2 后端。
 
-上述单项测试在修复前失败；修复后结果为 `Tests run: 1, Failures: 0, Errors: 0, Skipped: 0`。同一测试复用每种架构的模拟器，覆盖 ARM32、ARM64 及直接参数、`VaList` 两种调用方式，并验证：
+上述单项测试在 JDK 21 的修复前代码上失败。修复后，该命令及以下 JDK 11 对照命令均得到 `Tests run: 1, Failures: 0, Errors: 0, Skipped: 0`：
+
+```sh
+JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64 \
+PATH=/usr/lib/jvm/java-11-openjdk-amd64/bin:$PATH \
+./mvnw -B -pl unidbg-android -am \
+  -Dmaven.test.skip=false \
+  -Dtest=JniProxyReflectionAccessIntegrationTest \
+  -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+同一测试复用每种架构的模拟器，覆盖 ARM32、ARM64 及直接参数、`VaList` 两种调用方式，并验证：
 
 - 两个 JDK 样本的精确返回值。
-- `ToReflectedMethod` 返回具体实现类的原始声明。
+- `ToReflectedMethod` 返回的完整 `Method` 与独立宿主 `Class.getMethod` 的结果相等。
 - 私有构造器执行、私有字段读写及私有方法产生的宿主对象状态变化。
 - 私有方法抛出的原始异常对象进入 JNI pending exception，并在清除后消失。
+
+[Class.getMethod 的继承查找规则](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/lang/Class.html#getMethod(java.lang.String,java.lang.Class...)) 允许原始方法由父类声明。此处 JDK 11 的 `keySet().toArray()` 声明于 `AbstractCollection`，JDK 21 的同名方法声明于 `HashMap.KeySet`。测试按宿主反射 API 确定原始声明，不将接收对象的具体类型作为声明类的预期值。
 
 既有目标异常传递测试也通过以下独立命令执行：
 

@@ -13,6 +13,7 @@ import com.sun.jna.Pointer;
 import org.junit.Test;
 
 import java.io.IOException;
+import java.lang.reflect.Method;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.HashMap;
@@ -67,7 +68,7 @@ public class JniProxyReflectionAccessIntegrationTest {
                         int entry = invoke(emulator, table, width, objectCall, env, receiver, next, data.share(160)).intValue();
                         assertEquals("entry", vm.getObject(entry).getValue());
                         assertEquals(VM.JNI_FALSE, invoke(emulator, table, width, booleanCall, env, receiver, hasMore, data.share(160)).intValue());
-                        assertOriginalDeclaration(emulator, vm, table, width, env, type, hasMore, enumeration.getClass());
+                        assertOriginalDeclaration(emulator, vm, table, width, env, type, hasMore, enumeration.getClass().getMethod("hasMoreElements"));
 
                         Map<String, String> map = new HashMap<>();
                         map.put("key", "value");
@@ -80,7 +81,7 @@ public class JniProxyReflectionAccessIntegrationTest {
                         assertEquals(1, invoke(emulator, table, width, 171, env, array).intValue());
                         int key = invoke(emulator, table, width, 173, env, array, 0).intValue();
                         assertEquals("key", vm.getObject(key).getValue());
-                        assertOriginalDeclaration(emulator, vm, table, width, env, type, toArray, keys.getClass());
+                        assertOriginalDeclaration(emulator, vm, table, width, env, type, toArray, keys.getClass().getMethod("toArray"));
 
                         type = vm.addLocalObject(vm.resolveClass(PrivateTarget.class.getName().replace('.', '/')));
                         int constructor = member(emulator, table, width, env, type, data, 33, "<init>", "()V");
@@ -116,10 +117,10 @@ public class JniProxyReflectionAccessIntegrationTest {
     }
 
     private static void assertOriginalDeclaration(AndroidEmulator emulator, VM vm, Pointer table, int width,
-                                                  Pointer env, int type, int method, Class<?> declaringClass) {
+                                                  Pointer env, int type, int method, Method expected) {
         int reflected = invoke(emulator, table, width, 9, env, type, method, VM.JNI_FALSE).intValue();
         ProxyReflectedMethod original = (ProxyReflectedMethod) vm.getObject(reflected).getValue();
-        assertSame(declaringClass, original.getDeclaringClass());
+        assertEquals(expected, original.getMethod());
     }
 
     private static Number invoke(AndroidEmulator emulator, Pointer table, int width, int index, Object... args) {

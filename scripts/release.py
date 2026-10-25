@@ -135,10 +135,6 @@ def release(args, run_id, raw_log):
     repository = args.repository.resolve()
     if not repository.is_relative_to(ROOT / "target") or repository == ROOT / "target":
         raise ValueError("Release repository must be a subdirectory of project target/")
-    if repository.exists():
-        raise ValueError(
-            "Release repository already exists; archive it before rebuilding"
-        )
     env = os.environ.copy()
     env["JAVA_HOME"] = str(args.java_home.resolve())
     env["PATH"] = str(args.java_home.resolve() / "bin") + os.pathsep + env["PATH"]
@@ -266,7 +262,7 @@ def main():
         "--repository",
         type=Path,
         default=ROOT / "target/release-0.10.0",
-        help="New Maven-layout repository under project target/",
+        help="Maven-layout repository under project target/ (created or reused)",
     )
     parser.add_argument(
         "--maven-local-repository",

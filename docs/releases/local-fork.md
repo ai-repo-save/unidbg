@@ -54,7 +54,7 @@ uv run --python 3.12 scripts/release.py \
   --repository target/release-0.10.0
 ```
 
-`--help` lists repository and Maven cache options. `--repository` must select a new directory below this project's `target/`. The entry point rejects existing release directories. To retain a published release, select a different new directory for the next release. Maven `clean` selects only the child modules listed in the parent POM; the parent project's `target/` retains all existing release artifacts and manifests.
+`--help` lists repository and Maven cache options. `--repository` selects a Maven-layout directory below this project's `target/` and defaults to `<checkout>/target/release-0.10.0`. Maven file deploy creates or reuses that directory and updates artifacts and metadata according to normal Maven semantics. The entry point records the latest completed release in `release-manifest.json`. Maven `clean` selects only the child modules listed in the parent POM; it does not clean the parent project's `target/` or the release repository.
 
 The entry point performs these steps with JDK 21:
 
@@ -73,7 +73,7 @@ Default outputs:
 - Structured release events: `logs/release-<run-id>.jsonl`.
 - Original Maven output: `logs/release-<run-id>.maven.log`.
 
-stdout contains the final JSON result. Events and subprocess diagnostics go to stderr. Java and Maven version probes use the same command boundary as build commands; their combined stdout/stderr is also persisted in the per-run Maven log. A failed probe retains its original output in the structured failure event and the propagated subprocess exception. Failure returns exit code 1; cancellation returns 130 and terminates the active Maven process group. A failed attempt may leave partial Maven installations or file-repository artifacts; a repository with the final manifest represents a completed release. Retain the two per-run log files through release acceptance, then remove them when no longer needed for diagnosis. No automatic retention cleanup runs.
+stdout contains the final JSON result. Events and subprocess diagnostics go to stderr. Java and Maven version probes use the same command boundary as build commands; their combined stdout/stderr is also persisted in the per-run Maven log. A failed probe retains its original output in the structured failure event and the propagated subprocess exception. Failure returns exit code 1; cancellation returns 130 and terminates the active Maven process group. A failed attempt may leave partial Maven installations or file-repository updates. The manifest records the last completed invocation. Retain the two per-run log files through release acceptance, then remove them when no longer needed for diagnosis. No automatic retention cleanup runs.
 
 ## Release entry point verification
 

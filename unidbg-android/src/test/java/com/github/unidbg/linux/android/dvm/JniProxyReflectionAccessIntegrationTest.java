@@ -5,7 +5,10 @@ import com.github.unidbg.Module;
 import com.github.unidbg.arm.backend.Unicorn2Factory;
 import com.github.unidbg.linux.android.AndroidEmulatorBuilder;
 import com.github.unidbg.linux.android.dvm.jni.ProxyClassFactory;
+import com.github.unidbg.linux.android.dvm.jni.ProxyClassLoader;
+import com.github.unidbg.linux.android.dvm.jni.ProxyDvmClass;
 import com.github.unidbg.linux.android.dvm.jni.ProxyDvmObject;
+import com.github.unidbg.linux.android.dvm.jni.ProxyDvmObjectVisitor;
 import com.github.unidbg.linux.android.dvm.jni.ProxyReflectedMethod;
 import com.github.unidbg.memory.MemoryBlock;
 import com.github.unidbg.pointer.UnidbgPointer;
@@ -16,7 +19,9 @@ import org.junit.Test;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.nio.charset.StandardCharsets;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
@@ -50,6 +55,26 @@ public class JniProxyReflectionAccessIntegrationTest {
         }
     }
 
+    private static final class InterfaceProxyClassFactory extends ProxyClassFactory {
+        @Override
+        public DvmClass createClass(BaseVM vm, String className, DvmClass superClass, DvmClass[] interfaceClasses) {
+            return new ProxyDvmClass(vm, className, superClass, interfaceClasses, classLoader, visitor, null) {
+                @Override
+                protected Jni createJni(ProxyClassLoader loader, ProxyDvmObjectVisitor objectVisitor, Jni fallbackJni) {
+                    Jni delegate = super.createJni(loader, objectVisitor, fallbackJni);
+                    return (Jni) Proxy.newProxyInstance(Jni.class.getClassLoader(), new Class<?>[] {Jni.class},
+                            (proxy, method, args) -> {
+                                try {
+                                    return method.invoke(delegate, args);
+                                } catch (InvocationTargetException e) {
+                                    throw e.getCause();
+                                }
+                            });
+                }
+            };
+        }
+    }
+
     @Test
     public void publicDeclarationsAndPrivateMembersThroughJni() throws Exception {
         byte[] certificateDer;
@@ -65,7 +90,7 @@ public class JniProxyReflectionAccessIntegrationTest {
             AndroidEmulatorBuilder builder = wide ? AndroidEmulatorBuilder.for64Bit() : AndroidEmulatorBuilder.for32Bit();
             try (AndroidEmulator emulator = builder.addBackendFactory(new Unicorn2Factory(true)).build()) {
                 VM vm = emulator.createDalvikVM();
-                vm.setDvmClassFactory(new ProxyClassFactory());
+                vm.setDvmClassFactory(new InterfaceProxyClassFactory());
                 Pointer env = vm.getJNIEnv();
                 Pointer table = env.getPointer(0);
                 int width = wide ? 8 : 4;

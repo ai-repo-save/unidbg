@@ -7,11 +7,11 @@
 - Fork baseline: `129151171590d0cfaaf46f98f93f1ac5f97fc401`.
 - License: Apache 2.0, retained in `LICENSE`.
 
-The release uses committed, clean source descended from the baseline. The generated manifest records both the baseline and the release commit's Git tree ID. These identities are generated after the source commit, outside Git, so the versioned source contains no self-referencing release commit hash. No remote source or artifact publication is performed.
+The release uses committed, clean source descended from the baseline. The generated manifest records the baseline, exact source commit, Git tree ID and fork commit URL used by fixed-source builds. These identities are generated after the source commit, outside Git, so the versioned source contains no self-referencing release commit hash. Source publication to the fork is coordinated separately from the local Maven artifact release.
 
 ## Coordinates
 
-All reactor artifacts use group `io.github.ai-repo-save.unidbg` and version `0.9.10`:
+All reactor artifacts use group `io.github.ai-repo-save.unidbg` and version `0.10.0`:
 
 - `unidbg` (parent POM).
 - `unidbg-api`.
@@ -24,6 +24,23 @@ All reactor artifacts use group `io.github.ai-repo-save.unidbg` and version `0.9
 
 Each JAR module provides its main, sources and Javadoc JARs. Java packages, native JNI symbols and the baseline patches retain their existing identities. Third-party libraries, including `com.github.zhkl0228:{unicorn,capstone,keystone,demumble}`, retain their published coordinates.
 
+## Class-level JNI extension
+
+Version `0.10.0` exposes the `Jni` interface throughout the class-level extension:
+
+```java
+// DvmClass
+protected final void setJni(Jni jni);
+
+// ProxyDvmClass
+protected Jni createJni(ProxyClassLoader classLoader,
+                        ProxyDvmObjectVisitor visitor, Jni fallbackJni);
+```
+
+Class-level JNI dispatch retains priority over VM-level JNI. `DvmMethod` and `DvmField` continue calling the interface overloads carrying their metadata objects. The default factory still creates `ProxyJni`; `JniFunction` and its fallback behavior are unchanged. Implementations can return a composed `Jni`, including a JDK interface proxy, without generating a `JniFunction` subclass. Existing source overrides returning `JniFunction` remain valid covariant overrides.
+
+The protected method descriptors changed, so extensions compiled against `0.9.10` must be rebuilt against `0.10.0`. Java package names and native JNI symbols retain their identities. The existing `0.9.10` Maven artifacts and `target/release-repository/` remain available separately.
+
 ## Release
 
 Requirements: Git, uv, JDK 21 and the repository Maven Wrapper (Maven 3.9.9). Maven uses `~/.m2/settings.xml` for configured HTTP/HTTPS proxies; configure the local proxy there when network access requires it.
@@ -33,7 +50,8 @@ From the repository root:
 ```sh
 uv run --python 3.12 scripts/release.py \
   --baseline 129151171590d0cfaaf46f98f93f1ac5f97fc401 \
-  --java-home /usr/lib/jvm/java-21-openjdk-amd64
+  --java-home /usr/lib/jvm/java-21-openjdk-amd64 \
+  --repository target/release-0.10.0
 ```
 
 `--help` lists repository and Maven cache options. `--repository` must select a new directory below this project's `target/`. The entry point rejects existing release directories. To retain a published release, select a different new directory for the next release. Maven `clean` selects only the child modules listed in the parent POM; the parent project's `target/` retains all existing release artifacts and manifests.
@@ -42,16 +60,16 @@ The entry point performs these steps with JDK 21:
 
 1. Verify clean committed source, baseline ancestry and toolchain.
 2. Clean the compilation modules with `-pl <child-module-paths> clean`, excluding the parent POM project.
-3. Run `JniProxyReflectionAccessIntegrationTest` and `JniProxyExceptionIntegrationTest` separately with `-pl unidbg-android -am -Dmaven.test.skip=false -Dtest=<single-class> -Dsurefire.failIfNoSpecifiedTests=false test`. Each report must contain exactly one passed test and zero skipped tests.
+3. Run `JniProxyReflectionAccessIntegrationTest` and `JniProxyExceptionIntegrationTest` separately with `-pl unidbg-android -am -Dmaven.test.skip=false -Dtest=<single-class> -Dsurefire.failIfNoSpecifiedTests=false test`. Each report must contain exactly one passed test and zero skipped tests. The reflection-access test composes the default `ProxyJni` through a JDK `Jni` interface proxy, exercising the protected extension with the existing exact JNI results; the exception test uses the default factory.
 4. Run `install org.apache.maven.plugins:maven-deploy-plugin:3.1.2:deploy -Dgpg.skip=true -DaltDeploymentRepository=local-release::file://<repository>`. The ordinary install and file-repository deployment use the same Maven session and attached artifacts. Existing Javadoc production remains enabled; local GPG signing is skipped. The Central publishing lifecycle is not invoked.
 5. Compare all released POMs and JARs against their ordinary Maven installations using SHA-256. Write the release manifest only after all checks pass.
 
 Default outputs:
 
-- Maven-layout repository: `target/release-repository/`.
+- Maven-layout repository: `target/release-0.10.0/`.
 - Ordinary Maven installation/cache: `~/.m2/repository/`.
-- Provenance: `target/release-repository/release-manifest.json`, with source identities, toolchain, exact commands, test results, stable GAVs and file SHA-256 digests.
-- License: `target/release-repository/LICENSE`.
+- Provenance: `target/release-0.10.0/release-manifest.json`, with source identities, toolchain, exact commands, test results, stable GAVs and file SHA-256 digests.
+- License: `target/release-0.10.0/LICENSE`.
 - Structured release events: `logs/release-<run-id>.jsonl`.
 - Original Maven output: `logs/release-<run-id>.maven.log`.
 
@@ -82,8 +100,8 @@ Same-user Maven and Gradle builds can use the ordinary Maven installation. To co
 ```xml
 <repository>
     <id>unidbg-local-release</id>
-    <url>file:///home/bluebird/git/unidbg/target/release-repository</url>
+    <url>file:///home/bluebird/git/unidbg/target/release-0.10.0</url>
 </repository>
 ```
 
-For example, the Android runtime dependency is `io.github.ai-repo-save.unidbg:unidbg-android:0.9.10`. Transitive reactor dependencies resolve from the same repository. Third-party dependencies still resolve from their configured upstream repositories or Maven cache. The exported fork repository is not a complete offline dependency mirror.
+For example, the Android runtime dependency is `io.github.ai-repo-save.unidbg:unidbg-android:0.10.0`. Transitive reactor dependencies resolve from the same repository. Third-party dependencies still resolve from their configured upstream repositories or Maven cache. The exported fork repository is not a complete offline dependency mirror.

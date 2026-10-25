@@ -3,7 +3,6 @@ package com.github.unidbg.linux.android.dvm.jni;
 import com.github.unidbg.linux.android.dvm.BaseVM;
 import com.github.unidbg.linux.android.dvm.DvmClass;
 import com.github.unidbg.linux.android.dvm.Jni;
-import com.github.unidbg.linux.android.dvm.JniFunction;
 
 public class ProxyDvmClass extends DvmClass {
 
@@ -19,7 +18,7 @@ public class ProxyDvmClass extends DvmClass {
         }
     }
 
-    protected JniFunction createJni(ProxyClassLoader classLoader, ProxyDvmObjectVisitor visitor, Jni fallbackJni) {
+    protected Jni createJni(ProxyClassLoader classLoader, ProxyDvmObjectVisitor visitor, Jni fallbackJni) {
         return new ProxyJni(classLoader, visitor, fallbackJni);
     }
 

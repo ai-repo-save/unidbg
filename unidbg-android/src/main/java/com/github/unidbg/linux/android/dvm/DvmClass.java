@@ -337,9 +337,9 @@ public class DvmClass extends DvmObject<Class<?>> {
         }
     }
 
-    private JniFunction jni;
+    private Jni jni;
 
-    protected final void setJni(JniFunction jni) {
+    protected final void setJni(Jni jni) {
         this.jni = jni;
     }
 

@@ -129,13 +129,14 @@ def release(args, run_id, raw_log):
         cwd=ROOT,
         check=True,
     )
+    source_commit = git("rev-parse", "HEAD")
     source = {
         "fork": "https://github.com/ai-repo-save/unidbg",
         "upstream": "https://github.com/zhkl0228/unidbg",
         "baseline_commit": baseline,
-        "release_commit": git("rev-parse", "HEAD"),
+        "release_commit": source_commit,
         "release_tree": git("rev-parse", "HEAD^{tree}"),
-        "availability": "local checkout; no remote publication performed",
+        "commit_url": f"https://github.com/ai-repo-save/unidbg/tree/{source_commit}",
     }
     repository = args.repository.resolve()
     if not repository.is_relative_to(ROOT / "target") or repository == ROOT / "target":
@@ -275,7 +276,7 @@ def main():
     parser.add_argument(
         "--repository",
         type=Path,
-        default=ROOT / "target/release-repository",
+        default=ROOT / "target/release-0.10.0",
         help="New Maven-layout repository under project target/",
     )
     parser.add_argument(

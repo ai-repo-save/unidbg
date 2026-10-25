@@ -1,5 +1,10 @@
 /*.iml
 /.idea/
+/logs/
+!/scripts/
+!/scripts/release.py
+!/docs/releases/
+!/docs/releases/local-fork.md
 /unidbg-android/src/test/resources/unpack/*_unpacked.so
 /target/
 *.DS_Store

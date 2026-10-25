@@ -1,5 +1,12 @@
 # unidbg
 
+This independent fork is maintained at `https://github.com/ai-repo-save/unidbg`.
+The upstream project is `https://github.com/zhkl0228/unidbg`; upstream authorship and the Apache 2.0 license are retained.
+The reactor is released locally as `io.github.ai-repo-save.unidbg:*:0.9.10`.
+Java packages and native JNI symbols remain unchanged. Third-party dependency coordinates remain upstream coordinates.
+Local release instructions and provenance are documented in `docs/releases/local-fork.md`.
+A local release does not imply that its source commit or artifacts are available remotely.
+
 Allows you to emulate an Android native library, and an experimental iOS emulation.
 
 This is an educational project to learn more about the ELF/MachO file format and ARM assembly.

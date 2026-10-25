@@ -1,0 +1,23 @@
+name: Fork release validation
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: astral-sh/setup-uv@v6
+      - run: >-
+          uv run --python 3.12 scripts/release.py
+          --baseline 129151171590d0cfaaf46f98f93f1ac5f97fc401
+          --java-home "$JAVA_HOME"

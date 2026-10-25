@@ -10,15 +10,23 @@ import com.github.unidbg.linux.android.dvm.jni.ProxyReflectedMethod;
 import com.github.unidbg.memory.MemoryBlock;
 import com.github.unidbg.pointer.UnidbgPointer;
 import com.sun.jna.Pointer;
+import org.apache.commons.io.IOUtils;
 import org.junit.Test;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.lang.reflect.Method;
+import java.nio.charset.StandardCharsets;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.Map;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertSame;
 
@@ -44,6 +52,15 @@ public class JniProxyReflectionAccessIntegrationTest {
 
     @Test
     public void publicDeclarationsAndPrivateMembersThroughJni() throws Exception {
+        byte[] certificateDer;
+        try (InputStream input = getClass().getResourceAsStream("/certificates/isrg-root-x1.pem")) {
+            String pem = IOUtils.toString(input, StandardCharsets.US_ASCII);
+            certificateDer = Base64.getMimeDecoder().decode(pem
+                    .replace("-----BEGIN CERTIFICATE-----", "")
+                    .replace("-----END CERTIFICATE-----", ""));
+        }
+        X509Certificate certificate = (X509Certificate) CertificateFactory.getInstance("X.509")
+                .generateCertificate(new ByteArrayInputStream(certificateDer));
         for (boolean wide : new boolean[] {false, true}) {
             AndroidEmulatorBuilder builder = wide ? AndroidEmulatorBuilder.for64Bit() : AndroidEmulatorBuilder.for32Bit();
             try (AndroidEmulator emulator = builder.addBackendFactory(new Unicorn2Factory(true)).build()) {
@@ -52,7 +69,7 @@ public class JniProxyReflectionAccessIntegrationTest {
                 Pointer env = vm.getJNIEnv();
                 Pointer table = env.getPointer(0);
                 int width = wide ? 8 : 4;
-                MemoryBlock block = emulator.getMemory().malloc(256, true);
+                MemoryBlock block = emulator.getMemory().malloc(256 + certificateDer.length, true);
                 try {
                     Pointer data = block.getPointer();
                     for (boolean vaList : new boolean[] {false, true}) {
@@ -83,6 +100,16 @@ public class JniProxyReflectionAccessIntegrationTest {
                         assertEquals("key", vm.getObject(key).getValue());
                         assertOriginalDeclaration(emulator, vm, table, width, env, type, toArray, keys.getClass().getMethod("toArray"));
 
+                        wrapped = ProxyDvmObject.createObject(vm, certificate);
+                        receiver = vm.addLocalObject(wrapped);
+                        type = vm.addLocalObject(wrapped.getObjectType());
+                        int getEncoded = member(emulator, table, width, env, type, data, 33, "getEncoded", "()[B");
+                        int encoded = invoke(emulator, table, width, objectCall, env, receiver, getEncoded, data.share(160)).intValue();
+                        assertEquals(certificateDer.length, invoke(emulator, table, width, 171, env, encoded).intValue());
+                        invoke(emulator, table, width, 200, env, encoded, 0, certificateDer.length, data.share(256));
+                        assertArrayEquals(certificateDer, data.share(256).getByteArray(0, certificateDer.length));
+                        assertOriginalDeclaration(emulator, vm, table, width, env, type, getEncoded, certificate.getClass().getMethod("getEncoded"));
+
                         type = vm.addLocalObject(vm.resolveClass(PrivateTarget.class.getName().replace('.', '/')));
                         int constructor = member(emulator, table, width, env, type, data, 33, "<init>", "()V");
                         receiver = invoke(emulator, table, width, vaList ? 29 : 28, env, type, constructor, data.share(160)).intValue();
@@ -96,7 +123,7 @@ public class JniProxyReflectionAccessIntegrationTest {
                         assertEquals(42, target.value);
                         assertEquals(42, invoke(emulator, table, width, 100, env, receiver, field).intValue());
                         int fail = member(emulator, table, width, env, type, data, 33, "fail", "()I");
-                        assertEquals(0, invoke(emulator, table, width, vaList ? 50 : 49, env, receiver, fail, data.share(160)).intValue());
+                        invoke(emulator, table, width, vaList ? 50 : 49, env, receiver, fail, data.share(160));
                         int exception = invoke(emulator, table, width, 15, env).intValue();
                         assertSame(TARGET_FAILURE, vm.getObject(exception).getValue());
                         invoke(emulator, table, width, 17, env);

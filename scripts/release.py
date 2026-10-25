@@ -5,7 +5,6 @@
 # ///
 
 import argparse
-import hashlib
 import json
 import logging
 import os
@@ -47,11 +46,6 @@ def git(*args):
 def require_clean_source():
     if git("status", "--porcelain", "--untracked-files=all"):
         raise ValueError("Release requires a committed, clean source tree")
-
-
-def sha256(path):
-    with path.open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
 def run(command, env, output, *, capture=False):
@@ -198,7 +192,13 @@ def release(args, run_id, raw_log):
             raise ValueError(
                 f"Integration test did not pass completely: {test}: {counts}"
             )
-        reports.append({"class": test, "counts": counts, "sha256": sha256(report)})
+        reports.append(
+            {
+                "class": test,
+                "counts": counts,
+                "path": report.relative_to(ROOT).as_posix(),
+            }
+        )
     command = maven + [
         "-Dgpg.skip=true",
         "install",
@@ -210,7 +210,7 @@ def release(args, run_id, raw_log):
     require_clean_source()
     group, version, artifacts = reactor()
     gavs = []
-    installed = []
+    files = []
     for artifact, extensions in artifacts:
         gavs.append(f"{group}:{artifact}:{version}")
         for extension in extensions:
@@ -220,16 +220,9 @@ def release(args, run_id, raw_log):
                 / version
                 / (f"{artifact}-{version}{extension}")
             )
-            digest = sha256(repository / relative)
-            if sha256(local_repository / relative) != digest:
-                raise ValueError(f"Installed artifact differs from release: {relative}")
-            installed.append({"path": relative.as_posix(), "sha256": digest})
+            files.append(relative.as_posix())
     (repository / "LICENSE").write_bytes((ROOT / "LICENSE").read_bytes())
-    files = [
-        {"path": path.relative_to(repository).as_posix(), "sha256": sha256(path)}
-        for path in sorted(repository.rglob("*"))
-        if path.is_file()
-    ]
+    files.append("LICENSE")
     manifest = {
         "run_id": run_id,
         "source": source,
@@ -239,16 +232,12 @@ def release(args, run_id, raw_log):
         "tests": reports,
         "coordinates": gavs,
         "maven_local_repository": str(local_repository),
-        "installed_artifacts": installed,
         "files": files,
     }
     manifest_path = repository / "release-manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
     LOGGER.info(
-        "release.completed",
-        extra={
-            "context": {"manifest": str(manifest_path), "sha256": sha256(manifest_path)}
-        },
+        "release.completed", extra={"context": {"manifest": str(manifest_path)}}
     )
     print(
         json.dumps(

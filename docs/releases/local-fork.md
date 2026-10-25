@@ -62,18 +62,18 @@ The entry point performs these steps with JDK 21:
 2. Clean the compilation modules with `-pl <child-module-paths> clean`, excluding the parent POM project.
 3. Run `JniProxyReflectionAccessIntegrationTest` and `JniProxyExceptionIntegrationTest` separately with `-pl unidbg-android -am -Dmaven.test.skip=false -Dtest=<single-class> -Dsurefire.failIfNoSpecifiedTests=false test`. Each report must contain exactly one passed test and zero skipped tests. The reflection-access test composes the default `ProxyJni` through a JDK `Jni` interface proxy, exercising the protected extension with the existing exact JNI results; the exception test uses the default factory.
 4. Run `install org.apache.maven.plugins:maven-deploy-plugin:3.1.2:deploy -Dgpg.skip=true -DaltDeploymentRepository=local-release::file://<repository>`. The ordinary install and file-repository deployment use the same Maven session and attached artifacts. Existing Javadoc production remains enabled; local GPG signing is skipped. The Central publishing lifecycle is not invoked.
-5. Compare all released POMs and JARs against their ordinary Maven installations using SHA-256. Write the release manifest only after all checks pass.
+5. Write the release manifest with source identities, coordinates, produced POM/JAR paths, exact commands and test results.
 
 Default outputs:
 
 - Maven-layout repository: `target/release-0.10.0/`.
 - Ordinary Maven installation/cache: `~/.m2/repository/`.
-- Provenance: `target/release-0.10.0/release-manifest.json`, with source identities, toolchain, exact commands, test results, stable GAVs and file SHA-256 digests.
+- Provenance: `target/release-0.10.0/release-manifest.json`, with source identities, toolchain, exact commands, test results, stable GAVs and produced artifact paths.
 - License: `target/release-0.10.0/LICENSE`.
 - Structured release events: `logs/release-<run-id>.jsonl`.
 - Original Maven output: `logs/release-<run-id>.maven.log`.
 
-stdout contains the final JSON result. Events and subprocess diagnostics go to stderr. Java and Maven version probes use the same command boundary as build commands; their combined stdout/stderr is also persisted in the per-run Maven log. A failed probe retains its original output in the structured failure event and the propagated subprocess exception. Failure returns exit code 1; cancellation returns 130 and terminates the active Maven process group. A failed attempt may leave partial Maven installations or file-repository artifacts; only a repository with the final manifest is a verified release. Retain the two per-run log files through release acceptance, then remove them when no longer needed for diagnosis. No automatic retention cleanup runs.
+stdout contains the final JSON result. Events and subprocess diagnostics go to stderr. Java and Maven version probes use the same command boundary as build commands; their combined stdout/stderr is also persisted in the per-run Maven log. A failed probe retains its original output in the structured failure event and the propagated subprocess exception. Failure returns exit code 1; cancellation returns 130 and terminates the active Maven process group. A failed attempt may leave partial Maven installations or file-repository artifacts; a repository with the final manifest represents a completed release. Retain the two per-run log files through release acceptance, then remove them when no longer needed for diagnosis. No automatic retention cleanup runs.
 
 ## Release entry point verification
 

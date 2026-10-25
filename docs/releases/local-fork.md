@@ -26,7 +26,7 @@ Each JAR module provides its main, sources and Javadoc JARs. Java packages, nati
 
 ## Release
 
-Requirements: Git, uv, JDK 21 and the repository Maven Wrapper. Maven uses `~/.m2/settings.xml` for configured HTTP/HTTPS proxies; configure the local proxy there when network access requires it.
+Requirements: Git, uv, JDK 21 and the repository Maven Wrapper (Maven 3.9.9). Maven uses `~/.m2/settings.xml` for configured HTTP/HTTPS proxies; configure the local proxy there when network access requires it.
 
 From the repository root:
 

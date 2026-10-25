@@ -3,6 +3,8 @@
 /logs/
 !/scripts/
 !/scripts/release.py
+!/scripts/test_release.py
+/scripts/__pycache__/
 !/docs/releases/
 !/docs/releases/local-fork.md
 /unidbg-android/src/test/resources/unpack/*_unpacked.so

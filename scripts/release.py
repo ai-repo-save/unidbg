@@ -80,15 +80,22 @@ def run(command, env, output):
     LOGGER.info("command.completed", extra={"context": {"command": command}})
 
 
+def reactor_modules():
+    pom = ET.parse(ROOT / "pom.xml").getroot()
+    return [ROOT / module.text for module in pom.findall("m:modules/m:module", NS)]
+
+
+def clean_command(maven):
+    projects = ",".join(str(module.relative_to(ROOT)) for module in reactor_modules())
+    return maven + ["-pl", projects, "clean"]
+
+
 def reactor():
     pom = ET.parse(ROOT / "pom.xml").getroot()
     group = pom.findtext("m:groupId", namespaces=NS)
     version = pom.findtext("m:version", namespaces=NS)
-    modules = [ROOT] + [
-        ROOT / module.text for module in pom.findall("m:modules/m:module", NS)
-    ]
     artifacts = []
-    for module in modules:
+    for module in [ROOT, *reactor_modules()]:
         model = ET.parse(module / "pom.xml").getroot()
         artifact = model.findtext("m:artifactId", namespaces=NS)
         packaging = model.findtext("m:packaging", default="jar", namespaces=NS)
@@ -144,7 +151,7 @@ def release(args, run_id, raw_log):
     maven_version = subprocess.check_output(
         maven + ["--version"], env=env, cwd=ROOT, stderr=subprocess.STDOUT, text=True
     )
-    commands = [maven + ["clean"]]
+    commands = [clean_command(maven)]
     run(commands[-1], env, raw_log)
     reports = []
     for test in TESTS:

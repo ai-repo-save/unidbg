@@ -36,12 +36,12 @@ uv run --python 3.12 scripts/release.py \
   --java-home /usr/lib/jvm/java-21-openjdk-amd64
 ```
 
-`--help` lists repository and Maven cache options. `--repository` must select a new directory below this project's `target/`. Archive an existing release before invoking the entry point again; the entry point rejects existing release directories. Maven `clean` rebuilds all reactor outputs.
+`--help` lists repository and Maven cache options. `--repository` must select a new directory below this project's `target/`. The entry point rejects existing release directories. To retain a published release, select a different new directory for the next release. Maven `clean` selects only the child modules listed in the parent POM; the parent project's `target/` retains all existing release artifacts and manifests.
 
 The entry point performs these steps with JDK 21:
 
 1. Verify clean committed source, baseline ancestry and toolchain.
-2. Clean the reactor.
+2. Clean the compilation modules with `-pl <child-module-paths> clean`, excluding the parent POM project.
 3. Run `JniProxyReflectionAccessIntegrationTest` and `JniProxyExceptionIntegrationTest` separately with `-pl unidbg-android -am -Dmaven.test.skip=false -Dtest=<single-class> -Dsurefire.failIfNoSpecifiedTests=false test`. Each report must contain exactly one passed test and zero skipped tests.
 4. Run `install org.apache.maven.plugins:maven-deploy-plugin:3.1.2:deploy -Dgpg.skip=true -DaltDeploymentRepository=local-release::file://<repository>`. The ordinary install and file-repository deployment use the same Maven session and attached artifacts. Existing Javadoc production remains enabled; local GPG signing is skipped. The Central publishing lifecycle is not invoked.
 5. Compare all released POMs and JARs against their ordinary Maven installations using SHA-256. Write the release manifest only after all checks pass.
@@ -56,6 +56,17 @@ Default outputs:
 - Original Maven output: `logs/release-<run-id>.maven.log`.
 
 stdout contains the final JSON result. Events and Maven diagnostics go to stderr. Failure returns exit code 1; cancellation returns 130 and terminates the active Maven process group. A failed attempt may leave partial Maven installations or file-repository artifacts; only a repository with the final manifest is a verified release. Retain the two per-run log files through release acceptance, then remove them when no longer needed for diagnosis. No automatic retention cleanup runs.
+
+## Release entry point verification
+
+Run the filesystem-preservation integration test explicitly with JDK 21. It creates a minimal Maven fixture under `target/`, runs only the fixture's clean command, and independently reads the retained published files. It performs no install or deployment.
+
+```sh
+JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 \
+PATH=/usr/lib/jvm/java-21-openjdk-amd64/bin:$PATH \
+uv run --python 3.12 scripts/test_release.py \
+  ReleaseIntegrationTest.test_clean_preserves_published_files
+```
 
 ## Consume
 

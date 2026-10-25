@@ -7,6 +7,7 @@ import com.github.unidbg.linux.android.dvm.DvmObject;
 import com.github.unidbg.linux.android.dvm.Shorty;
 import com.github.unidbg.linux.android.dvm.VaList;
 import com.github.unidbg.linux.android.dvm.VarArg;
+import org.apache.commons.lang3.reflect.MethodUtils;
 
 import java.lang.reflect.Array;
 import java.lang.reflect.Constructor;
@@ -257,7 +258,7 @@ class ProxyUtils {
         if (dvmMethod.member != null) {
             return new ProxyMethod(visitor, dvmMethod.member, methodArgs.args);
         }
-        Member method = matchMethodTypes(clazz, dvmMethod.getMethodName(), methodArgs.types, isStatic);
+        Member method = resolveInvocationMember(matchMethodTypes(clazz, dvmMethod.getMethodName(), methodArgs.types, isStatic));
         dvmMethod.setMember(method);
         return new ProxyMethod(visitor, method, methodArgs.args);
     }
@@ -267,9 +268,19 @@ class ProxyUtils {
         if (dvmMethod.member != null) {
             return new ProxyMethod(visitor, dvmMethod.member, methodArgs.args);
         }
-        Member method = matchMethodTypes(clazz, dvmMethod.getMethodName(), methodArgs.types, isStatic);
+        Member method = resolveInvocationMember(matchMethodTypes(clazz, dvmMethod.getMethodName(), methodArgs.types, isStatic));
         dvmMethod.setMember(method);
         return new ProxyMethod(visitor, method, methodArgs.args);
+    }
+
+    private static Member resolveInvocationMember(Member member) {
+        if (member instanceof Method && !Modifier.isStatic(member.getModifiers())) {
+            Method accessibleMethod = MethodUtils.getAccessibleMethod((Method) member);
+            if (accessibleMethod != null) {
+                return accessibleMethod;
+            }
+        }
+        return member;
     }
 
     static Field matchField(Class<?> clazz, String fieldName, Class<?> fieldType, boolean isStatic) throws NoSuchFieldException {

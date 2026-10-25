@@ -21,3 +21,7 @@
 /backend/hypervisor/src/main/native/hypervisor/.idea/
 /unidbg-ios/src/test/resources/example_binaries/cpu_features
 /unidbg-ios/src/test/resources/example_binaries/ios_cpu_features
+!/docs/
+!/docs/bugs/
+!/docs/bugs/jdk-reflection-access.md
+!/unidbg-android/src/test/java/com/github/unidbg/linux/android/dvm/JniProxyReflectionAccessIntegrationTest.java

@@ -2692,7 +2692,7 @@ public class DalvikVM extends BaseVM implements VM {
                 DvmObject<?>[] array = new DvmObject[size];
                 Arrays.fill(array, obj);
 
-                return addLocalObject(new ArrayObject(ArrayObject.typeOf(DalvikVM.this, dvmClass), array));
+                return addLocalObject(ArrayObject.newObjectArray(dvmClass, array));
             }
         });
 

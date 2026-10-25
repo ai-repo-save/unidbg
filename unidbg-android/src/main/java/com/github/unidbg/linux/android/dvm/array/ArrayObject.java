@@ -22,6 +22,10 @@ public class ArrayObject extends BaseArray<DvmObject<?>[]> implements Array<DvmO
         return new ArrayObject(typeOf(vm, vm.resolveClass("java/lang/String")), objects);
     }
 
+    public static ArrayObject newObjectArray(DvmClass elementClass, DvmObject<?>... value) {
+        return new ArrayObject(typeOf(elementClass.vm, elementClass), value);
+    }
+
     public ArrayObject(DvmObject<?>... value) {
         super(null, value);
     }
@@ -38,6 +42,25 @@ public class ArrayObject extends BaseArray<DvmObject<?>[]> implements Array<DvmO
         }
         String arrayName = name.startsWith("[") ? "[" + name : "[L" + name + ";";
         return vm.resolveClass(arrayName, objectArray);
+    }
+
+    /**
+     * Every object array is an Object[], Object, Cloneable and Serializable, whether or not its component type is known.
+     */
+    @Override
+    protected boolean isInstanceOf(DvmClass dvmClass) {
+        if (super.isInstanceOf(dvmClass)) {
+            return true;
+        }
+        switch (dvmClass.getClassName()) {
+            case "[Ljava/lang/Object;":
+            case "java/lang/Object":
+            case "java/lang/Cloneable":
+            case "java/io/Serializable":
+                return true;
+            default:
+                return false;
+        }
     }
 
     @Override

@@ -19,6 +19,19 @@ public class FallbackJniTest {
         assertNull(jni.callObjectMethodV(null, null, "test/x->e()V", null));
         assertNull(jni.callStaticObjectMethodV(null, null, "test/x->f()V", null));
         assertEquals(0, jni.getIntField(null, null, "test/x->g()I"));
+        assertEquals((char) 0, jni.getCharField(null, null, "test/x->getCharField"));
+        assertEquals((short) 0, jni.getShortField(null, null, "test/x->getShortField"));
+        assertEquals(0d, jni.getDoubleField(null, null, "test/x->getDoubleField"), 0);
+        assertEquals((char) 0, jni.getStaticCharField(null, null, "test/x->getStaticCharField"));
+        assertEquals((short) 0, jni.getStaticShortField(null, null, "test/x->getStaticShortField"));
+        assertEquals(0f, jni.getStaticFloatField(null, null, "test/x->getStaticFloatField"), 0);
+        assertEquals(0d, jni.getStaticDoubleField(null, null, "test/x->getStaticDoubleField"), 0);
+        assertEquals((byte) 0, jni.callStaticByteMethodV(null, null, "test/x->callStaticByteMethodV", null));
+        assertEquals((char) 0, jni.callStaticCharMethodV(null, null, "test/x->callStaticCharMethodV", null));
+        assertEquals((short) 0, jni.callStaticShortMethodV(null, null, "test/x->callStaticShortMethodV", null));
+        assertEquals(0f, jni.callStaticFloatMethodV(null, null, "test/x->callStaticFloatMethodV", null), 0);
+        assertEquals(0d, jni.callStaticDoubleMethodV(null, null, "test/x->callStaticDoubleMethodV", null), 0);
+        assertEquals(0d, jni.callDoubleMethodV(null, null, "test/x->callDoubleMethodV", null), 0);
         // void/写操作静默通过
         jni.callStaticVoidMethodV(null, null, "test/x->h()V", null);
         jni.setIntField(null, null, "test/x->i()V", 42);

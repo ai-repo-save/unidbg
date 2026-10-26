@@ -53,8 +53,10 @@ final class PrimitiveJniSupport {
                 throw new BackendException("Unknown JNI method: receiver=" + receiver + ", id=" + id);
             }
             VaList args = new JValueList(vm, context.getPointerArg(3), method);
-            log.debug("event=jni_primitive_method_a_started method={} receiver={} static={} type={} args={} lr={}",
-                    method, receiver, isStatic, type, args.formatArgs(), context.getLRPointer());
+            if (log.isDebugEnabled()) {
+                log.debug("event=jni_primitive_method_a_started method={} receiver={} static={} type={} args={} lr={}",
+                        method, receiver, isStatic, type, args.formatArgs(), context.getLRPointer());
+            }
             Number value = call(method, object, args, type, isStatic);
             log.debug("event=jni_primitive_method_a_completed method={} value={}", method, value);
             if (vm.verbose || vm.verboseMethodOperation) {

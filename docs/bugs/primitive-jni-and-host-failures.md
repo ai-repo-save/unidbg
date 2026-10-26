@@ -29,7 +29,7 @@ unidbg `0.12.0` 的真实 ARM64 JNI 重放出现以下结果：
 
 `0.13.0` 统一实现八种 primitive 的实例/静态字段读取与 MethodA，共 32 个槽位。共享 PrimitiveJniSupport 承担槽位查找、jvalue 解析、类级/VM 级 Jni 分派和返回寄存器编码，双架构 VM 使用同一实现。
 
-补充 Jni 的正式 metadata/signature 重载：实例 char/short/double 字段，静态 char/short/float/double 字段，实例 double V 方法及静态 byte/char/short/float/double V 方法。A 入口在底座内部使用既有 VaList/JValueList 参数抽象，不改变消费者调用的 JNI 槽位。AbstractJni、JniFunction 与 proxy 同步实现这些成员。新增公开接口使用 MINOR 版本，直接实现 Jni 的调用方重新实现新增成员并编译。
+补充 Jni 的正式 metadata/signature 重载：实例 char/short/double 字段，静态 char/short/float/double 字段，实例 double V 方法及静态 byte/char/short/float/double V 方法。A 入口在底座内部使用既有 VaList/JValueList 参数抽象，不改变消费者调用的 JNI 槽位。AbstractJni、JniFunction、FallbackJni 与 proxy 同步实现这些成员。显式使用 FallbackJni 的调用方继续获得聚合 WARN 和类型化默认值；标准 proxy 与 AbstractJni 不启用这种回退策略。新增公开接口使用 MINOR 版本，直接实现 Jni 的调用方重新实现新增成员并编译。
 
 ARM64 的 float/double 写入 Q0；ARM32 的 float 写入 r0 位表示，double/long 写入 r0:r1。jchar 读取无符号 16 位，jbyte 保留有符号值。
 

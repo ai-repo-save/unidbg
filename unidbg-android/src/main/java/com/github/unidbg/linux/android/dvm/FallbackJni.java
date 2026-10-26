@@ -24,7 +24,7 @@ public class FallbackJni extends AbstractJni {
 
     private static void warnFallback(String kind, String signature) {
         if (WARNED.add(kind + "|" + signature)) {
-            log.warn("[FallbackJni] 未覆写的 {} -> {} 返回类型默认值(此签名仅警告一次)", kind, signature);
+            log.warn("event=jni_fallback kind={} signature={} result=typed_default", kind, signature);
         }
     }
 
@@ -442,4 +442,134 @@ public class FallbackJni extends AbstractJni {
         }
     }
 
+
+    @Override
+    public char getCharField(BaseVM vm, DvmObject<?> dvmObject, String signature) {
+        try {
+            return super.getCharField(vm, dvmObject, signature);
+        } catch (UnsupportedOperationException | IllegalStateException e) {
+            warnFallback("getCharField", signature);
+            return (char) 0;
+        }
+    }
+
+    @Override
+    public short getShortField(BaseVM vm, DvmObject<?> dvmObject, String signature) {
+        try {
+            return super.getShortField(vm, dvmObject, signature);
+        } catch (UnsupportedOperationException | IllegalStateException e) {
+            warnFallback("getShortField", signature);
+            return (short) 0;
+        }
+    }
+
+    @Override
+    public double getDoubleField(BaseVM vm, DvmObject<?> dvmObject, String signature) {
+        try {
+            return super.getDoubleField(vm, dvmObject, signature);
+        } catch (UnsupportedOperationException | IllegalStateException e) {
+            warnFallback("getDoubleField", signature);
+            return 0d;
+        }
+    }
+
+    @Override
+    public char getStaticCharField(BaseVM vm, DvmClass dvmClass, String signature) {
+        try {
+            return super.getStaticCharField(vm, dvmClass, signature);
+        } catch (UnsupportedOperationException | IllegalStateException e) {
+            warnFallback("getStaticCharField", signature);
+            return (char) 0;
+        }
+    }
+
+    @Override
+    public short getStaticShortField(BaseVM vm, DvmClass dvmClass, String signature) {
+        try {
+            return super.getStaticShortField(vm, dvmClass, signature);
+        } catch (UnsupportedOperationException | IllegalStateException e) {
+            warnFallback("getStaticShortField", signature);
+            return (short) 0;
+        }
+    }
+
+    @Override
+    public float getStaticFloatField(BaseVM vm, DvmClass dvmClass, String signature) {
+        try {
+            return super.getStaticFloatField(vm, dvmClass, signature);
+        } catch (UnsupportedOperationException | IllegalStateException e) {
+            warnFallback("getStaticFloatField", signature);
+            return 0f;
+        }
+    }
+
+    @Override
+    public double getStaticDoubleField(BaseVM vm, DvmClass dvmClass, String signature) {
+        try {
+            return super.getStaticDoubleField(vm, dvmClass, signature);
+        } catch (UnsupportedOperationException | IllegalStateException e) {
+            warnFallback("getStaticDoubleField", signature);
+            return 0d;
+        }
+    }
+
+    @Override
+    public byte callStaticByteMethodV(BaseVM vm, DvmClass dvmClass, String signature, VaList vaList) {
+        try {
+            return super.callStaticByteMethodV(vm, dvmClass, signature, vaList);
+        } catch (UnsupportedOperationException | IllegalStateException e) {
+            warnFallback("callStaticByteMethodV", signature);
+            return (byte) 0;
+        }
+    }
+
+    @Override
+    public char callStaticCharMethodV(BaseVM vm, DvmClass dvmClass, String signature, VaList vaList) {
+        try {
+            return super.callStaticCharMethodV(vm, dvmClass, signature, vaList);
+        } catch (UnsupportedOperationException | IllegalStateException e) {
+            warnFallback("callStaticCharMethodV", signature);
+            return (char) 0;
+        }
+    }
+
+    @Override
+    public short callStaticShortMethodV(BaseVM vm, DvmClass dvmClass, String signature, VaList vaList) {
+        try {
+            return super.callStaticShortMethodV(vm, dvmClass, signature, vaList);
+        } catch (UnsupportedOperationException | IllegalStateException e) {
+            warnFallback("callStaticShortMethodV", signature);
+            return (short) 0;
+        }
+    }
+
+    @Override
+    public float callStaticFloatMethodV(BaseVM vm, DvmClass dvmClass, String signature, VaList vaList) {
+        try {
+            return super.callStaticFloatMethodV(vm, dvmClass, signature, vaList);
+        } catch (UnsupportedOperationException | IllegalStateException e) {
+            warnFallback("callStaticFloatMethodV", signature);
+            return 0f;
+        }
+    }
+
+    @Override
+    public double callStaticDoubleMethodV(BaseVM vm, DvmClass dvmClass, String signature, VaList vaList) {
+        try {
+            return super.callStaticDoubleMethodV(vm, dvmClass, signature, vaList);
+        } catch (UnsupportedOperationException | IllegalStateException e) {
+            warnFallback("callStaticDoubleMethodV", signature);
+            return 0d;
+        }
+    }
+
+    @Override
+    public double callDoubleMethodV(BaseVM vm, DvmObject<?> dvmObject, String signature, VaList vaList) {
+        try {
+            return super.callDoubleMethodV(vm, dvmObject, signature, vaList);
+        } catch (UnsupportedOperationException | IllegalStateException e) {
+            warnFallback("callDoubleMethodV", signature);
+            return 0d;
+        }
+    }
 }

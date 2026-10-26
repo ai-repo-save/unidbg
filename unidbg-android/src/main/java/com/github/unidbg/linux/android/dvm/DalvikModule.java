@@ -39,7 +39,7 @@ public class DalvikModule {
      * @param emulator emulator owning this VM
      * @return the JNI version returned by JNI_OnLoad, after VM version validation
      * @throws IllegalStateException if this module does not export JNI_OnLoad or returns an unsupported JNI version
-     * @since 0.10.1
+     * @since 0.11.0
      */
     public int callJNI_OnLoadWithResult(Emulator<?> emulator) {
         Symbol onLoad = module.findSymbolByName("JNI_OnLoad", false);

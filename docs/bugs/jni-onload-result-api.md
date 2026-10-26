@@ -14,7 +14,7 @@ Maven Central 的 [unidbg-android 元数据](https://repo.maven.apache.org/maven
 
 [JNI Invocation API 的 JNI_OnLoad 规范](https://docs.oracle.com/en/java/javase/21/docs/specs/jni/invocation.html#jni_onload) 规定，函数返回其所需 JNI 版本，未知版本代表装载失败。unidbg 的现有校验接受 `JNI_VERSION_1_1`、`1_2`、`1_4`、`1_6` 和 `1_8`。
 
-fork `0.10.1` 增加：
+fork `0.11.0` 增加：
 
 ```java
 public int callJNI_OnLoadWithResult(Emulator<?> emulator);
@@ -24,7 +24,7 @@ public int callJNI_OnLoadWithResult(Emulator<?> emulator);
 
 新方法要求模块导出 `JNI_OnLoad`。缺符号时按 `Module.callFunction` 的既有约定抛 `IllegalStateException`，此时尚未进入 JNI 调用，不清理局部引用。`0` 既不是缺符号占位值，也不是成功版本。需要可选初始化的调用方可继续使用原 `void` 方法；它在缺符号时保持 no-op，存在符号时委托新方法。
 
-父 POM、全部子模块与自依赖统一使用 `0.10.1`。原方法描述符与行为保持不变；需要新入口的消费者显式依赖 `0.10.1`。
+父 POM、全部子模块与自依赖统一使用 `0.11.0`。原方法描述符与行为保持不变；需要新入口的消费者显式依赖 `0.11.0`。
 
 ## 定向验证
 

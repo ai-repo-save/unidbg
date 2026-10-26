@@ -265,7 +265,7 @@ def main():
     parser.add_argument(
         "--repository",
         type=Path,
-        default=ROOT / "target/release-0.10.1",
+        default=ROOT / "target/release-0.11.0",
         help="Maven-layout repository under project target/ (created or reused)",
     )
     parser.add_argument(

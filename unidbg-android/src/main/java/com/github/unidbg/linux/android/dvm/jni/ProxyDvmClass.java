@@ -18,6 +18,14 @@ public class ProxyDvmClass extends DvmClass {
         }
     }
 
+    void bindHostClass(Class<?> hostClass) {
+        if (value != null && value != hostClass) {
+            throw new IllegalStateException("Conflicting host Class identity: " + getName()
+                    + ", existingLoader=" + value.getClassLoader() + ", incomingLoader=" + hostClass.getClassLoader());
+        }
+        value = hostClass;
+    }
+
     protected Jni createJni(ProxyClassLoader classLoader, ProxyDvmObjectVisitor visitor, Jni fallbackJni) {
         return new ProxyJni(classLoader, visitor, fallbackJni);
     }

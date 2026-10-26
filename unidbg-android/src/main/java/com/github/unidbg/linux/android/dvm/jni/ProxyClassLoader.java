@@ -1,5 +1,7 @@
 package com.github.unidbg.linux.android.dvm.jni;
 
+import org.apache.commons.lang3.ClassUtils;
+
 public class ProxyClassLoader {
 
     private final ClassLoader classLoader;
@@ -19,7 +21,11 @@ public class ProxyClassLoader {
         if (newClass != null) {
             return newClass;
         }
-        return classLoader.loadClass(name);
+        Class<?> resolved = ClassUtils.getClassStrict(classLoader, name, false);
+        if (!resolved.getName().equals(name)) {
+            throw new ClassNotFoundException(name);
+        }
+        return resolved;
     }
 
 }

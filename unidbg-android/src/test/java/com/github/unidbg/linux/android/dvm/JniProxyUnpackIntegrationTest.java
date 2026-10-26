@@ -66,6 +66,7 @@ public class JniProxyUnpackIntegrationTest {
                     assertSame(shared, original[1]);
                     assertSame(original, ProxyDvmObject.unpack(vm.getObject(array)));
                     primitiveArrays(emulator, vm, env, table, width, data);
+                    classes(emulator, vm, env, table, width, data, type, method);
 
                 } finally {
                     block.free();
@@ -90,6 +91,8 @@ public class JniProxyUnpackIntegrationTest {
             data.setString(0, descriptors[kind]);
             int clazz = invoke(emulator, table, width, 6, env, data).intValue();
             assertEquals(VM.JNI_TRUE, invoke(emulator, table, width, 32, env, handle, clazz).intValue());
+            int actualClass = invoke(emulator, table, width, 31, env, handle).intValue();
+            assertSame(initial[kind].getClass(), ProxyDvmObject.unpack(vm.getObject(actualClass)));
             Pointer buffer = data.share(128), isCopy = data.share(96);
             byte[] expectedRegion = bytes(initial[kind]);
             invoke(emulator, table, width, 199 + offset, env, handle, 0, 3, buffer);
@@ -154,6 +157,34 @@ public class JniProxyUnpackIntegrationTest {
             pending = invoke(emulator, table, width, 15, env).intValue();
             assertEquals(NegativeArraySizeException.class, ProxyDvmObject.unpack(vm.getObject(pending)).getClass());
             invoke(emulator, table, width, 17, env);
+        }
+    }
+
+    private static void classes(AndroidEmulator emulator, VM vm, Pointer env, Pointer table, int width,
+                                Pointer data, int roundTripClass, int roundTripMethod) {
+        Class<?>[] expectedClasses = {boolean.class, byte.class, char.class, short.class, int.class,
+                long.class, float.class, double.class, void.class, boolean[].class, char[].class,
+                long[].class, long[][].class, String[].class, String.class};
+        for (Class<?> expected : expectedClasses) {
+            int input = vm.addLocalObject(ProxyDvmObject.createObject(vm, expected));
+            int result = invoke(emulator, table, width, 114, env, roundTripClass, roundTripMethod, input).intValue();
+            assertSame(expected, ProxyDvmObject.unpack(vm.getObject(result)));
+        }
+        int integers = vm.addLocalObject(vm.resolveClass("java/lang/Integer"));
+        data.setString(0, "TYPE");
+        data.setString(64, "Ljava/lang/Class;");
+        int field = invoke(emulator, table, width, 144, env, integers, data, data.share(64)).intValue();
+        int primitiveClass = invoke(emulator, table, width, 145, env, integers, field).intValue();
+        assertSame(int.class, ProxyDvmObject.unpack(vm.getObject(primitiveClass)));
+        int classType = vm.addLocalObject(vm.resolveClass("java/lang/Class"));
+        data.setString(0, "forName");
+        data.setString(64, "(Ljava/lang/String;)Ljava/lang/Class;");
+        int forName = invoke(emulator, table, width, 113, env, classType, data, data.share(64)).intValue();
+        Class<?>[] lookups = {long[].class, long[][].class, String[].class, String.class};
+        for (Class<?> expected : lookups) {
+            int name = vm.addLocalObject(ProxyDvmObject.createObject(vm, expected.getName()));
+            int result = invoke(emulator, table, width, 114, env, classType, forName, name).intValue();
+            assertSame(expected, ProxyDvmObject.unpack(vm.getObject(result)));
         }
     }
 

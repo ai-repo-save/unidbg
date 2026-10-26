@@ -20,7 +20,7 @@ public static Object ProxyDvmObject.unpack(DvmObject<?> dvmObject);
 
 - null 输入返回 null。
 - proxy 对象数组返回原始宿主 backing array，保留数组类型、空元素和引用身份。
-- proxy Class 返回原宿主 Class；VM 必须使用既有 `ProxyClassFactory` 创建带宿主值的 `ProxyDvmClass`。
+- proxy Class 返回原宿主 Class；`0.13.0` 完整覆盖 primitive、array 与普通 Class。VM 使用 `ProxyClassFactory` 创建并绑定真实宿主 Class 的 `ProxyDvmClass`。
 - 缺少宿主值的 wrapper 按既有合同抛 `UnsupportedOperationException`，不猜测对应 Class 或修补元数据。
 - 普通 DVM 数组沿用既有转换规则，不声明拥有 proxy backing array 的身份保证。
 - 方法不新增或清理 VM 引用，不转移宿主对象或 VM 的所有权。取得的宿主引用遵循正常 Java 引用生命周期。

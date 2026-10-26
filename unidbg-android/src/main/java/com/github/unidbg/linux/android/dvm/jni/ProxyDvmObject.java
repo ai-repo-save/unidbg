@@ -26,7 +26,11 @@ public class ProxyDvmObject extends DvmObject<Object> {
         for (Class<?> cc : clazz.getInterfaces()) {
             interfaces[i++] = getObjectType(vm, cc);
         }
-        return vm.resolveClass(clazz.getName().replace('.', '/'), interfaces);
+        DvmClass type = vm.resolveClass(clazz.getName().replace('.', '/'), interfaces);
+        if (type instanceof ProxyDvmClass) {
+            ((ProxyDvmClass) type).bindHostClass(clazz);
+        }
+        return type;
     }
 
     /**

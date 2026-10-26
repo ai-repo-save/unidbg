@@ -374,4 +374,88 @@ class ProxyFieldJni extends JniFunction {
         }
         super.setStaticDoubleField(vm, dvmClass, dvmField, value);
     }
+
+    @Override
+    public char getCharField(BaseVM vm, DvmObject<?> dvmObject, DvmField dvmField) {
+        try {
+            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType().getName());
+            ProxyField field = ProxyUtils.findField(clazz, dvmField, visitor);
+            return field.getChar(dvmObject.getValue());
+        } catch (ClassNotFoundException | NoSuchFieldException | IllegalAccessException e) {
+            log.warn("getCharField: {}", dvmField, e);
+        }
+        return super.getCharField(vm, dvmObject, dvmField);
+    }
+
+    @Override
+    public short getShortField(BaseVM vm, DvmObject<?> dvmObject, DvmField dvmField) {
+        try {
+            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType().getName());
+            ProxyField field = ProxyUtils.findField(clazz, dvmField, visitor);
+            return field.getShort(dvmObject.getValue());
+        } catch (ClassNotFoundException | NoSuchFieldException | IllegalAccessException e) {
+            log.warn("getShortField: {}", dvmField, e);
+        }
+        return super.getShortField(vm, dvmObject, dvmField);
+    }
+
+    @Override
+    public double getDoubleField(BaseVM vm, DvmObject<?> dvmObject, DvmField dvmField) {
+        try {
+            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType().getName());
+            ProxyField field = ProxyUtils.findField(clazz, dvmField, visitor);
+            return field.getDouble(dvmObject.getValue());
+        } catch (ClassNotFoundException | NoSuchFieldException | IllegalAccessException e) {
+            log.warn("getDoubleField: {}", dvmField, e);
+        }
+        return super.getDoubleField(vm, dvmObject, dvmField);
+    }
+
+    @Override
+    public char getStaticCharField(BaseVM vm, DvmClass dvmClass, DvmField dvmField) {
+        try {
+            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            ProxyField field = ProxyUtils.findField(clazz, dvmField, visitor);
+            return field.getChar(null);
+        } catch (ClassNotFoundException | NoSuchFieldException | IllegalAccessException e) {
+            log.warn("getStaticCharField: {}", dvmField, e);
+        }
+        return super.getStaticCharField(vm, dvmClass, dvmField);
+    }
+
+    @Override
+    public short getStaticShortField(BaseVM vm, DvmClass dvmClass, DvmField dvmField) {
+        try {
+            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            ProxyField field = ProxyUtils.findField(clazz, dvmField, visitor);
+            return field.getShort(null);
+        } catch (ClassNotFoundException | NoSuchFieldException | IllegalAccessException e) {
+            log.warn("getStaticShortField: {}", dvmField, e);
+        }
+        return super.getStaticShortField(vm, dvmClass, dvmField);
+    }
+
+    @Override
+    public float getStaticFloatField(BaseVM vm, DvmClass dvmClass, DvmField dvmField) {
+        try {
+            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            ProxyField field = ProxyUtils.findField(clazz, dvmField, visitor);
+            return field.getFloat(null);
+        } catch (ClassNotFoundException | NoSuchFieldException | IllegalAccessException e) {
+            log.warn("getStaticFloatField: {}", dvmField, e);
+        }
+        return super.getStaticFloatField(vm, dvmClass, dvmField);
+    }
+
+    @Override
+    public double getStaticDoubleField(BaseVM vm, DvmClass dvmClass, DvmField dvmField) {
+        try {
+            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            ProxyField field = ProxyUtils.findField(clazz, dvmField, visitor);
+            return field.getDouble(null);
+        } catch (ClassNotFoundException | NoSuchFieldException | IllegalAccessException e) {
+            log.warn("getStaticDoubleField: {}", dvmField, e);
+        }
+        return super.getStaticDoubleField(vm, dvmClass, dvmField);
+    }
 }

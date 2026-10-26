@@ -230,4 +230,39 @@ public class DvmField extends Hashable {
     public String toString() {
         return getSignature();
     }
+
+    char getCharField(DvmObject<?> dvmObject) {
+        BaseVM vm = dvmClass.vm;
+        return checkJni(vm, dvmClass).getCharField(vm, dvmObject, this);
+    }
+
+    short getShortField(DvmObject<?> dvmObject) {
+        BaseVM vm = dvmClass.vm;
+        return checkJni(vm, dvmClass).getShortField(vm, dvmObject, this);
+    }
+
+    double getDoubleField(DvmObject<?> dvmObject) {
+        BaseVM vm = dvmClass.vm;
+        return checkJni(vm, dvmClass).getDoubleField(vm, dvmObject, this);
+    }
+
+    char getStaticCharField() {
+        BaseVM vm = dvmClass.vm;
+        return checkJni(vm, dvmClass).getStaticCharField(vm, dvmClass, this);
+    }
+
+    short getStaticShortField() {
+        BaseVM vm = dvmClass.vm;
+        return checkJni(vm, dvmClass).getStaticShortField(vm, dvmClass, this);
+    }
+
+    float getStaticFloatField() {
+        BaseVM vm = dvmClass.vm;
+        return checkJni(vm, dvmClass).getStaticFloatField(vm, dvmClass, this);
+    }
+
+    double getStaticDoubleField() {
+        BaseVM vm = dvmClass.vm;
+        return checkJni(vm, dvmClass).getStaticDoubleField(vm, dvmClass, this);
+    }
 }

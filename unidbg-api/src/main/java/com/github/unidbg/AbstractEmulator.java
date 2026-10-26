@@ -388,8 +388,9 @@ public abstract class AbstractEmulator<T extends NewFileIO> implements Emulator<
             return null;
         } catch (PopContextException e) {
             throw e;
-        } catch (RuntimeException e) {
-            return handleEmuException(e, pointer, start);
+        } catch (RuntimeException | Error e) {
+            handleEmuException(e, pointer, start);
+            throw e;
         } finally {
             if (exitHook != null) {
                 Runtime.getRuntime().removeShutdownHook(exitHook);
@@ -400,21 +401,12 @@ public abstract class AbstractEmulator<T extends NewFileIO> implements Emulator<
         }
     }
 
-    private int handleEmuException(RuntimeException e, Pointer pointer, long start) {
-        boolean enterDebug = log.isDebugEnabled();
-        if (enterDebug || !log.isWarnEnabled()) {
-            e.printStackTrace(System.out);
-            attach().debug("Emulation exception: " + (e.getMessage() != null ? e.getMessage() : e.getClass().getName()));
-        } else {
-            String msg = e.getMessage();
-            if (msg == null) {
-                msg = e.getClass().getName();
-            }
-            RunnableTask runningTask = threadDispatcher.getRunningTask();
-            log.warn("emulate {} exception sp={}, msg={}, offset={}ms{}", pointer, getStackPointer(), msg, System.currentTimeMillis() - start,
-                    runningTask == null ? "" : (" @ " + runningTask));
+    private void handleEmuException(Throwable failure, Pointer pointer, long start) {
+        log.error("event=emulation_failed address={} sp={} elapsed_ms={} task={}", pointer, getStackPointer(),
+                System.currentTimeMillis() - start, threadDispatcher.getRunningTask(), failure);
+        if (log.isDebugEnabled()) {
+            attach().debug("Emulation exception: " + failure);
         }
-        return -1;
     }
 
     public abstract Pointer getStackPointer();

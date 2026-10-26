@@ -120,4 +120,37 @@ class ProxyField {
         field.setLong(thisObj, value);
     }
 
+
+    final char getChar(Object thisObj) throws IllegalAccessException {
+        if (visitor != null) {
+            visitor.onProxyVisit(field, thisObj, null);
+        }
+        char result = field.getChar(thisObj);
+        if (visitor != null) {
+            result = visitor.postProxyVisit(field, thisObj, null, result);
+        }
+        return result;
+    }
+
+    final short getShort(Object thisObj) throws IllegalAccessException {
+        if (visitor != null) {
+            visitor.onProxyVisit(field, thisObj, null);
+        }
+        short result = field.getShort(thisObj);
+        if (visitor != null) {
+            result = visitor.postProxyVisit(field, thisObj, null, result);
+        }
+        return result;
+    }
+
+    final double getDouble(Object thisObj) throws IllegalAccessException {
+        if (visitor != null) {
+            visitor.onProxyVisit(field, thisObj, null);
+        }
+        double result = field.getDouble(thisObj);
+        if (visitor != null) {
+            result = visitor.postProxyVisit(field, thisObj, null, result);
+        }
+        return result;
+    }
 }

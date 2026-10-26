@@ -167,4 +167,43 @@ public interface Jni {
     char callCharMethodV(BaseVM vm, DvmObject<?> dvmObject, DvmMethod dvmMethod, VaList vaList);
     char callCharMethodV(BaseVM vm, DvmObject<?> dvmObject, String signature, VaList vaList);
 
+
+    char getCharField(BaseVM vm, DvmObject<?> dvmObject, DvmField dvmField);
+    char getCharField(BaseVM vm, DvmObject<?> dvmObject, String signature);
+
+    short getShortField(BaseVM vm, DvmObject<?> dvmObject, DvmField dvmField);
+    short getShortField(BaseVM vm, DvmObject<?> dvmObject, String signature);
+
+    double getDoubleField(BaseVM vm, DvmObject<?> dvmObject, DvmField dvmField);
+    double getDoubleField(BaseVM vm, DvmObject<?> dvmObject, String signature);
+
+    char getStaticCharField(BaseVM vm, DvmClass dvmClass, DvmField dvmField);
+    char getStaticCharField(BaseVM vm, DvmClass dvmClass, String signature);
+
+    short getStaticShortField(BaseVM vm, DvmClass dvmClass, DvmField dvmField);
+    short getStaticShortField(BaseVM vm, DvmClass dvmClass, String signature);
+
+    float getStaticFloatField(BaseVM vm, DvmClass dvmClass, DvmField dvmField);
+    float getStaticFloatField(BaseVM vm, DvmClass dvmClass, String signature);
+
+    double getStaticDoubleField(BaseVM vm, DvmClass dvmClass, DvmField dvmField);
+    double getStaticDoubleField(BaseVM vm, DvmClass dvmClass, String signature);
+
+    byte callStaticByteMethodV(BaseVM vm, DvmClass dvmClass, DvmMethod dvmMethod, VaList vaList);
+    byte callStaticByteMethodV(BaseVM vm, DvmClass dvmClass, String signature, VaList vaList);
+
+    char callStaticCharMethodV(BaseVM vm, DvmClass dvmClass, DvmMethod dvmMethod, VaList vaList);
+    char callStaticCharMethodV(BaseVM vm, DvmClass dvmClass, String signature, VaList vaList);
+
+    short callStaticShortMethodV(BaseVM vm, DvmClass dvmClass, DvmMethod dvmMethod, VaList vaList);
+    short callStaticShortMethodV(BaseVM vm, DvmClass dvmClass, String signature, VaList vaList);
+
+    float callStaticFloatMethodV(BaseVM vm, DvmClass dvmClass, DvmMethod dvmMethod, VaList vaList);
+    float callStaticFloatMethodV(BaseVM vm, DvmClass dvmClass, String signature, VaList vaList);
+
+    double callStaticDoubleMethodV(BaseVM vm, DvmClass dvmClass, DvmMethod dvmMethod, VaList vaList);
+    double callStaticDoubleMethodV(BaseVM vm, DvmClass dvmClass, String signature, VaList vaList);
+
+    double callDoubleMethodV(BaseVM vm, DvmObject<?> dvmObject, DvmMethod dvmMethod, VaList vaList);
+    double callDoubleMethodV(BaseVM vm, DvmObject<?> dvmObject, String signature, VaList vaList);
 }

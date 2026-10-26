@@ -283,4 +283,79 @@ public class ProxyJni extends ProxyInstanceJni {
         return super.toReflectedMethod(vm, dvmClass, dvmMethod);
     }
 
+
+    @Override
+    public byte callStaticByteMethodV(BaseVM vm, DvmClass dvmClass, DvmMethod dvmMethod, VaList vaList) {
+        try {
+            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            ProxyCall proxyCall = ProxyUtils.findMethod(clazz, dvmMethod, vaList, true, visitor);
+            return (Byte) proxyCall.call(vm, null);
+        } catch (InvocationTargetException e) {
+            pendingException(vm, e);
+            return 0;
+        } catch (ClassNotFoundException | IllegalAccessException | InstantiationException | NoSuchMethodException e) {
+            log.warn("callStaticByteMethodV", e);
+        }
+        return super.callStaticByteMethodV(vm, dvmClass, dvmMethod, vaList);
+    }
+
+    @Override
+    public char callStaticCharMethodV(BaseVM vm, DvmClass dvmClass, DvmMethod dvmMethod, VaList vaList) {
+        try {
+            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            ProxyCall proxyCall = ProxyUtils.findMethod(clazz, dvmMethod, vaList, true, visitor);
+            return (Character) proxyCall.call(vm, null);
+        } catch (InvocationTargetException e) {
+            pendingException(vm, e);
+            return 0;
+        } catch (ClassNotFoundException | IllegalAccessException | InstantiationException | NoSuchMethodException e) {
+            log.warn("callStaticCharMethodV", e);
+        }
+        return super.callStaticCharMethodV(vm, dvmClass, dvmMethod, vaList);
+    }
+
+    @Override
+    public short callStaticShortMethodV(BaseVM vm, DvmClass dvmClass, DvmMethod dvmMethod, VaList vaList) {
+        try {
+            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            ProxyCall proxyCall = ProxyUtils.findMethod(clazz, dvmMethod, vaList, true, visitor);
+            return (Short) proxyCall.call(vm, null);
+        } catch (InvocationTargetException e) {
+            pendingException(vm, e);
+            return 0;
+        } catch (ClassNotFoundException | IllegalAccessException | InstantiationException | NoSuchMethodException e) {
+            log.warn("callStaticShortMethodV", e);
+        }
+        return super.callStaticShortMethodV(vm, dvmClass, dvmMethod, vaList);
+    }
+
+    @Override
+    public float callStaticFloatMethodV(BaseVM vm, DvmClass dvmClass, DvmMethod dvmMethod, VaList vaList) {
+        try {
+            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            ProxyCall proxyCall = ProxyUtils.findMethod(clazz, dvmMethod, vaList, true, visitor);
+            return (Float) proxyCall.call(vm, null);
+        } catch (InvocationTargetException e) {
+            pendingException(vm, e);
+            return 0;
+        } catch (ClassNotFoundException | IllegalAccessException | InstantiationException | NoSuchMethodException e) {
+            log.warn("callStaticFloatMethodV", e);
+        }
+        return super.callStaticFloatMethodV(vm, dvmClass, dvmMethod, vaList);
+    }
+
+    @Override
+    public double callStaticDoubleMethodV(BaseVM vm, DvmClass dvmClass, DvmMethod dvmMethod, VaList vaList) {
+        try {
+            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            ProxyCall proxyCall = ProxyUtils.findMethod(clazz, dvmMethod, vaList, true, visitor);
+            return (Double) proxyCall.call(vm, null);
+        } catch (InvocationTargetException e) {
+            pendingException(vm, e);
+            return 0;
+        } catch (ClassNotFoundException | IllegalAccessException | InstantiationException | NoSuchMethodException e) {
+            log.warn("callStaticDoubleMethodV", e);
+        }
+        return super.callStaticDoubleMethodV(vm, dvmClass, dvmMethod, vaList);
+    }
 }

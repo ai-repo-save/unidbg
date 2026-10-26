@@ -33,6 +33,9 @@
 !/docs/bugs/jdk-reflection-access.md
 !/docs/bugs/jni-onload-result-api.md
 !/docs/bugs/proxy-host-value-api.md
+!/docs/bugs/primitive-jni-and-host-failures.md
+!/unidbg-android/src/main/java/com/github/unidbg/linux/android/dvm/PrimitiveJniSupport.java
+!/unidbg-android/src/test/java/com/github/unidbg/linux/android/dvm/JniPrimitiveIntegrationTest.java
 !/unidbg-android/src/test/java/com/github/unidbg/linux/android/dvm/JniProxyUnpackIntegrationTest.java
 !/unidbg-android/src/test/java/com/github/unidbg/linux/android/dvm/JniOnLoadResultIntegrationTest.java
 !/unidbg-android/src/test/java/com/github/unidbg/linux/android/dvm/JniProxyReflectionAccessIntegrationTest.java

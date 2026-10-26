@@ -766,4 +766,173 @@ public abstract class JniFunction implements Jni {
     public boolean acceptField(DvmClass dvmClass, String signature, boolean isStatic) {
         return true;
     }
+
+    @Override
+    public char getCharField(BaseVM vm, DvmObject<?> dvmObject, DvmField dvmField) {
+        return getCharField(vm, dvmObject, dvmField.getSignature());
+    }
+
+    @Override
+    public char getCharField(BaseVM vm, DvmObject<?> dvmObject, String signature) {
+        if (fallbackJni == null) {
+            throw new UnsupportedOperationException(signature);
+        }
+        return fallbackJni.getCharField(vm, dvmObject, signature);
+    }
+
+    @Override
+    public short getShortField(BaseVM vm, DvmObject<?> dvmObject, DvmField dvmField) {
+        return getShortField(vm, dvmObject, dvmField.getSignature());
+    }
+
+    @Override
+    public short getShortField(BaseVM vm, DvmObject<?> dvmObject, String signature) {
+        if (fallbackJni == null) {
+            throw new UnsupportedOperationException(signature);
+        }
+        return fallbackJni.getShortField(vm, dvmObject, signature);
+    }
+
+    @Override
+    public double getDoubleField(BaseVM vm, DvmObject<?> dvmObject, DvmField dvmField) {
+        return getDoubleField(vm, dvmObject, dvmField.getSignature());
+    }
+
+    @Override
+    public double getDoubleField(BaseVM vm, DvmObject<?> dvmObject, String signature) {
+        if (fallbackJni == null) {
+            throw new UnsupportedOperationException(signature);
+        }
+        return fallbackJni.getDoubleField(vm, dvmObject, signature);
+    }
+
+    @Override
+    public char getStaticCharField(BaseVM vm, DvmClass dvmClass, DvmField dvmField) {
+        return getStaticCharField(vm, dvmClass, dvmField.getSignature());
+    }
+
+    @Override
+    public char getStaticCharField(BaseVM vm, DvmClass dvmClass, String signature) {
+        if (fallbackJni == null) {
+            throw new UnsupportedOperationException(signature);
+        }
+        return fallbackJni.getStaticCharField(vm, dvmClass, signature);
+    }
+
+    @Override
+    public short getStaticShortField(BaseVM vm, DvmClass dvmClass, DvmField dvmField) {
+        return getStaticShortField(vm, dvmClass, dvmField.getSignature());
+    }
+
+    @Override
+    public short getStaticShortField(BaseVM vm, DvmClass dvmClass, String signature) {
+        if (fallbackJni == null) {
+            throw new UnsupportedOperationException(signature);
+        }
+        return fallbackJni.getStaticShortField(vm, dvmClass, signature);
+    }
+
+    @Override
+    public float getStaticFloatField(BaseVM vm, DvmClass dvmClass, DvmField dvmField) {
+        return getStaticFloatField(vm, dvmClass, dvmField.getSignature());
+    }
+
+    @Override
+    public float getStaticFloatField(BaseVM vm, DvmClass dvmClass, String signature) {
+        if (fallbackJni == null) {
+            throw new UnsupportedOperationException(signature);
+        }
+        return fallbackJni.getStaticFloatField(vm, dvmClass, signature);
+    }
+
+    @Override
+    public double getStaticDoubleField(BaseVM vm, DvmClass dvmClass, DvmField dvmField) {
+        return getStaticDoubleField(vm, dvmClass, dvmField.getSignature());
+    }
+
+    @Override
+    public double getStaticDoubleField(BaseVM vm, DvmClass dvmClass, String signature) {
+        if (fallbackJni == null) {
+            throw new UnsupportedOperationException(signature);
+        }
+        return fallbackJni.getStaticDoubleField(vm, dvmClass, signature);
+    }
+
+    @Override
+    public byte callStaticByteMethodV(BaseVM vm, DvmClass dvmClass, DvmMethod dvmMethod, VaList vaList) {
+        return callStaticByteMethodV(vm, dvmClass, dvmMethod.getSignature(), vaList);
+    }
+
+    @Override
+    public byte callStaticByteMethodV(BaseVM vm, DvmClass dvmClass, String signature, VaList vaList) {
+        if (fallbackJni == null) {
+            throw new UnsupportedOperationException(signature);
+        }
+        return fallbackJni.callStaticByteMethodV(vm, dvmClass, signature, vaList);
+    }
+
+    @Override
+    public char callStaticCharMethodV(BaseVM vm, DvmClass dvmClass, DvmMethod dvmMethod, VaList vaList) {
+        return callStaticCharMethodV(vm, dvmClass, dvmMethod.getSignature(), vaList);
+    }
+
+    @Override
+    public char callStaticCharMethodV(BaseVM vm, DvmClass dvmClass, String signature, VaList vaList) {
+        if (fallbackJni == null) {
+            throw new UnsupportedOperationException(signature);
+        }
+        return fallbackJni.callStaticCharMethodV(vm, dvmClass, signature, vaList);
+    }
+
+    @Override
+    public short callStaticShortMethodV(BaseVM vm, DvmClass dvmClass, DvmMethod dvmMethod, VaList vaList) {
+        return callStaticShortMethodV(vm, dvmClass, dvmMethod.getSignature(), vaList);
+    }
+
+    @Override
+    public short callStaticShortMethodV(BaseVM vm, DvmClass dvmClass, String signature, VaList vaList) {
+        if (fallbackJni == null) {
+            throw new UnsupportedOperationException(signature);
+        }
+        return fallbackJni.callStaticShortMethodV(vm, dvmClass, signature, vaList);
+    }
+
+    @Override
+    public float callStaticFloatMethodV(BaseVM vm, DvmClass dvmClass, DvmMethod dvmMethod, VaList vaList) {
+        return callStaticFloatMethodV(vm, dvmClass, dvmMethod.getSignature(), vaList);
+    }
+
+    @Override
+    public float callStaticFloatMethodV(BaseVM vm, DvmClass dvmClass, String signature, VaList vaList) {
+        if (fallbackJni == null) {
+            throw new UnsupportedOperationException(signature);
+        }
+        return fallbackJni.callStaticFloatMethodV(vm, dvmClass, signature, vaList);
+    }
+
+    @Override
+    public double callStaticDoubleMethodV(BaseVM vm, DvmClass dvmClass, DvmMethod dvmMethod, VaList vaList) {
+        return callStaticDoubleMethodV(vm, dvmClass, dvmMethod.getSignature(), vaList);
+    }
+
+    @Override
+    public double callStaticDoubleMethodV(BaseVM vm, DvmClass dvmClass, String signature, VaList vaList) {
+        if (fallbackJni == null) {
+            throw new UnsupportedOperationException(signature);
+        }
+        return fallbackJni.callStaticDoubleMethodV(vm, dvmClass, signature, vaList);
+    }
+
+    @Override
+    public double callDoubleMethodV(BaseVM vm, DvmObject<?> dvmObject, DvmMethod dvmMethod, VaList vaList) {
+        return callDoubleMethodV(vm, dvmObject, dvmMethod.getSignature(), vaList);
+    }
+
+    @Override
+    public double callDoubleMethodV(BaseVM vm, DvmObject<?> dvmObject, String signature, VaList vaList) {
+        if (fallbackJni == null) {
+            throw new UnsupportedOperationException(signature);
+        }
+        return fallbackJni.callDoubleMethodV(vm, dvmObject, signature, vaList);
+    }
 }

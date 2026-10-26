@@ -324,4 +324,19 @@ class ProxyInstanceJni extends ProxyFieldJni {
         return super.callFloatMethodV(vm, dvmObject, dvmMethod, vaList);
     }
 
+
+    @Override
+    public double callDoubleMethodV(BaseVM vm, DvmObject<?> dvmObject, DvmMethod dvmMethod, VaList vaList) {
+        try {
+            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType().getName());
+            ProxyCall proxyCall = ProxyUtils.findMethod(clazz, dvmMethod, vaList, false, visitor);
+            return (Double) proxyCall.call(vm, dvmObject.getValue());
+        } catch (InvocationTargetException e) {
+            pendingException(vm, e);
+            return 0;
+        } catch (ClassNotFoundException | IllegalAccessException | InstantiationException | NoSuchMethodException e) {
+            log.warn("callDoubleMethodV", e);
+        }
+        return super.callDoubleMethodV(vm, dvmObject, dvmMethod, vaList);
+    }
 }

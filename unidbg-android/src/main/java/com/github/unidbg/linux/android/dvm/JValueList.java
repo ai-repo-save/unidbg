@@ -21,7 +21,7 @@ class JValueList extends VaList {
                     break;
                 case 'B': {
                     byte val = pointer.getByte(0);
-                    args.add(val & 0xff);
+                    args.add((int) val);
                     break;
                 }
                 case 'Z': {
@@ -30,7 +30,7 @@ class JValueList extends VaList {
                     break;
                 }
                 case 'C': {
-                    char val = pointer.getChar(0);
+                    char val = (char) (pointer.getShort(0) & 0xffff);
                     args.add((int) val);
                     break;
                 }

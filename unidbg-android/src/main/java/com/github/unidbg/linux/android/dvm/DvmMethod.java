@@ -325,4 +325,34 @@ public class DvmMethod extends Hashable {
     public String toString() {
         return getSignature();
     }
+
+    byte callStaticByteMethodV(VaList vaList) {
+        BaseVM vm = dvmClass.vm;
+        return checkJni(vm, dvmClass).callStaticByteMethodV(vm, dvmClass, this, vaList);
+    }
+
+    char callStaticCharMethodV(VaList vaList) {
+        BaseVM vm = dvmClass.vm;
+        return checkJni(vm, dvmClass).callStaticCharMethodV(vm, dvmClass, this, vaList);
+    }
+
+    short callStaticShortMethodV(VaList vaList) {
+        BaseVM vm = dvmClass.vm;
+        return checkJni(vm, dvmClass).callStaticShortMethodV(vm, dvmClass, this, vaList);
+    }
+
+    float callStaticFloatMethodV(VaList vaList) {
+        BaseVM vm = dvmClass.vm;
+        return checkJni(vm, dvmClass).callStaticFloatMethodV(vm, dvmClass, this, vaList);
+    }
+
+    double callStaticDoubleMethodV(VaList vaList) {
+        BaseVM vm = dvmClass.vm;
+        return checkJni(vm, dvmClass).callStaticDoubleMethodV(vm, dvmClass, this, vaList);
+    }
+
+    double callDoubleMethodV(DvmObject<?> dvmObject, VaList vaList) {
+        BaseVM vm = dvmClass.vm;
+        return checkJni(vm, dvmClass).callDoubleMethodV(vm, dvmObject, this, vaList);
+    }
 }

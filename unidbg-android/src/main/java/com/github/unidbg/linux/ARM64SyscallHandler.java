@@ -414,6 +414,9 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
         if (exception instanceof RuntimeException) {
             throw (RuntimeException) exception;
         }
+        if (exception instanceof Error) {
+            throw (Error) exception;
+        }
     }
 
     private static final int RLIMIT_STACK = 3; /* max stack size */

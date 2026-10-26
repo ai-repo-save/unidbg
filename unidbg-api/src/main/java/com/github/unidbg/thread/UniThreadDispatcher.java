@@ -94,7 +94,15 @@ public class UniThreadDispatcher implements ThreadDispatcher {
 
         log.debug("runMainForResult main={}", main);
 
-        Number ret = run(0, null);
+        Number ret;
+        try {
+            ret = run(0, null);
+        } catch (RuntimeException | Error failure) {
+            if (taskList.remove(main)) {
+                destroyTask(main);
+            }
+            throw failure;
+        }
         for (Iterator<Task> iterator = taskList.iterator(); iterator.hasNext(); ) {
             Task task = iterator.next();
             if (task.isFinish()) {
@@ -108,6 +116,14 @@ public class UniThreadDispatcher implements ThreadDispatcher {
             }
         }
         return ret;
+    }
+
+    private void destroyTask(Task task) {
+        task.destroy(emulator);
+        for (SignalTask signalTask : task.getSignalTaskList()) {
+            signalTask.destroy(emulator);
+            task.removeSignalTask(signalTask);
+        }
     }
 
     @Override
@@ -153,6 +169,10 @@ public class UniThreadDispatcher implements ThreadDispatcher {
                                         }
                                     } catch (PopContextException e) {
                                         this.runningTask.popContext(emulator);
+                                    } catch (RuntimeException | Error failure) {
+                                        signalTask.destroy(emulator);
+                                        task.removeSignalTask(signalTask);
+                                        throw failure;
                                     }
                                 } else {
                                     log.debug("Skip call handler signalTask={}", signalTask);
@@ -176,6 +196,10 @@ public class UniThreadDispatcher implements ThreadDispatcher {
                             }
                         } catch(PopContextException e) {
                             this.runningTask.popContext(emulator);
+                        } catch (RuntimeException | Error failure) {
+                            iterator.remove();
+                            destroyTask(task);
+                            throw failure;
                         }
                     } else {
                         if (log.isTraceEnabled() && task.isContextSaved()) {

@@ -34,7 +34,7 @@ class ProxyFieldJni extends JniFunction {
     @Override
     public DvmObject<?> getObjectField(BaseVM vm, DvmObject<?> dvmObject, DvmField dvmField) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType().getName());
+            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType());
             ProxyField field = ProxyUtils.findField(clazz, dvmField, visitor);
             Object thisObj = dvmObject.getValue();
             if (thisObj == null) {
@@ -52,7 +52,7 @@ class ProxyFieldJni extends JniFunction {
     @Override
     public long getLongField(BaseVM vm, DvmObject<?> dvmObject, DvmField dvmField) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType().getName());
+            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType());
             ProxyField field = ProxyUtils.findField(clazz, dvmField, visitor);
             Object thisObj = dvmObject.getValue();
             if (thisObj == null) {
@@ -69,7 +69,7 @@ class ProxyFieldJni extends JniFunction {
     @Override
     public float getFloatField(BaseVM vm, DvmObject<?> dvmObject, DvmField dvmField) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType().getName());
+            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType());
             ProxyField field = ProxyUtils.findField(clazz, dvmField, visitor);
             Object thisObj = dvmObject.getValue();
             if (thisObj == null) {
@@ -86,7 +86,7 @@ class ProxyFieldJni extends JniFunction {
     @Override
     public boolean getBooleanField(BaseVM vm, DvmObject<?> dvmObject, DvmField dvmField) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType().getName());
+            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType());
             ProxyField field = ProxyUtils.findField(clazz, dvmField, visitor);
             Object thisObj = dvmObject.getValue();
             if (thisObj == null) {
@@ -102,7 +102,7 @@ class ProxyFieldJni extends JniFunction {
     @Override
     public byte getByteField(BaseVM vm, DvmObject<?> dvmObject, DvmField dvmField) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType().getName());
+            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType());
             ProxyField field = ProxyUtils.findField(clazz, dvmField, visitor);
             Object thisObj = dvmObject.getValue();
             if (thisObj == null) {
@@ -118,7 +118,7 @@ class ProxyFieldJni extends JniFunction {
     @Override
     public int getIntField(BaseVM vm, DvmObject<?> dvmObject, DvmField dvmField) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType().getName());
+            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType());
             ProxyField field = ProxyUtils.findField(clazz, dvmField, visitor);
             Object thisObj = dvmObject.getValue();
             if (thisObj == null) {
@@ -134,7 +134,7 @@ class ProxyFieldJni extends JniFunction {
     @Override
     public void setIntField(BaseVM vm, DvmObject<?> dvmObject, DvmField dvmField, int value) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType().getName());
+            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType());
             ProxyField field = ProxyUtils.findField(clazz, dvmField, visitor);
             Object thisObj = dvmObject.getValue();
             if (thisObj == null) {
@@ -151,7 +151,7 @@ class ProxyFieldJni extends JniFunction {
     @Override
     public void setFloatField(BaseVM vm, DvmObject<?> dvmObject, DvmField dvmField, float value) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType().getName());
+            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType());
             ProxyField field = ProxyUtils.findField(clazz, dvmField, visitor);
             Object thisObj = dvmObject.getValue();
             if (thisObj == null) {
@@ -168,7 +168,7 @@ class ProxyFieldJni extends JniFunction {
     @Override
     public void setDoubleField(BaseVM vm, DvmObject<?> dvmObject, DvmField dvmField, double value) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType().getName());
+            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType());
             ProxyField field = ProxyUtils.findField(clazz, dvmField, visitor);
             Object thisObj = dvmObject.getValue();
             if (thisObj == null) {
@@ -185,7 +185,7 @@ class ProxyFieldJni extends JniFunction {
     @Override
     public void setLongField(BaseVM vm, DvmObject<?> dvmObject, DvmField dvmField, long value) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType().getName());
+            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType());
             ProxyField field = ProxyUtils.findField(clazz, dvmField, visitor);
             Object thisObj = dvmObject.getValue();
             if (thisObj == null) {
@@ -202,7 +202,7 @@ class ProxyFieldJni extends JniFunction {
     @Override
     public void setBooleanField(BaseVM vm, DvmObject<?> dvmObject, DvmField dvmField, boolean value) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType().getName());
+            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType());
             ProxyField field = ProxyUtils.findField(clazz, dvmField, visitor);
             Object thisObj = dvmObject.getValue();
             if (thisObj == null) {
@@ -219,7 +219,7 @@ class ProxyFieldJni extends JniFunction {
     @Override
     public void setObjectField(BaseVM vm, DvmObject<?> dvmObject, DvmField dvmField, DvmObject<?> value) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType().getName());
+            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType());
             ProxyField field = ProxyUtils.findField(clazz, dvmField, visitor);
             Object thisObj = dvmObject.getValue();
             if (thisObj == null) {
@@ -236,7 +236,7 @@ class ProxyFieldJni extends JniFunction {
     @Override
     public DvmObject<?> getStaticObjectField(BaseVM vm, DvmClass dvmClass, DvmField dvmField) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            Class<?> clazz = classLoader.loadClass(dvmClass);
             ProxyField field = ProxyUtils.findField(clazz, dvmField, visitor);
             Object obj = field.get(null);
             return ProxyDvmObject.createObject(vm, obj);
@@ -250,7 +250,7 @@ class ProxyFieldJni extends JniFunction {
     @Override
     public boolean getStaticBooleanField(BaseVM vm, DvmClass dvmClass, DvmField dvmField) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            Class<?> clazz = classLoader.loadClass(dvmClass);
             ProxyField field = ProxyUtils.findField(clazz, dvmField, visitor);
             return field.getBoolean(null);
         } catch (ClassNotFoundException | NoSuchFieldException | IllegalAccessException e) {
@@ -263,7 +263,7 @@ class ProxyFieldJni extends JniFunction {
     @Override
     public byte getStaticByteField(BaseVM vm, DvmClass dvmClass, DvmField dvmField) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            Class<?> clazz = classLoader.loadClass(dvmClass);
             ProxyField field = ProxyUtils.findField(clazz, dvmField, visitor);
             return field.getByte(null);
         } catch (ClassNotFoundException | NoSuchFieldException | IllegalAccessException e) {
@@ -275,7 +275,7 @@ class ProxyFieldJni extends JniFunction {
     @Override
     public int getStaticIntField(BaseVM vm, DvmClass dvmClass, DvmField dvmField) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            Class<?> clazz = classLoader.loadClass(dvmClass);
             ProxyField field = ProxyUtils.findField(clazz, dvmField, visitor);
             return field.getInt(null);
         } catch (ClassNotFoundException | NoSuchFieldException | IllegalAccessException e) {
@@ -288,7 +288,7 @@ class ProxyFieldJni extends JniFunction {
     @Override
     public long getStaticLongField(BaseVM vm, DvmClass dvmClass, DvmField dvmField) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            Class<?> clazz = classLoader.loadClass(dvmClass);
             ProxyField field = ProxyUtils.findField(clazz, dvmField, visitor);
             return field.getLong(null);
         } catch (ClassNotFoundException | NoSuchFieldException | IllegalAccessException e) {
@@ -300,7 +300,7 @@ class ProxyFieldJni extends JniFunction {
     @Override
     public void setStaticBooleanField(BaseVM vm, DvmClass dvmClass, DvmField dvmField, boolean value) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            Class<?> clazz = classLoader.loadClass(dvmClass);
             ProxyField field = ProxyUtils.findField(clazz, dvmField, visitor);
             field.setBoolean(null, value);
             return;
@@ -313,7 +313,7 @@ class ProxyFieldJni extends JniFunction {
     @Override
     public void setStaticIntField(BaseVM vm, DvmClass dvmClass, DvmField dvmField, int value) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            Class<?> clazz = classLoader.loadClass(dvmClass);
             ProxyField field = ProxyUtils.findField(clazz, dvmField, visitor);
             field.setInt(null, value);
             return;
@@ -326,7 +326,7 @@ class ProxyFieldJni extends JniFunction {
     @Override
     public void setStaticObjectField(BaseVM vm, DvmClass dvmClass, DvmField dvmField, DvmObject<?> value) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            Class<?> clazz = classLoader.loadClass(dvmClass);
             ProxyField field = ProxyUtils.findField(clazz, dvmField, visitor);
             field.setObject(null, value == null ? null : value.getValue());
             return;
@@ -339,7 +339,7 @@ class ProxyFieldJni extends JniFunction {
     @Override
     public void setStaticLongField(BaseVM vm, DvmClass dvmClass, DvmField dvmField, long value) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            Class<?> clazz = classLoader.loadClass(dvmClass);
             ProxyField field = ProxyUtils.findField(clazz, dvmField, visitor);
             field.setLong(null, value);
             return;
@@ -352,7 +352,7 @@ class ProxyFieldJni extends JniFunction {
     @Override
     public void setStaticFloatField(BaseVM vm, DvmClass dvmClass, DvmField dvmField, float value) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            Class<?> clazz = classLoader.loadClass(dvmClass);
             ProxyField field = ProxyUtils.findField(clazz, dvmField, visitor);
             field.setFloat(null, value);
             return;
@@ -365,7 +365,7 @@ class ProxyFieldJni extends JniFunction {
     @Override
     public void setStaticDoubleField(BaseVM vm, DvmClass dvmClass, DvmField dvmField, double value) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            Class<?> clazz = classLoader.loadClass(dvmClass);
             ProxyField field = ProxyUtils.findField(clazz, dvmField, visitor);
             field.setDouble(null, value);
             return;
@@ -378,7 +378,7 @@ class ProxyFieldJni extends JniFunction {
     @Override
     public char getCharField(BaseVM vm, DvmObject<?> dvmObject, DvmField dvmField) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType().getName());
+            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType());
             ProxyField field = ProxyUtils.findField(clazz, dvmField, visitor);
             return field.getChar(dvmObject.getValue());
         } catch (ClassNotFoundException | NoSuchFieldException | IllegalAccessException e) {
@@ -390,7 +390,7 @@ class ProxyFieldJni extends JniFunction {
     @Override
     public short getShortField(BaseVM vm, DvmObject<?> dvmObject, DvmField dvmField) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType().getName());
+            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType());
             ProxyField field = ProxyUtils.findField(clazz, dvmField, visitor);
             return field.getShort(dvmObject.getValue());
         } catch (ClassNotFoundException | NoSuchFieldException | IllegalAccessException e) {
@@ -402,7 +402,7 @@ class ProxyFieldJni extends JniFunction {
     @Override
     public double getDoubleField(BaseVM vm, DvmObject<?> dvmObject, DvmField dvmField) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType().getName());
+            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType());
             ProxyField field = ProxyUtils.findField(clazz, dvmField, visitor);
             return field.getDouble(dvmObject.getValue());
         } catch (ClassNotFoundException | NoSuchFieldException | IllegalAccessException e) {
@@ -414,7 +414,7 @@ class ProxyFieldJni extends JniFunction {
     @Override
     public char getStaticCharField(BaseVM vm, DvmClass dvmClass, DvmField dvmField) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            Class<?> clazz = classLoader.loadClass(dvmClass);
             ProxyField field = ProxyUtils.findField(clazz, dvmField, visitor);
             return field.getChar(null);
         } catch (ClassNotFoundException | NoSuchFieldException | IllegalAccessException e) {
@@ -426,7 +426,7 @@ class ProxyFieldJni extends JniFunction {
     @Override
     public short getStaticShortField(BaseVM vm, DvmClass dvmClass, DvmField dvmField) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            Class<?> clazz = classLoader.loadClass(dvmClass);
             ProxyField field = ProxyUtils.findField(clazz, dvmField, visitor);
             return field.getShort(null);
         } catch (ClassNotFoundException | NoSuchFieldException | IllegalAccessException e) {
@@ -438,7 +438,7 @@ class ProxyFieldJni extends JniFunction {
     @Override
     public float getStaticFloatField(BaseVM vm, DvmClass dvmClass, DvmField dvmField) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            Class<?> clazz = classLoader.loadClass(dvmClass);
             ProxyField field = ProxyUtils.findField(clazz, dvmField, visitor);
             return field.getFloat(null);
         } catch (ClassNotFoundException | NoSuchFieldException | IllegalAccessException e) {
@@ -450,7 +450,7 @@ class ProxyFieldJni extends JniFunction {
     @Override
     public double getStaticDoubleField(BaseVM vm, DvmClass dvmClass, DvmField dvmField) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            Class<?> clazz = classLoader.loadClass(dvmClass);
             ProxyField field = ProxyUtils.findField(clazz, dvmField, visitor);
             return field.getDouble(null);
         } catch (ClassNotFoundException | NoSuchFieldException | IllegalAccessException e) {

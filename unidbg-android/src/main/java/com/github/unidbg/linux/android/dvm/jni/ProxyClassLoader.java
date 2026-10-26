@@ -1,5 +1,6 @@
 package com.github.unidbg.linux.android.dvm.jni;
 
+import com.github.unidbg.linux.android.dvm.DvmClass;
 import org.apache.commons.lang3.ClassUtils;
 
 public class ProxyClassLoader {
@@ -14,6 +15,14 @@ public class ProxyClassLoader {
 
     final void setClassNameMapper(ProxyClassMapper classNameMapper) {
         this.classNameMapper = classNameMapper;
+    }
+
+    final Class<?> loadClass(DvmClass type) throws ClassNotFoundException {
+        if (type instanceof ProxyDvmClass) {
+            Class<?> bound = ((ProxyDvmClass) type).getBoundHostClass();
+            if (bound != null) return bound;
+        }
+        return loadClass(type.getName());
     }
 
     final Class<?> loadClass(String name) throws ClassNotFoundException {

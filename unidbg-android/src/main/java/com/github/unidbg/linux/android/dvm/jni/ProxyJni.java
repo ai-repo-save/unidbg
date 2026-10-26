@@ -26,7 +26,7 @@ public class ProxyJni extends ProxyInstanceJni {
     @Override
     public DvmObject<?> allocObject(BaseVM vm, DvmClass dvmClass, String signature) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            Class<?> clazz = classLoader.loadClass(dvmClass);
             ProxyCall proxyCall = ProxyUtils.findAllocConstructor(clazz, visitor);
             Object obj = proxyCall.call(vm, null);
             return ProxyDvmObject.createObject(vm, obj);
@@ -42,7 +42,7 @@ public class ProxyJni extends ProxyInstanceJni {
     @Override
     public DvmObject<?> newObject(BaseVM vm, DvmClass dvmClass, DvmMethod dvmMethod, VarArg varArg) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            Class<?> clazz = classLoader.loadClass(dvmClass);
             ProxyCall proxyCall = ProxyUtils.findConstructor(clazz, dvmMethod, varArg, visitor);
             Object obj = proxyCall.call(vm, null);
             return ProxyDvmObject.createObject(vm, obj);
@@ -59,7 +59,7 @@ public class ProxyJni extends ProxyInstanceJni {
     @Override
     public DvmObject<?> newObjectV(BaseVM vm, DvmClass dvmClass, DvmMethod dvmMethod, VaList vaList) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            Class<?> clazz = classLoader.loadClass(dvmClass);
             ProxyCall proxyCall = ProxyUtils.findConstructor(clazz, dvmMethod, vaList, visitor);
             Object obj = proxyCall.call(vm, null);
             return ProxyDvmObject.createObject(vm, obj);
@@ -76,7 +76,7 @@ public class ProxyJni extends ProxyInstanceJni {
     @Override
     public float callStaticFloatMethod(BaseVM vm, DvmClass dvmClass, DvmMethod dvmMethod, VarArg varArg) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            Class<?> clazz = classLoader.loadClass(dvmClass);
             ProxyCall proxyCall = ProxyUtils.findMethod(clazz, dvmMethod, varArg, true, visitor);
             return (Float) proxyCall.call(vm, null);
         } catch (InvocationTargetException e) {
@@ -91,7 +91,7 @@ public class ProxyJni extends ProxyInstanceJni {
     @Override
     public double callStaticDoubleMethod(BaseVM vm, DvmClass dvmClass, DvmMethod dvmMethod, VarArg varArg) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            Class<?> clazz = classLoader.loadClass(dvmClass);
             ProxyCall proxyCall = ProxyUtils.findMethod(clazz, dvmMethod, varArg, true, visitor);
             return (Double) proxyCall.call(vm, null);
         } catch (InvocationTargetException e) {
@@ -106,7 +106,7 @@ public class ProxyJni extends ProxyInstanceJni {
     @Override
     public void callStaticVoidMethod(BaseVM vm, DvmClass dvmClass, DvmMethod dvmMethod, VarArg varArg) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            Class<?> clazz = classLoader.loadClass(dvmClass);
             ProxyCall proxyCall = ProxyUtils.findMethod(clazz, dvmMethod, varArg, true, visitor);
             proxyCall.call(vm, null);
             return;
@@ -122,7 +122,7 @@ public class ProxyJni extends ProxyInstanceJni {
     @Override
     public void callStaticVoidMethodV(BaseVM vm, DvmClass dvmClass, DvmMethod dvmMethod, VaList vaList) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            Class<?> clazz = classLoader.loadClass(dvmClass);
             ProxyCall proxyCall = ProxyUtils.findMethod(clazz, dvmMethod, vaList, true, visitor);
             proxyCall.call(vm, null);
             return;
@@ -138,7 +138,7 @@ public class ProxyJni extends ProxyInstanceJni {
     @Override
     public boolean callStaticBooleanMethod(BaseVM vm, DvmClass dvmClass, DvmMethod dvmMethod, VarArg varArg) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            Class<?> clazz = classLoader.loadClass(dvmClass);
             ProxyCall proxyCall = ProxyUtils.findMethod(clazz, dvmMethod, varArg, true, visitor);
             Object obj = proxyCall.call(vm, null);
             return (Boolean) obj;
@@ -154,7 +154,7 @@ public class ProxyJni extends ProxyInstanceJni {
     @Override
     public boolean callStaticBooleanMethodV(BaseVM vm, DvmClass dvmClass, DvmMethod dvmMethod, VaList vaList) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            Class<?> clazz = classLoader.loadClass(dvmClass);
             ProxyCall proxyCall = ProxyUtils.findMethod(clazz, dvmMethod, vaList, true, visitor);
             Object obj = proxyCall.call(vm, null);
             return (Boolean) obj;
@@ -170,7 +170,7 @@ public class ProxyJni extends ProxyInstanceJni {
     @Override
     public int callStaticIntMethod(BaseVM vm, DvmClass dvmClass, DvmMethod dvmMethod, VarArg varArg) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            Class<?> clazz = classLoader.loadClass(dvmClass);
             ProxyCall proxyCall = ProxyUtils.findMethod(clazz, dvmMethod, varArg, true, visitor);
             Object obj = proxyCall.call(vm, null);
             return (Integer) obj;
@@ -186,7 +186,7 @@ public class ProxyJni extends ProxyInstanceJni {
     @Override
     public int callStaticIntMethodV(BaseVM vm, DvmClass dvmClass, DvmMethod dvmMethod, VaList vaList) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            Class<?> clazz = classLoader.loadClass(dvmClass);
             ProxyCall proxyCall = ProxyUtils.findMethod(clazz, dvmMethod, vaList, true, visitor);
             Object obj = proxyCall.call(vm, null);
             return (Integer) obj;
@@ -202,7 +202,7 @@ public class ProxyJni extends ProxyInstanceJni {
     @Override
     public long callStaticLongMethod(BaseVM vm, DvmClass dvmClass, DvmMethod dvmMethod, VarArg varArg) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            Class<?> clazz = classLoader.loadClass(dvmClass);
             ProxyCall proxyCall = ProxyUtils.findMethod(clazz, dvmMethod, varArg, true, visitor);
             Object obj = proxyCall.call(vm, null);
             return (Long) obj;
@@ -218,7 +218,7 @@ public class ProxyJni extends ProxyInstanceJni {
     @Override
     public long callStaticLongMethodV(BaseVM vm, DvmClass dvmClass, DvmMethod dvmMethod, VaList vaList) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            Class<?> clazz = classLoader.loadClass(dvmClass);
             ProxyCall proxyCall = ProxyUtils.findMethod(clazz, dvmMethod, vaList, true, visitor);
             Object obj = proxyCall.call(vm, null);
             return (Long) obj;
@@ -234,7 +234,7 @@ public class ProxyJni extends ProxyInstanceJni {
     @Override
     public DvmObject<?> callStaticObjectMethod(BaseVM vm, DvmClass dvmClass, DvmMethod dvmMethod, VarArg varArg) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            Class<?> clazz = classLoader.loadClass(dvmClass);
             ProxyCall proxyCall = ProxyUtils.findMethod(clazz, dvmMethod, varArg, true, visitor);
             Object obj = proxyCall.call(vm, null);
             return ProxyDvmObject.createObject(vm, obj);
@@ -250,7 +250,7 @@ public class ProxyJni extends ProxyInstanceJni {
     @Override
     public DvmObject<?> callStaticObjectMethodV(BaseVM vm, DvmClass dvmClass, DvmMethod dvmMethod, VaList vaList) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            Class<?> clazz = classLoader.loadClass(dvmClass);
             ProxyCall proxyCall = ProxyUtils.findMethod(clazz, dvmMethod, vaList, true, visitor);
             Object obj = proxyCall.call(vm, null);
             return ProxyDvmObject.createObject(vm, obj);
@@ -266,7 +266,7 @@ public class ProxyJni extends ProxyInstanceJni {
     @Override
     public DvmObject<?> toReflectedMethod(BaseVM vm, DvmClass dvmClass, DvmMethod dvmMethod) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            Class<?> clazz = classLoader.loadClass(dvmClass);
             List<Class<?>> classes = new ArrayList<>(10);
             ProxyUtils.parseMethodArgs(dvmMethod, classes, clazz.getClassLoader());
             Class<?>[] types = classes.toArray(new Class[0]);
@@ -287,7 +287,7 @@ public class ProxyJni extends ProxyInstanceJni {
     @Override
     public byte callStaticByteMethodV(BaseVM vm, DvmClass dvmClass, DvmMethod dvmMethod, VaList vaList) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            Class<?> clazz = classLoader.loadClass(dvmClass);
             ProxyCall proxyCall = ProxyUtils.findMethod(clazz, dvmMethod, vaList, true, visitor);
             return (Byte) proxyCall.call(vm, null);
         } catch (InvocationTargetException e) {
@@ -302,7 +302,7 @@ public class ProxyJni extends ProxyInstanceJni {
     @Override
     public char callStaticCharMethodV(BaseVM vm, DvmClass dvmClass, DvmMethod dvmMethod, VaList vaList) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            Class<?> clazz = classLoader.loadClass(dvmClass);
             ProxyCall proxyCall = ProxyUtils.findMethod(clazz, dvmMethod, vaList, true, visitor);
             return (Character) proxyCall.call(vm, null);
         } catch (InvocationTargetException e) {
@@ -317,7 +317,7 @@ public class ProxyJni extends ProxyInstanceJni {
     @Override
     public short callStaticShortMethodV(BaseVM vm, DvmClass dvmClass, DvmMethod dvmMethod, VaList vaList) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            Class<?> clazz = classLoader.loadClass(dvmClass);
             ProxyCall proxyCall = ProxyUtils.findMethod(clazz, dvmMethod, vaList, true, visitor);
             return (Short) proxyCall.call(vm, null);
         } catch (InvocationTargetException e) {
@@ -332,7 +332,7 @@ public class ProxyJni extends ProxyInstanceJni {
     @Override
     public float callStaticFloatMethodV(BaseVM vm, DvmClass dvmClass, DvmMethod dvmMethod, VaList vaList) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            Class<?> clazz = classLoader.loadClass(dvmClass);
             ProxyCall proxyCall = ProxyUtils.findMethod(clazz, dvmMethod, vaList, true, visitor);
             return (Float) proxyCall.call(vm, null);
         } catch (InvocationTargetException e) {
@@ -347,7 +347,7 @@ public class ProxyJni extends ProxyInstanceJni {
     @Override
     public double callStaticDoubleMethodV(BaseVM vm, DvmClass dvmClass, DvmMethod dvmMethod, VaList vaList) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmClass.getName());
+            Class<?> clazz = classLoader.loadClass(dvmClass);
             ProxyCall proxyCall = ProxyUtils.findMethod(clazz, dvmMethod, vaList, true, visitor);
             return (Double) proxyCall.call(vm, null);
         } catch (InvocationTargetException e) {

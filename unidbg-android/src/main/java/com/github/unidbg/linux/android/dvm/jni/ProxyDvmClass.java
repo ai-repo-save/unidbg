@@ -6,6 +6,8 @@ import com.github.unidbg.linux.android.dvm.Jni;
 
 public class ProxyDvmClass extends DvmClass {
 
+    private boolean hostClassBound;
+
     protected ProxyDvmClass(BaseVM vm, String className, DvmClass superClass, DvmClass[] interfaceClasses, ProxyClassLoader classLoader, ProxyDvmObjectVisitor visitor,
                             Jni fallbackJni) {
         super(vm, className, superClass, interfaceClasses, null);
@@ -19,11 +21,16 @@ public class ProxyDvmClass extends DvmClass {
     }
 
     void bindHostClass(Class<?> hostClass) {
-        if (value != null && value != hostClass) {
+        if (hostClassBound && value != hostClass) {
             throw new IllegalStateException("Conflicting host Class identity: " + getName()
                     + ", existingLoader=" + value.getClassLoader() + ", incomingLoader=" + hostClass.getClassLoader());
         }
         value = hostClass;
+        hostClassBound = true;
+    }
+
+    Class<?> getBoundHostClass() {
+        return hostClassBound ? value : null;
     }
 
     protected Jni createJni(ProxyClassLoader classLoader, ProxyDvmObjectVisitor visitor, Jni fallbackJni) {

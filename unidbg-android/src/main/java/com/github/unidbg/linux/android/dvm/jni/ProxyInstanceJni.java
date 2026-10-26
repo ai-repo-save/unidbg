@@ -26,7 +26,7 @@ class ProxyInstanceJni extends ProxyFieldJni {
     @Override
     public void callVoidMethod(BaseVM vm, DvmObject<?> dvmObject, DvmMethod dvmMethod, VarArg varArg) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType().getName());
+            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType());
             ProxyCall proxyCall = ProxyUtils.findMethod(clazz, dvmMethod, varArg, false, visitor);
             Object thisObj = dvmObject.getValue();
             if (thisObj == null) {
@@ -46,7 +46,7 @@ class ProxyInstanceJni extends ProxyFieldJni {
     @Override
     public void callVoidMethodV(BaseVM vm, DvmObject<?> dvmObject, DvmMethod dvmMethod, VaList vaList) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType().getName());
+            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType());
             ProxyCall proxyCall = ProxyUtils.findMethod(clazz, dvmMethod, vaList, false, visitor);
             Object thisObj = dvmObject.getValue();
             if (thisObj == null) {
@@ -66,7 +66,7 @@ class ProxyInstanceJni extends ProxyFieldJni {
     @Override
     public boolean callBooleanMethod(BaseVM vm, DvmObject<?> dvmObject, DvmMethod dvmMethod, VarArg varArg) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType().getName());
+            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType());
             ProxyCall proxyCall = ProxyUtils.findMethod(clazz, dvmMethod, varArg, false, visitor);
             Object thisObj = dvmObject.getValue();
             if (thisObj == null) {
@@ -86,7 +86,7 @@ class ProxyInstanceJni extends ProxyFieldJni {
     @Override
     public boolean callBooleanMethodV(BaseVM vm, DvmObject<?> dvmObject, DvmMethod dvmMethod, VaList vaList) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType().getName());
+            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType());
             ProxyCall proxyCall = ProxyUtils.findMethod(clazz, dvmMethod, vaList, false, visitor);
             Object thisObj = dvmObject.getValue();
             if (thisObj == null) {
@@ -106,7 +106,7 @@ class ProxyInstanceJni extends ProxyFieldJni {
     @Override
     public int callIntMethod(BaseVM vm, DvmObject<?> dvmObject, DvmMethod dvmMethod, VarArg varArg) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType().getName());
+            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType());
             ProxyCall proxyCall = ProxyUtils.findMethod(clazz, dvmMethod, varArg, false, visitor);
             Object thisObj = dvmObject.getValue();
             if (thisObj == null) {
@@ -126,7 +126,7 @@ class ProxyInstanceJni extends ProxyFieldJni {
     @Override
     public double callDoubleMethod(BaseVM vm, DvmObject<?> dvmObject, DvmMethod dvmMethod, VarArg varArg) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType().getName());
+            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType());
             ProxyCall proxyCall = ProxyUtils.findMethod(clazz, dvmMethod, varArg, false, visitor);
             Object thisObj = dvmObject.getValue();
             if (thisObj == null) {
@@ -146,7 +146,7 @@ class ProxyInstanceJni extends ProxyFieldJni {
     @Override
     public byte callByteMethodV(BaseVM vm, DvmObject<?> dvmObject, DvmMethod dvmMethod, VaList vaList) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType().getName());
+            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType());
             ProxyCall proxyCall = ProxyUtils.findMethod(clazz, dvmMethod, vaList, false, visitor);
             Object thisObj = dvmObject.getValue();
             if (thisObj == null) {
@@ -166,7 +166,7 @@ class ProxyInstanceJni extends ProxyFieldJni {
     @Override
     public short callShortMethodV(BaseVM vm, DvmObject<?> dvmObject, DvmMethod dvmMethod, VaList vaList) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType().getName());
+            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType());
             ProxyCall proxyCall = ProxyUtils.findMethod(clazz, dvmMethod, vaList, false, visitor);
             Object thisObj = dvmObject.getValue();
             if (thisObj == null) {
@@ -186,7 +186,7 @@ class ProxyInstanceJni extends ProxyFieldJni {
     @Override
     public int callIntMethodV(BaseVM vm, DvmObject<?> dvmObject, DvmMethod dvmMethod, VaList vaList) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType().getName());
+            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType());
             ProxyCall proxyCall = ProxyUtils.findMethod(clazz, dvmMethod, vaList, false, visitor);
             Object thisObj = dvmObject.getValue();
             if (thisObj == null) {
@@ -206,7 +206,7 @@ class ProxyInstanceJni extends ProxyFieldJni {
     @Override
     public DvmObject<?> callObjectMethod(BaseVM vm, DvmObject<?> dvmObject, DvmMethod dvmMethod, VarArg varArg) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType().getName());
+            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType());
             ProxyCall proxyCall = ProxyUtils.findMethod(clazz, dvmMethod, varArg, false, visitor);
             Object thisObj = dvmObject.getValue();
             if (thisObj == null) {
@@ -226,7 +226,7 @@ class ProxyInstanceJni extends ProxyFieldJni {
     @Override
     public DvmObject<?> callObjectMethodV(BaseVM vm, DvmObject<?> dvmObject, DvmMethod dvmMethod, VaList vaList) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType().getName());
+            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType());
             ProxyCall proxyCall = ProxyUtils.findMethod(clazz, dvmMethod, vaList, false, visitor);
             Object thisObj = dvmObject.getValue();
             if (thisObj == null) {
@@ -247,7 +247,7 @@ class ProxyInstanceJni extends ProxyFieldJni {
     @Override
     public long callLongMethod(BaseVM vm, DvmObject<?> dvmObject, DvmMethod dvmMethod, VarArg varArg) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType().getName());
+            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType());
             ProxyCall proxyCall = ProxyUtils.findMethod(clazz, dvmMethod, varArg, false, visitor);
             Object thisObj = dvmObject.getValue();
             if (thisObj == null) {
@@ -267,7 +267,7 @@ class ProxyInstanceJni extends ProxyFieldJni {
     @Override
     public long callLongMethodV(BaseVM vm, DvmObject<?> dvmObject, DvmMethod dvmMethod, VaList vaList) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType().getName());
+            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType());
             ProxyCall proxyCall = ProxyUtils.findMethod(clazz, dvmMethod, vaList, false, visitor);
             Object thisObj = dvmObject.getValue();
             if (thisObj == null) {
@@ -287,7 +287,7 @@ class ProxyInstanceJni extends ProxyFieldJni {
     @Override
     public char callCharMethodV(BaseVM vm, DvmObject<?> dvmObject, DvmMethod dvmMethod, VaList vaList) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType().getName());
+            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType());
             ProxyCall proxyCall = ProxyUtils.findMethod(clazz, dvmMethod, vaList, false, visitor);
             Object thisObj = dvmObject.getValue();
             if (thisObj == null) {
@@ -307,7 +307,7 @@ class ProxyInstanceJni extends ProxyFieldJni {
     @Override
     public float callFloatMethodV(BaseVM vm, DvmObject<?> dvmObject, DvmMethod dvmMethod, VaList vaList) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType().getName());
+            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType());
             ProxyCall proxyCall = ProxyUtils.findMethod(clazz, dvmMethod, vaList, false, visitor);
             Object thisObj = dvmObject.getValue();
             if (thisObj == null) {
@@ -328,7 +328,7 @@ class ProxyInstanceJni extends ProxyFieldJni {
     @Override
     public double callDoubleMethodV(BaseVM vm, DvmObject<?> dvmObject, DvmMethod dvmMethod, VaList vaList) {
         try {
-            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType().getName());
+            Class<?> clazz = classLoader.loadClass(dvmObject.getObjectType());
             ProxyCall proxyCall = ProxyUtils.findMethod(clazz, dvmMethod, vaList, false, visitor);
             return (Double) proxyCall.call(vm, dvmObject.getValue());
         } catch (InvocationTargetException e) {

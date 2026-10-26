@@ -244,7 +244,7 @@ class ProxyUtils {
             throw new IllegalStateException(dvmMethod.getMethodName());
         }
         MethodArgs methodArgs = parseMethodArgs(dvmMethod, varArg, clazz.getClassLoader());
-        if (dvmMethod.member != null) {
+        if (dvmMethod.member != null && dvmMethod.member.getDeclaringClass() == clazz) {
             return new ProxyConstructor(visitor, (Constructor<?>) dvmMethod.member, methodArgs.args);
         }
         Constructor<?> constructor = matchConstructorTypes(clazz, methodArgs.types);
@@ -254,7 +254,7 @@ class ProxyUtils {
 
     static ProxyCall findMethod(Class<?> clazz, DvmMethod dvmMethod, VarArg varArg, boolean isStatic, ProxyDvmObjectVisitor visitor) throws NoSuchMethodException {
         MethodArgs methodArgs = parseMethodArgs(dvmMethod, varArg, clazz.getClassLoader());
-        if (dvmMethod.member != null) {
+        if (dvmMethod.member != null && dvmMethod.member.getDeclaringClass() == clazz) {
             return new ProxyMethod(visitor, dvmMethod.member, methodArgs.args);
         }
         Member method = ProxyMethodResolver.resolve(matchMethodTypes(clazz, dvmMethod.getMethodName(), methodArgs.types, isStatic));
@@ -264,7 +264,7 @@ class ProxyUtils {
 
     static ProxyCall findMethod(Class<?> clazz, DvmMethod dvmMethod, VaList vaList, boolean isStatic, ProxyDvmObjectVisitor visitor) throws NoSuchMethodException {
         MethodArgs methodArgs = parseMethodArgs(dvmMethod, vaList, clazz.getClassLoader());
-        if (dvmMethod.member != null) {
+        if (dvmMethod.member != null && dvmMethod.member.getDeclaringClass() == clazz) {
             return new ProxyMethod(visitor, dvmMethod.member, methodArgs.args);
         }
         Member method = ProxyMethodResolver.resolve(matchMethodTypes(clazz, dvmMethod.getMethodName(), methodArgs.types, isStatic));
@@ -318,7 +318,7 @@ class ProxyUtils {
     }
 
     static ProxyField findField(Class<?> clazz, DvmField dvmField, ProxyDvmObjectVisitor visitor) throws NoSuchFieldException {
-        if (dvmField.filed != null) {
+        if (dvmField.filed != null && dvmField.filed.getDeclaringClass() == clazz) {
             return new ProxyField(visitor, dvmField.filed);
         }
 

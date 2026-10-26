@@ -11,6 +11,14 @@ import com.github.unidbg.memory.MemoryMap;
 import com.github.unidbg.pointer.UnidbgPointer;
 import com.sun.jna.Pointer;
 import org.junit.Test;
+import org.apache.commons.io.IOUtils;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.security.Provider;
+import java.security.Security;
+import java.util.HashMap;
+import java.util.Map;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -22,9 +30,46 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThrows;
 
 public class JniProxyUnpackIntegrationTest {
     public static Object roundTrip(Object value) { return value; }
+
+    public static final class ProviderProbe extends Provider {
+        public static int calls;
+        public String observed;
+        public ProviderProbe() { super("binding-probe", 1.0, "metadata binding probe"); }
+        public static int tick() { return ++calls; }
+        public String echo(String value) { observed = value; return value; }
+    }
+
+    private static final class MetadataLoader extends ClassLoader {
+        private final Map<String, Class<?>> copies = new HashMap<>();
+        MetadataLoader(Provider[] providers) {
+            super(JniProxyUnpackIntegrationTest.class.getClassLoader());
+            for (Provider provider : providers) copies.put(provider.getClass().getName(), provider.getClass());
+            copies.put(ProviderProbe.class.getName(), ProviderProbe.class);
+        }
+        @Override
+        protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+            Class<?> original = copies.get(name);
+            if (original == null) return super.loadClass(name, resolve);
+            synchronized (getClassLoadingLock(name)) {
+                Class<?> loaded = findLoadedClass(name);
+                if (loaded == null) {
+                    try (InputStream input = original.getResourceAsStream("/" + name.replace('.', '/') + ".class")) {
+                        if (input == null) throw new ClassNotFoundException(name);
+                        byte[] bytes = IOUtils.toByteArray(input);
+                        loaded = defineClass(name, bytes, 0, bytes.length);
+                    } catch (IOException failure) {
+                        throw new ClassNotFoundException(name, failure);
+                    }
+                }
+                if (resolve) resolveClass(loaded);
+                return loaded;
+            }
+        }
+    }
 
     @Test
     public void hostIdentityAndArrayWritesSurviveJniRoundTrip() throws Exception {
@@ -32,7 +77,9 @@ public class JniProxyUnpackIntegrationTest {
             AndroidEmulatorBuilder builder = wide ? AndroidEmulatorBuilder.for64Bit() : AndroidEmulatorBuilder.for32Bit();
             try (AndroidEmulator emulator = builder.addBackendFactory(new Unicorn2Factory(true)).build()) {
                 VM vm = emulator.createDalvikVM();
-                vm.setDvmClassFactory(new ProxyClassFactory());
+                Provider[] expectedProviders = Security.getProviders();
+                MetadataLoader metadata = new MetadataLoader(expectedProviders);
+                vm.setDvmClassFactory(new ProxyClassFactory(metadata));
                 Pointer env = vm.getJNIEnv(), table = env.getPointer(0);
                 int width = wide ? 8 : 4;
                 MemoryBlock block = emulator.getMemory().malloc(512, true);
@@ -67,6 +114,7 @@ public class JniProxyUnpackIntegrationTest {
                     assertSame(original, ProxyDvmObject.unpack(vm.getObject(array)));
                     primitiveArrays(emulator, vm, env, table, width, data);
                     classes(emulator, vm, env, table, width, data, type, method);
+                    providers(emulator, vm, env, table, width, data, metadata, expectedProviders);
 
                 } finally {
                     block.free();
@@ -186,6 +234,71 @@ public class JniProxyUnpackIntegrationTest {
             int result = invoke(emulator, table, width, 114, env, classType, forName, name).intValue();
             assertSame(expected, ProxyDvmObject.unpack(vm.getObject(result)));
         }
+    }
+
+    private static void providers(AndroidEmulator emulator, VM vm, Pointer env, Pointer table, int width,
+                                  Pointer data, MetadataLoader metadata, Provider[] expected) throws ClassNotFoundException {
+        int security = vm.addLocalObject(vm.resolveClass("java/security/Security"));
+        data.setString(0, "getProviders");
+        data.setString(64, "()[Ljava/security/Provider;");
+        int getProviders = invoke(emulator, table, width, 113, env, security, data, data.share(64)).intValue();
+        int result = invoke(emulator, table, width, 116, env, security, getProviders, data.share(128)).intValue();
+        Provider[] actual = (Provider[]) ProxyDvmObject.unpack(vm.getObject(result));
+        assertEquals(expected.length, invoke(emulator, table, width, 171, env, result).intValue());
+        for (int index = 0; index < expected.length; index++) {
+            assertSame(expected[index], actual[index]);
+            int provider = invoke(emulator, table, width, 173, env, result, index).intValue();
+            assertSame(expected[index], ProxyDvmObject.unpack(vm.getObject(provider)));
+            int type = invoke(emulator, table, width, 31, env, provider).intValue();
+            assertSame(expected[index].getClass(), ProxyDvmObject.unpack(vm.getObject(type)));
+            data.setString(0, "getName");
+            data.setString(64, "()Ljava/lang/String;");
+            int getName = invoke(emulator, table, width, 33, env, type, data, data.share(64)).intValue();
+            int name = invoke(emulator, table, width, 36, env, provider, getName, data.share(128)).intValue();
+            assertEquals(expected[index].getName(), ProxyDvmObject.unpack(vm.getObject(name)));
+            data.setString(0, "getInfo");
+            int getInfo = invoke(emulator, table, width, 33, env, type, data, data.share(64)).intValue();
+            int info = invoke(emulator, table, width, 36, env, provider, getInfo, data.share(128)).intValue();
+            assertEquals(expected[index].getInfo(), ProxyDvmObject.unpack(vm.getObject(info)));
+        }
+
+        ProviderProbe.calls = 0;
+        int probeClass = vm.addLocalObject(vm.resolveClass(ProviderProbe.class.getName().replace('.', '/')));
+        data.setString(0, "tick");
+        data.setString(64, "()I");
+        int tick = invoke(emulator, table, width, 113, env, probeClass, data, data.share(64)).intValue();
+        assertEquals(1, invoke(emulator, table, width, 131, env, probeClass, tick, data.share(128)).intValue());
+        data.setString(0, "calls");
+        data.setString(64, "I");
+        int calls = invoke(emulator, table, width, 144, env, probeClass, data, data.share(64)).intValue();
+        assertEquals(1, invoke(emulator, table, width, 150, env, probeClass, calls).intValue());
+        assertEquals(0, ProviderProbe.calls);
+
+        ProviderProbe probe = new ProviderProbe();
+        int receiver = vm.addLocalObject(ProxyDvmObject.createObject(vm, probe));
+        assertSame(ProviderProbe.class, ProxyDvmObject.unpack(vm.getObject(probeClass)));
+        assertEquals(0, invoke(emulator, table, width, 150, env, probeClass, calls).intValue());
+        assertEquals(1, invoke(emulator, table, width, 131, env, probeClass, tick, data.share(128)).intValue());
+        assertEquals(1, ProviderProbe.calls);
+        data.setString(0, "echo");
+        data.setString(64, "(Ljava/lang/String;)Ljava/lang/String;");
+        int echo = invoke(emulator, table, width, 33, env, probeClass, data, data.share(64)).intValue();
+        String message = "actual-provider-instance";
+        int argument = vm.addLocalObject(ProxyDvmObject.createObject(vm, message));
+        data.setLong(128, argument & 0xffffffffL);
+        int reply = invoke(emulator, table, width, 36, env, receiver, echo, data.share(128)).intValue();
+        assertEquals(message, ProxyDvmObject.unpack(vm.getObject(reply)));
+        assertEquals(message, probe.observed);
+        data.setString(0, "observed");
+        data.setString(64, "Ljava/lang/String;");
+        int observed = invoke(emulator, table, width, 94, env, probeClass, data, data.share(64)).intValue();
+        int value = invoke(emulator, table, width, 95, env, receiver, observed).intValue();
+        assertEquals(probe.observed, ProxyDvmObject.unpack(vm.getObject(value)));
+        Class<?> otherActual = metadata.loadClass(ProviderProbe.class.getName());
+        assertThrows(IllegalStateException.class, () -> ProxyDvmObject.createObject(vm, otherActual));
+        assertSame(ProviderProbe.class, ProxyDvmObject.unpack(vm.getObject(probeClass)));
+
+
     }
 
     private static Pointer pointer(AndroidEmulator emulator, Number address) {

@@ -17,7 +17,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 NS = {"m": "http://maven.apache.org/POM/4.0.0"}
-TESTS = ("JniProxyReflectionAccessIntegrationTest", "JniProxyExceptionIntegrationTest")
+TESTS = (
+    "JniProxyReflectionAccessIntegrationTest",
+    "JniProxyExceptionIntegrationTest",
+    "JniOnLoadResultIntegrationTest",
+)
 LOGGER = logging.getLogger("unidbg.release")
 
 
@@ -261,7 +265,7 @@ def main():
     parser.add_argument(
         "--repository",
         type=Path,
-        default=ROOT / "target/release-0.10.0",
+        default=ROOT / "target/release-0.10.1",
         help="Maven-layout repository under project target/ (created or reused)",
     )
     parser.add_argument(

@@ -11,7 +11,7 @@ The release uses committed, clean source descended from the baseline. The genera
 
 ## Coordinates
 
-All reactor artifacts use group `io.github.ai-repo-save.unidbg` and version `0.12.0`:
+All reactor artifacts use group `io.github.ai-repo-save.unidbg` and version `0.13.0`:
 
 - `unidbg` (parent POM).
 - `unidbg-api`.
@@ -45,11 +45,17 @@ The protected method descriptors changed, so extensions compiled against `0.9.10
 
 Version `0.11.0` adds `public int DalvikModule.callJNI_OnLoadWithResult(Emulator<?> emulator)`. It returns the actual native JNI version after the existing VM version check and releases local references in `finally`, including on native-call or validation failure. A missing module-local `JNI_OnLoad` throws `IllegalStateException`, following `Module.callFunction`'s missing-symbol contract; it does not synthesize a return value. Missing-symbol lookup does not start a JNI call or clear references.
 
-The existing `void callJNI_OnLoad` retains its descriptor and missing-symbol no-op. When the symbol exists, it delegates to the result API. `VM.callJNI_OnLoad` retains the same behavior through its existing delegation. This minor release declares the public API addition and preserves existing callers; consumers requiring the result must declare `0.12.0`.
+The existing `void callJNI_OnLoad` retains its descriptor and missing-symbol no-op. When the symbol exists, it delegates to the result API. `VM.callJNI_OnLoad` retains the same behavior through its existing delegation. This minor release declares the public API addition and preserves existing callers; consumers requiring the result must declare `0.13.0`.
 
 ## Proxy host values
 
 Version `0.12.0` adds `public static Object ProxyDvmObject.unpack(DvmObject<?> dvmObject)`, delegating to the existing proxy argument conversion. Null input returns null. A wrapper without a host value throws `UnsupportedOperationException`; Class values require the existing `ProxyClassFactory` configuration. Proxy object arrays return their original backing array, retaining component type and reference identity. The operation neither adds nor deletes VM references and does not transfer ownership. Non-proxy DVM arrays retain the existing conversion behavior rather than a backing-array identity guarantee.
+
+## Primitive JNI and emulation failures
+
+Version `0.13.0` completes all eight primitive instance/static field reads and `Call<Type>MethodA` slots on ARM32 and ARM64. Shared handlers decode JNI `jvalue` arguments, dispatch through the class/VM `Jni` binding and encode the architecture's return registers. `Jni` now includes the missing char/short/double field reads, static char/short/float/double field reads, instance double V binding and static byte/char/short/float/double V bindings, each with metadata and signature overloads. `AbstractJni`, `JniFunction` and the standard proxy implement the new interface surface; direct `Jni` implementers must implement these methods when rebuilding against `0.13.0`.
+
+Unchecked host implementation failures propagate from `Emulator.eFunc` / `Module.emulateFunction`; they no longer produce a fabricated `-1` return value. The emulation boundary logs the original stack and execution context. Dispatcher failure cleanup removes failed tasks and releases their resources before propagating; thread context switches and PopContext retain their existing control-flow handling. A Java target exception remains a JNI pending exception, observable through ExceptionOccurred and cleared through ExceptionClear. A legitimate native `-1` result remains a valid value.
 
 ## Release
 
@@ -61,25 +67,25 @@ From the repository root:
 uv run --python 3.12 scripts/release.py \
   --baseline 129151171590d0cfaaf46f98f93f1ac5f97fc401 \
   --java-home /usr/lib/jvm/java-21-openjdk-amd64 \
-  --repository target/release-0.12.0
+  --repository target/release-0.13.0
 ```
 
-`--help` lists repository and Maven cache options. `--repository` selects a Maven-layout directory below this project's `target/` and defaults to `<checkout>/target/release-0.12.0`. Maven file deploy creates or reuses that directory and updates artifacts and metadata according to normal Maven semantics. The entry point records the latest completed release in `release-manifest.json`. Maven `clean` selects only the child modules listed in the parent POM; it does not clean the parent project's `target/` or the release repository.
+`--help` lists repository and Maven cache options. `--repository` selects a Maven-layout directory below this project's `target/` and defaults to `<checkout>/target/release-0.13.0`. Maven file deploy creates or reuses that directory and updates artifacts and metadata according to normal Maven semantics. The entry point records the latest completed release in `release-manifest.json`. Maven `clean` selects only the child modules listed in the parent POM; it does not clean the parent project's `target/` or the release repository.
 
 The entry point performs these steps with JDK 21:
 
 1. Verify clean committed source, baseline ancestry and toolchain.
 2. Clean the compilation modules with `-pl <child-module-paths> clean`, excluding the parent POM project.
-3. Run `JniProxyReflectionAccessIntegrationTest`, `JniProxyExceptionIntegrationTest`, `JniOnLoadResultIntegrationTest` and `JniProxyUnpackIntegrationTest` separately with `-pl unidbg-android -am -Dmaven.test.skip=false -Dtest=<single-class> -Dsurefire.failIfNoSpecifiedTests=false test`. Each report must contain exactly one passed test and zero skipped tests. The reflection-access test composes the default `ProxyJni` through a JDK `Jni` interface proxy, exercising the protected extension with the existing exact JNI results; the exception test uses the default factory.
+3. Run `JniProxyReflectionAccessIntegrationTest`, `JniProxyExceptionIntegrationTest`, `JniOnLoadResultIntegrationTest`, `JniProxyUnpackIntegrationTest` and `JniPrimitiveIntegrationTest` separately with `-pl unidbg-android -am -Dmaven.test.skip=false -Dtest=<single-class> -Dsurefire.failIfNoSpecifiedTests=false test`. Each report must contain exactly one passed test and zero skipped tests. The reflection-access test composes the default `ProxyJni` through a JDK `Jni` interface proxy, exercising the protected extension with the existing exact JNI results; the exception test uses the default factory.
 4. Run `install org.apache.maven.plugins:maven-deploy-plugin:3.1.2:deploy -Dgpg.skip=true -DaltDeploymentRepository=local-release::file://<repository>`. The ordinary install and file-repository deployment use the same Maven session and attached artifacts. Existing Javadoc production remains enabled; local GPG signing is skipped. The Central publishing lifecycle is not invoked.
 5. Write the release manifest with source identities, coordinates, produced POM/JAR paths, exact commands and test results.
 
 Default outputs:
 
-- Maven-layout repository: `target/release-0.12.0/`.
+- Maven-layout repository: `target/release-0.13.0/`.
 - Ordinary Maven installation/cache: `~/.m2/repository/`.
-- Provenance: `target/release-0.12.0/release-manifest.json`, with source identities, toolchain, exact commands, test results, stable GAVs and produced artifact paths.
-- License: `target/release-0.12.0/LICENSE`.
+- Provenance: `target/release-0.13.0/release-manifest.json`, with source identities, toolchain, exact commands, test results, stable GAVs and produced artifact paths.
+- License: `target/release-0.13.0/LICENSE`.
 - Structured release events: `logs/release-<run-id>.jsonl`.
 - Original Maven output: `logs/release-<run-id>.maven.log`.
 
@@ -110,8 +116,8 @@ Same-user Maven and Gradle builds can use the ordinary Maven installation. To co
 ```xml
 <repository>
     <id>unidbg-local-release</id>
-    <url>file:///home/bluebird/git/unidbg/target/release-0.12.0</url>
+    <url>file:///home/bluebird/git/unidbg/target/release-0.13.0</url>
 </repository>
 ```
 
-For example, the Android runtime dependency is `io.github.ai-repo-save.unidbg:unidbg-android:0.12.0`. Transitive reactor dependencies resolve from the same repository. Third-party dependencies still resolve from their configured upstream repositories or Maven cache. The exported fork repository is not a complete offline dependency mirror.
+For example, the Android runtime dependency is `io.github.ai-repo-save.unidbg:unidbg-android:0.13.0`. Transitive reactor dependencies resolve from the same repository. Third-party dependencies still resolve from their configured upstream repositories or Maven cache. The exported fork repository is not a complete offline dependency mirror.

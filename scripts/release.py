@@ -22,6 +22,7 @@ TESTS = (
     "JniProxyExceptionIntegrationTest",
     "JniOnLoadResultIntegrationTest",
     "JniProxyUnpackIntegrationTest",
+    "JniPrimitiveIntegrationTest",
 )
 LOGGER = logging.getLogger("unidbg.release")
 
@@ -266,7 +267,7 @@ def main():
     parser.add_argument(
         "--repository",
         type=Path,
-        default=ROOT / "target/release-0.12.0",
+        default=ROOT / "target/release-0.13.0",
         help="Maven-layout repository under project target/ (created or reused)",
     )
     parser.add_argument(

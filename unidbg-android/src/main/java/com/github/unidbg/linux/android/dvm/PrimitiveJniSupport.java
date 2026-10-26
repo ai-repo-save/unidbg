@@ -29,9 +29,10 @@ final class PrimitiveJniSupport {
             if (field == null) {
                 throw new BackendException("Unknown JNI field: receiver=" + receiver + ", id=" + id);
             }
+            log.debug("event=jni_primitive_field_read_started field={} receiver={} static={} type={} lr={}",
+                    field, receiver, isStatic, type, context.getLRPointer());
             Number value = read(field, object, type, isStatic);
-            log.debug("event=jni_primitive_field_read field={} receiver={} static={} type={} value={} lr={}",
-                    field, receiver, isStatic, type, value, context.getLRPointer());
+            log.debug("event=jni_primitive_field_read_completed field={} value={}", field, value);
             if (vm.verbose || vm.verboseFieldOperation) {
                 System.out.printf("JNIEnv->Get%sField(%s, %s => %s) was called from %s%n",
                         isStatic ? "Static" : "", object == null ? clazz : object, field, value, context.getLRPointer());
@@ -52,9 +53,10 @@ final class PrimitiveJniSupport {
                 throw new BackendException("Unknown JNI method: receiver=" + receiver + ", id=" + id);
             }
             VaList args = new JValueList(vm, context.getPointerArg(3), method);
+            log.debug("event=jni_primitive_method_a_started method={} receiver={} static={} type={} args={} lr={}",
+                    method, receiver, isStatic, type, args.formatArgs(), context.getLRPointer());
             Number value = call(method, object, args, type, isStatic);
-            log.debug("event=jni_primitive_method_a method={} receiver={} static={} type={} args={} value={} lr={}",
-                    method, receiver, isStatic, type, args.formatArgs(), value, context.getLRPointer());
+            log.debug("event=jni_primitive_method_a_completed method={} value={}", method, value);
             if (vm.verbose || vm.verboseMethodOperation) {
                 System.out.printf("JNIEnv->Call%sMethodA(%s, %s(%s) => %s) was called from %s%n",
                         isStatic ? "Static" : "", object == null ? clazz : object, method, args.formatArgs(), value, context.getLRPointer());

@@ -71,6 +71,21 @@ public class ProxyDvmObject extends DvmObject<Object> {
         return new ProxyDvmObject(vm, value);
     }
 
+    /**
+     * Unwraps a proxy value using the same conversion as reflected JNI arguments.
+     * Proxy object arrays retain their original backing array and component type.
+     * Class values require a VM configured with {@link ProxyClassFactory}.
+     * This operation neither adds nor deletes VM references and does not transfer ownership.
+     *
+     * @param dvmObject wrapped value, or null
+     * @return the host value, or null for a null input
+     * @throws UnsupportedOperationException if the wrapper has no host value
+     * @since 0.12.0
+     */
+    public static Object unpack(DvmObject<?> dvmObject) {
+        return ProxyUtils.unpack(dvmObject);
+    }
+
     private ProxyDvmObject(VM vm, Object value) {
         super(getObjectType(vm, value.getClass()), value);
     }

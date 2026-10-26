@@ -6,6 +6,9 @@ import com.github.unidbg.linux.android.dvm.StringObject;
 import com.github.unidbg.linux.android.dvm.VM;
 import com.github.unidbg.linux.android.dvm.array.ArrayObject;
 import com.github.unidbg.linux.android.dvm.array.ByteArray;
+import com.github.unidbg.linux.android.dvm.array.BooleanArray;
+import com.github.unidbg.linux.android.dvm.array.CharArray;
+import com.github.unidbg.linux.android.dvm.array.LongArray;
 import com.github.unidbg.linux.android.dvm.array.DoubleArray;
 import com.github.unidbg.linux.android.dvm.array.FloatArray;
 import com.github.unidbg.linux.android.dvm.array.IntArray;
@@ -38,6 +41,16 @@ public class ProxyDvmObject extends DvmObject<Object> {
         }
         if (value instanceof DvmObject) {
             return (DvmObject<?>) value;
+        }
+
+        if (value instanceof boolean[]) {
+            return new BooleanArray(vm, (boolean[]) value);
+        }
+        if (value instanceof char[]) {
+            return new CharArray(vm, (char[]) value);
+        }
+        if (value instanceof long[]) {
+            return new LongArray(vm, (long[]) value);
         }
 
         if (value instanceof byte[]) {

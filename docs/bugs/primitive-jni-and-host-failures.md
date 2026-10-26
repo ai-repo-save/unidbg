@@ -37,7 +37,7 @@ ARM64 的 float/double 写入 Q0；ARM32 的 float 写入 r0 位表示，double/
 
 Java 目标方法抛出的异常继续作为 JNI pending exception，通过 ExceptionOccurred 读取、ExceptionClear 清除；这与 JNI 实现本身失败的宿主异常边界不同。消费者不通过猜测 -1 或 Q0 判断执行失败。
 
-此文档供用户决定是否向上游提交 issue；本次不提交 issue 或推送源码。不包含 primitive array 新 API、primitive 字段写入或其他调用形式的扩展。
+此文档供用户决定是否向上游提交 issue；本次不提交 issue 或推送源码。此项修复不变更 primitive 字段写入或其他调用形式。
 
 ## 定向验证
 

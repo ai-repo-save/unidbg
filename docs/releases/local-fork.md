@@ -57,6 +57,10 @@ Version `0.13.0` completes all eight primitive instance/static field reads and `
 
 Unchecked host implementation failures propagate from `Emulator.eFunc` / `Module.emulateFunction`; they no longer produce a fabricated `-1` return value. The emulation boundary logs the original stack and execution context. Dispatcher failure cleanup removes failed tasks and releases their resources before propagating; thread context switches and PopContext retain their existing control-flow handling. A Java target exception remains a JNI pending exception, observable through ExceptionOccurred and cleared through ExceptionClear. A legitimate native `-1` result remains a valid value.
 
+## Boolean, char and long arrays
+
+Version `0.13.0` adds public `BooleanArray(VM, boolean[])`, `CharArray(VM, char[])` and `LongArray(VM, long[])` wrappers through `ProxyDvmObject.createObject`. Their JNI New/Elements/Release/Region slots work on both architectures, with 8-bit jboolean, 16-bit jchar and 64-bit jlong storage. Each elements/critical acquisition owns an independent copy. Release mode 0 copies back into the original host array and frees that copy; JNI_COMMIT copies back while retaining it; JNI_ABORT frees without copying back. VM reference cleanup releases outstanding copies through the new protected `DvmObject.releaseAdditionalMemory()` hook. Existing wrappers retain their behavior.
+
 ## Release
 
 Requirements: Git, uv, JDK 21 and the repository Maven Wrapper (Maven 3.9.9). Maven uses `~/.m2/settings.xml` for configured HTTP/HTTPS proxies; configure the local proxy there when network access requires it.

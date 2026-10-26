@@ -2359,12 +2359,7 @@ public class DalvikVM extends BaseVM implements VM {
             }
         });
 
-        Pointer _NewLongArray = svcMemory.registerSvc(new ArmSvc() {
-            @Override
-            public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
-            }
-        });
+        Pointer _NewLongArray = PrimitiveArrayJniSupport.create(emulator, this, 'J');
 
         Pointer _NewFloatArray = svcMemory.registerSvc(new ArmSvc() {
             @Override
@@ -2381,12 +2376,7 @@ public class DalvikVM extends BaseVM implements VM {
             }
         });
 
-        Pointer _GetLongArrayElements = svcMemory.registerSvc(new ArmSvc() {
-            @Override
-            public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
-            }
-        });
+        Pointer _GetLongArrayElements = PrimitiveArrayJniSupport.elements(emulator, this, 'J');
 
         Pointer _GetFloatArrayElements = svcMemory.registerSvc(new ArmSvc() {
             @Override
@@ -2406,12 +2396,7 @@ public class DalvikVM extends BaseVM implements VM {
             }
         });
 
-        Pointer _NewBooleanArray = svcMemory.registerSvc(new ArmSvc() {
-            @Override
-            public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
-            }
-        });
+        Pointer _NewBooleanArray = PrimitiveArrayJniSupport.create(emulator, this, 'Z');
         
         Pointer _NewByteArray = svcMemory.registerSvc(new ArmSvc() {
             @Override
@@ -2428,12 +2413,7 @@ public class DalvikVM extends BaseVM implements VM {
             }
         });
 
-        Pointer _NewCharArray = svcMemory.registerSvc(new ArmSvc() {
-            @Override
-            public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
-            }
-        });
+        Pointer _NewCharArray = PrimitiveArrayJniSupport.create(emulator, this, 'C');
 
         Pointer _NewShortArray = svcMemory.registerSvc(new ArmSvc() {
             @Override
@@ -2472,12 +2452,7 @@ public class DalvikVM extends BaseVM implements VM {
             }
         });
 
-        Pointer _GetBooleanArrayElements = svcMemory.registerSvc(new ArmSvc() {
-            @Override
-            public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
-            }
-        });
+        Pointer _GetBooleanArrayElements = PrimitiveArrayJniSupport.elements(emulator, this, 'Z');
 
         Pointer _GetByteArrayElements = svcMemory.registerSvc(new ArmSvc() {
             @Override
@@ -2493,12 +2468,7 @@ public class DalvikVM extends BaseVM implements VM {
             }
         });
 
-        Pointer _GetCharArrayElements = svcMemory.registerSvc(new ArmSvc() {
-            @Override
-            public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
-            }
-        });
+        Pointer _GetCharArrayElements = PrimitiveArrayJniSupport.elements(emulator, this, 'C');
 
         Pointer _GetShortArrayElements = svcMemory.registerSvc(new ArmSvc() {
             @Override
@@ -2629,12 +2599,7 @@ public class DalvikVM extends BaseVM implements VM {
             }
         });
 
-        Pointer _ReleaseBooleanArrayElements = svcMemory.registerSvc(new ArmSvc() {
-            @Override
-            public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
-            }
-        });
+        Pointer _ReleaseBooleanArrayElements = PrimitiveArrayJniSupport.release(emulator, this, 'Z');
 
         Pointer _ReleaseByteArrayElements = svcMemory.registerSvc(new ArmSvc() {
             @Override
@@ -2652,12 +2617,7 @@ public class DalvikVM extends BaseVM implements VM {
             }
         });
 
-        Pointer _ReleaseCharArrayElements = svcMemory.registerSvc(new ArmSvc() {
-            @Override
-            public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
-            }
-        });
+        Pointer _ReleaseCharArrayElements = PrimitiveArrayJniSupport.release(emulator, this, 'C');
 
         Pointer _ReleaseShortArrayElements = svcMemory.registerSvc(new ArmSvc() {
             @Override
@@ -2682,12 +2642,7 @@ public class DalvikVM extends BaseVM implements VM {
             }
         });
 
-        Pointer _ReleaseLongArrayElements = svcMemory.registerSvc(new ArmSvc() {
-            @Override
-            public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
-            }
-        });
+        Pointer _ReleaseLongArrayElements = PrimitiveArrayJniSupport.release(emulator, this, 'J');
 
         Pointer _ReleaseFloatArrayElements = svcMemory.registerSvc(new ArmSvc() {
             @Override
@@ -2771,7 +2726,7 @@ public class DalvikVM extends BaseVM implements VM {
         Pointer _SetBooleanArrayRegion = svcMemory.registerSvc(new ArmSvc() {
             @Override
             public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
+                return JniArrayRegion.write(DalvikVM.this, emulator, JniArrayRegion.Type.Boolean);
             }
         });
 
@@ -2803,7 +2758,7 @@ public class DalvikVM extends BaseVM implements VM {
         Pointer _SetCharArrayRegion = svcMemory.registerSvc(new ArmSvc() {
             @Override
             public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
+                return JniArrayRegion.write(DalvikVM.this, emulator, JniArrayRegion.Type.Char);
             }
         });
 
@@ -2835,7 +2790,7 @@ public class DalvikVM extends BaseVM implements VM {
         Pointer _SetLongArrayRegion = svcMemory.registerSvc(new ArmSvc() {
             @Override
             public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
+                return JniArrayRegion.write(DalvikVM.this, emulator, JniArrayRegion.Type.Long);
             }
         });
 

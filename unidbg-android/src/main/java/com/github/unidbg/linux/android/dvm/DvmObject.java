@@ -166,8 +166,21 @@ public class DvmObject<T> extends Hashable {
         }
     }
 
+    /**
+     * Releases additional native allocations owned by a subclass when the VM cleans up its reference.
+     * The primary memory block is released separately, including when this hook fails.
+     *
+     * @since 0.13.0
+     */
+    protected void releaseAdditionalMemory() {
+    }
+
     final void onDeleteRef() {
-        freeMemoryBlock(null);
+        try {
+            releaseAdditionalMemory();
+        } finally {
+            freeMemoryBlock(null);
+        }
     }
 
 }

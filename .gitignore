@@ -34,6 +34,12 @@
 !/docs/bugs/jni-onload-result-api.md
 !/docs/bugs/proxy-host-value-api.md
 !/docs/bugs/primitive-jni-and-host-failures.md
+!/docs/bugs/primitive-array-wrappers.md
+!/unidbg-android/src/main/java/com/github/unidbg/linux/android/dvm/PrimitiveArrayJniSupport.java
+!/unidbg-android/src/main/java/com/github/unidbg/linux/android/dvm/array/CopiedPrimitiveArray.java
+!/unidbg-android/src/main/java/com/github/unidbg/linux/android/dvm/array/BooleanArray.java
+!/unidbg-android/src/main/java/com/github/unidbg/linux/android/dvm/array/CharArray.java
+!/unidbg-android/src/main/java/com/github/unidbg/linux/android/dvm/array/LongArray.java
 !/unidbg-android/src/main/java/com/github/unidbg/linux/android/dvm/PrimitiveJniSupport.java
 !/unidbg-android/src/test/java/com/github/unidbg/linux/android/dvm/JniPrimitiveIntegrationTest.java
 !/unidbg-android/src/test/java/com/github/unidbg/linux/android/dvm/JniProxyUnpackIntegrationTest.java

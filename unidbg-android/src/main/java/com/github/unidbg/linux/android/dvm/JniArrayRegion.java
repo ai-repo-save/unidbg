@@ -2,6 +2,7 @@ package com.github.unidbg.linux.android.dvm;
 
 import com.github.unidbg.Emulator;
 import com.github.unidbg.arm.context.RegisterContext;
+import com.github.unidbg.linux.android.dvm.jni.ProxyDvmObject;
 import com.sun.jna.Pointer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -66,6 +67,39 @@ final class JniArrayRegion {
                 double[] doubles = (double[]) value;
                 for (int i = 0; i < length; i++) buf.setLong(i * 8L, Double.doubleToRawLongBits(doubles[start + i]));
                 break;
+        }
+        return 0;
+    }
+
+    static long write(BaseVM vm, Emulator<?> emulator, Type type) {
+        RegisterContext context = emulator.getContext();
+        DvmObject<?> array = vm.getObject(context.getIntArg(1));
+        Object value = array.getValue();
+        int start = context.getIntArg(2), length = context.getIntArg(3);
+        Pointer buffer = context.getPointerArg(4);
+        int size = java.lang.reflect.Array.getLength(value);
+        log.debug("event=jni_array_region_write type={} array={} start={} length={} buffer={} lr={}",
+                type, array, start, length, buffer, context.getLRPointer());
+        if (start < 0 || length < 0 || start > size || length > size - start) {
+            vm.throwException(ProxyDvmObject.createObject(vm, new ArrayIndexOutOfBoundsException(
+                    "start=" + start + ", length=" + length + ", arrayLength=" + size)));
+            return 0;
+        }
+        switch (type) {
+            case Boolean:
+                boolean[] booleans = (boolean[]) value;
+                for (int i = 0; i < length; i++) booleans[start + i] = buffer.getByte(i) != 0;
+                break;
+            case Char:
+                char[] chars = (char[]) value;
+                for (int i = 0; i < length; i++) chars[start + i] = (char) (buffer.getShort(i * 2L) & 0xffff);
+                break;
+            case Long:
+                long[] longs = (long[]) value;
+                for (int i = 0; i < length; i++) longs[start + i] = buffer.getLong(i * 8L);
+                break;
+            default:
+                throw new IllegalArgumentException("JNI array region type: " + type);
         }
         return 0;
     }

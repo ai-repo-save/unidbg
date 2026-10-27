@@ -12,17 +12,16 @@ public final class HostJavaCall<T> {
     final Task owner;
     final Callable<T> operation;
     final Consumer<T> compensate;
-    final boolean stop;
     private volatile boolean cancelled;
+    private boolean finishing;
     private final CompletableFuture<HostJavaResult<T>> result = new CompletableFuture<>();
 
-    HostJavaCall(long id, long parent, Task owner, Callable<T> operation, Consumer<T> compensate, boolean stop) {
+    HostJavaCall(long id, long parent, Task owner, Callable<T> operation, Consumer<T> compensate) {
         this.id = id;
         this.parent = parent;
         this.owner = owner;
         this.operation = operation;
         this.compensate = compensate;
-        this.stop = stop;
     }
 
     public long id() {
@@ -38,7 +37,7 @@ public final class HostJavaCall<T> {
     }
 
     public synchronized boolean cancel() {
-        if (result.isDone() || cancelled) {
+        if (finishing || cancelled) {
             return false;
         }
         cancelled = true;
@@ -63,8 +62,16 @@ public final class HostJavaCall<T> {
         }
     }
 
-    synchronized void complete(HostJavaResult<T> outcome) {
-        if (cancelled && outcome.failure() == null) {
+    synchronized boolean reserveFinish() {
+        if (finishing) {
+            throw new IllegalStateException("Host call has already finished: " + id);
+        }
+        finishing = true;
+        return cancelled;
+    }
+
+    HostJavaResult<T> finish(HostJavaResult<T> outcome, boolean cancelledAtFinish) {
+        if (cancelledAtFinish && outcome.failure() == null) {
             try {
                 if (compensate != null) {
                     compensate.accept(outcome.get());
@@ -74,6 +81,10 @@ public final class HostJavaCall<T> {
                 outcome = HostJavaResult.failure(failure);
             }
         }
+        return outcome;
+    }
+
+    void publish(HostJavaResult<T> outcome) {
         result.complete(outcome);
     }
 }

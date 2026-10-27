@@ -71,3 +71,20 @@ long monitor_nested(void) {
 int monitor_main_hold(void) {
     return (int)bridge(1, 2);
 }
+
+static pthread_t close_thread;
+int monitor_close_result;
+
+static void *close_boundary(void *unused) {
+    (void)unused;
+    monitor_close_result = (int)bridge(10, 0);
+    return NULL;
+}
+
+int monitor_close_start(void) {
+    return pthread_create(&close_thread, NULL, close_boundary, NULL);
+}
+
+int monitor_close_join(void) {
+    return pthread_join(close_thread, NULL);
+}

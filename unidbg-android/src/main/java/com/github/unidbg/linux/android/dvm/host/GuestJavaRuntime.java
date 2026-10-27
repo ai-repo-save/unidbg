@@ -75,7 +75,7 @@ public final class GuestJavaRuntime implements DispatcherEventSource, ThreadLife
         }
         Deque<Long> parents = nativeParents.get(owner);
         long parent = parents == null || parents.isEmpty() ? 0 : parents.getLast();
-        HostJavaCall<T> call = new HostJavaCall<>(sequence.incrementAndGet(), parent, owner, operation, compensate, false);
+        HostJavaCall<T> call = new HostJavaCall<>(sequence.incrementAndGet(), parent, owner, operation, compensate);
         thread(owner.getId()).submit(call);
         log.debug("event=guest_java_call_submitted emulator={} tid={} call={} parent={}",
                 System.identityHashCode(emulator), owner.getId(), call.id, parent);

@@ -2,12 +2,14 @@ package com.github.unidbg.linux.android.dvm.host;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
+import java.util.Iterator;
+import java.util.List;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentLinkedDeque;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.TimeUnit;
 
 final class GuestJavaThread implements Runnable {
     private static final Logger log = LoggerFactory.getLogger(GuestJavaThread.class);
@@ -15,9 +17,10 @@ final class GuestJavaThread implements Runnable {
     final Thread thread;
     final JvmMonitorOwnership monitors = new JvmMonitorOwnership();
     final CompletableFuture<Void> terminated = new CompletableFuture<>();
-    private final LinkedBlockingQueue<HostJavaCall<?>> mailbox = new LinkedBlockingQueue<>();
-    private final Deque<HostJavaCall<?>> active = new ConcurrentLinkedDeque<>();
-    private volatile boolean closing;
+    private final Object state = new Object();
+    private final Deque<HostJavaCall<?>> mailbox = new ArrayDeque<>();
+    private final Deque<HostJavaCall<?>> active = new ArrayDeque<>();
+    private boolean closing;
     private volatile Throwable closeFailure;
 
     GuestJavaThread(int tid, int emulatorId) {
@@ -27,34 +30,62 @@ final class GuestJavaThread implements Runnable {
     }
 
     void submit(HostJavaCall<?> call) {
-        if (closing) {
-            throw new IllegalStateException("Guest Java thread is closing: " + tid);
+        synchronized (state) {
+            if (closing) {
+                throw new IllegalStateException("Guest Java thread is closing: " + tid);
+            }
+            mailbox.addLast(call);
+            state.notifyAll();
         }
-        mailbox.add(call);
     }
 
     HostJavaCall<?> currentCall() {
-        if (Thread.currentThread() != thread || active.isEmpty()) {
-            throw new IllegalStateException("Native reentry requires an active guest Java callback");
+        synchronized (state) {
+            if (Thread.currentThread() != thread || active.isEmpty()) {
+                throw new IllegalStateException("Native reentry requires an active guest Java callback");
+            }
+            return active.getLast();
         }
-        return active.getLast();
     }
 
     boolean hasActiveCalls() {
-        return !active.isEmpty();
+        synchronized (state) {
+            return !active.isEmpty();
+        }
+    }
+
+    private HostJavaCall<?> claim(Long parent, CompletableFuture<?> reply) throws InterruptedException {
+        synchronized (state) {
+            while (true) {
+                if (closing || reply != null && reply.isDone()) {
+                    return null;
+                }
+                for (Iterator<HostJavaCall<?>> iterator = mailbox.iterator(); iterator.hasNext();) {
+                    HostJavaCall<?> call = iterator.next();
+                    if (parent == null || call.parent == parent) {
+                        iterator.remove();
+                        active.addLast(call);
+                        return call;
+                    }
+                }
+                state.wait();
+            }
+        }
     }
 
     private <T> void execute(HostJavaCall<T> call) {
-        active.addLast(call);
         log.debug("event=guest_java_call_started tid={} call={} parent={}", tid, call.id, call.parent);
-        HostJavaResult<T> outcome;
-        try {
-            outcome = call.execute();
-        } finally {
-            active.removeLast();
+        HostJavaResult<T> outcome = call.execute();
+        boolean cancelledAtFinish;
+        synchronized (state) {
+            cancelledAtFinish = call.reserveFinish();
+            if (active.removeLast() != call) {
+                throw new IllegalStateException("Guest Java callback stack is out of order");
+            }
         }
-        call.complete(outcome);
-        Throwable failure = call.result().failure();
+        outcome = call.finish(outcome, cancelledAtFinish);
+        call.publish(outcome);
+        Throwable failure = outcome.failure();
         if (failure == null) {
             log.debug("event=guest_java_call_completed tid={} call={}", tid, call.id);
         } else {
@@ -64,37 +95,49 @@ final class GuestJavaThread implements Runnable {
 
     <T> T awaitNative(CompletableFuture<HostJavaResult<T>> reply) throws Exception {
         HostJavaCall<?> parent = currentCall();
-        while (!reply.isDone()) {
-            if (closing) {
-                throw new CancellationException("Guest Java thread is closing: " + tid);
+        reply.whenComplete((result, failure) -> {
+            synchronized (state) {
+                state.notifyAll();
             }
-            HostJavaCall<?> nested = mailbox.poll(10, TimeUnit.MILLISECONDS);
-            if (nested != null) {
-                if (nested.stop) {
-                    mailbox.add(nested);
+        });
+        while (!reply.isDone()) {
+            HostJavaCall<?> nested = claim(parent.id, reply);
+            if (nested == null) {
+                if (!reply.isDone()) {
                     throw new CancellationException("Guest Java thread is closing: " + tid);
                 }
-                if (nested.parent != parent.id) {
-                    throw new IllegalStateException("Host callback belongs to another native call chain");
-                }
-                execute(nested);
+                break;
             }
+            execute(nested);
         }
         return reply.join().get();
     }
 
     void beginClose() {
-        if (closing) {
-            return;
+        List<HostJavaCall<?>> cancelled;
+        synchronized (state) {
+            if (closing) {
+                return;
+            }
+            closing = true;
+            for (HostJavaCall<?> call : active) {
+                call.cancel();
+            }
+            cancelled = new ArrayList<>(mailbox);
+            mailbox.clear();
+            for (HostJavaCall<?> call : cancelled) {
+                call.cancel();
+            }
+            state.notifyAll();
         }
-        closing = true;
-        for (HostJavaCall<?> call : active) {
-            call.cancel();
+        for (HostJavaCall<?> call : cancelled) {
+            cancelQueued(call);
         }
-        for (HostJavaCall<?> call : mailbox) {
-            call.cancel();
-        }
-        mailbox.add(new HostJavaCall<>(0, 0, null, () -> null, null, true));
+    }
+
+    private static <T> void cancelQueued(HostJavaCall<T> call) {
+        boolean cancelledAtFinish = call.reserveFinish();
+        call.publish(call.finish(HostJavaResult.failure(new CancellationException("Host call cancelled: " + call.id)), cancelledAtFinish));
     }
 
     Throwable closeFailure() {
@@ -105,11 +148,8 @@ final class GuestJavaThread implements Runnable {
     public void run() {
         log.debug("event=guest_java_thread_started tid={} host_thread={}", tid, thread.getId());
         try {
-            while (true) {
-                HostJavaCall<?> call = mailbox.take();
-                if (call.stop) {
-                    break;
-                }
+            HostJavaCall<?> call;
+            while ((call = claim(null, null)) != null) {
                 execute(call);
             }
         } catch (InterruptedException failure) {
@@ -117,6 +157,7 @@ final class GuestJavaThread implements Runnable {
             closeFailure = failure;
             log.error("event=guest_java_thread_interrupted tid={}", tid, failure);
         } finally {
+            beginClose();
             try {
                 monitors.releaseAll();
             } catch (Throwable failure) {

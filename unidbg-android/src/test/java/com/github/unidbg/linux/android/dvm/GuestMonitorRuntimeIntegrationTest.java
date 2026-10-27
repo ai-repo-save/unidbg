@@ -29,10 +29,14 @@ import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -74,7 +78,15 @@ public class GuestMonitorRuntimeIntegrationTest {
                     int argument = current.getContext().getIntArg(1);
                     int tid = ((Task) current.get(Task.TASK_KEY)).getId();
                     HostJavaCall<? extends Number> call;
-                    if (operation == 1) {
+                    if (operation == 10) {
+                        call = runtime.submit(host::closeBoundary);
+                        await(host.closeEntered);
+                        for (int index = 0; index < 8; index++) {
+                            host.closeQueued.add(runtime.submit(host::queuedAfterClose));
+                        }
+                        runtime.terminateThread(tid);
+                        host.closeReleased.countDown();
+                    } else if (operation == 1) {
                         call = runtime.monitorEnter(target);
                         if (argument == 1) host.blocking.set(call);
                     } else if (operation == 2) {
@@ -97,6 +109,10 @@ public class GuestMonitorRuntimeIntegrationTest {
                                 throw (Exception) cause;
                             }
                         });
+                        if (operation == 5) {
+                            host.queued.set(runtime.submit(host::queued));
+                            host.queuedReady.countDown();
+                        }
                     }
                     return suspendNumber(current, call, observedFailure);
                 }
@@ -113,11 +129,27 @@ public class GuestMonitorRuntimeIntegrationTest {
             assertArrayEquals(new byte[] {0x31, 0, 0x7f, 0x62},
                     Files.readAllBytes(emulator.getFileSystem().getRootDir().toPath().resolve("monitor-native.bin")));
             assertSame(host.a, host.nested);
+            assertSame(host.a, host.queuedThread);
+            assertEquals(Integer.valueOf(0x73), host.queued.get().result().get());
+            assertEquals("outer-start\nnested\nouter-end\nqueued\n",
+                    new String(Files.readAllBytes(workspace.resolve("queued-chain.txt")), StandardCharsets.US_ASCII));
             assertEquals(false, host.a == host.b);
             host.a.join(3000);
             host.b.join(3000);
             assertEquals(Thread.State.TERMINATED, host.a.getState());
             assertEquals(Thread.State.TERMINATED, host.b.getState());
+
+            assertEquals(0, module.callFunction(emulator, "monitor_close_start").intValue());
+            emulator.getThreadDispatcher().runThreads(10, TimeUnit.SECONDS);
+            assertEquals(-2, module.findSymbolByName("monitor_close_result").createPointer(emulator).getInt(0));
+            assertEquals(0, module.callFunction(emulator, "monitor_close_join").intValue());
+            host.closingThread.join(3000);
+            assertEquals(Thread.State.TERMINATED, host.closingThread.getState());
+            for (HostJavaCall<Integer> queued : host.closeQueued) {
+                assertEquals(CancellationException.class, queued.result().failure().getClass());
+            }
+            assertEquals("entered\nreturned\n",
+                    new String(Files.readAllBytes(workspace.resolve("close-boundary.txt")), StandardCharsets.US_ASCII));
 
             assertEquals(0, module.callFunction(emulator, "monitor_main_hold").intValue());
             // Capture the real owner using JVM lock information, outside the emulated call.
@@ -135,6 +167,7 @@ public class GuestMonitorRuntimeIntegrationTest {
         assertNull(threads.getThreadInfo(host.a.getId()));
         assertNull(threads.getThreadInfo(host.b.getId()));
         assertNull(threads.getThreadInfo(host.main.getId()));
+        assertNull(threads.getThreadInfo(host.closingThread.getId()));
         assertNull(host.observerFailure.get());
     }
 
@@ -162,6 +195,15 @@ public class GuestMonitorRuntimeIntegrationTest {
         emulator.getBackend().reg_write(Arm64Const.UC_ARM64_REG_X0, value);
     }
 
+    private static void await(CountDownLatch latch) {
+        try {
+            assertEquals(true, latch.await(3, TimeUnit.SECONDS));
+        } catch (InterruptedException failure) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(failure);
+        }
+    }
+
     private static Thread findThread(long id) {
         return Thread.getAllStackTraces().keySet().stream().filter(thread -> thread.getId() == id)
                 .findFirst().orElseThrow(() -> new AssertionError("Lock owner has no live Java thread: " + id));
@@ -184,9 +226,14 @@ public class GuestMonitorRuntimeIntegrationTest {
         final RuntimeException original = new RuntimeException("original host target exception");
         final AtomicReference<HostJavaCall<? extends Number>> blocking = new AtomicReference<>();
         final AtomicReference<Throwable> observerFailure = new AtomicReference<>();
+        final AtomicReference<HostJavaCall<Integer>> queued = new AtomicReference<>();
+        final CountDownLatch queuedReady = new CountDownLatch(1);
+        final CountDownLatch closeEntered = new CountDownLatch(1);
+        final CountDownLatch closeReleased = new CountDownLatch(1);
+        final List<HostJavaCall<Integer>> closeQueued = new ArrayList<>();
         GuestNativeGateway gateway;
         GuestNativeGateway.Request<Long> nativeRequest;
-        volatile Thread a, b, nested, main, observer, closeObserver;
+        volatile Thread a, b, nested, main, observer, closeObserver, queuedThread, closingThread;
 
         GateHost(Object target, Path workspace) {
             this.target = target;
@@ -204,7 +251,11 @@ public class GuestMonitorRuntimeIntegrationTest {
                     assertEquals(a.getId(), awaitBlocked(observer).getLockOwnerId());
                     return 1;
                 case 5:
-                    return gateway.invoke(nativeRequest);
+                    Files.write(workspace.resolve("queued-chain.txt"), "outer-start\n".getBytes(StandardCharsets.US_ASCII));
+                    await(queuedReady);
+                    long value = gateway.invoke(nativeRequest);
+                    append("queued-chain.txt", "outer-end\n");
+                    return value;
                 case 6:
                     throw original;
                 case 7:
@@ -217,11 +268,36 @@ public class GuestMonitorRuntimeIntegrationTest {
                     return 1;
                 case 9:
                     nested = Thread.currentThread();
+                    append("queued-chain.txt", "nested\n");
                     assertEquals(true, Thread.holdsLock(target));
                     return 0x12;
                 default:
                     throw new IllegalArgumentException("Unknown fixture operation: " + operation);
             }
+        }
+
+        public int queued() throws Exception {
+            queuedThread = Thread.currentThread();
+            append("queued-chain.txt", "queued\n");
+            return 0x73;
+        }
+
+        public int closeBoundary() throws Exception {
+            closingThread = Thread.currentThread();
+            Files.write(workspace.resolve("close-boundary.txt"), "entered\n".getBytes(StandardCharsets.US_ASCII));
+            closeEntered.countDown();
+            await(closeReleased);
+            append("close-boundary.txt", "returned\n");
+            return 0x51;
+        }
+
+        public int queuedAfterClose() throws Exception {
+            append("close-boundary.txt", "queued\n");
+            return 0x52;
+        }
+
+        private void append(String file, String value) throws Exception {
+            Files.write(workspace.resolve(file), value.getBytes(StandardCharsets.US_ASCII), StandardOpenOption.APPEND);
         }
 
         Thread observer(String file) {

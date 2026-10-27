@@ -66,6 +66,7 @@
                         <exclude>**/JniPrimitiveLeaseIntegrationTest.java</exclude>
                         <exclude>**/JniArgumentAbiIntegrationTest.java</exclude>
                         <exclude>**/JniNativeTailCallIntegrationTest.java</exclude>
+                        <exclude>**/JniThreadAttachmentIntegrationTest.java</exclude>
                         <exclude>**/JniNonvirtualConstructionIntegrationTest.java</exclude>
                     </excludes>
                 </configuration>

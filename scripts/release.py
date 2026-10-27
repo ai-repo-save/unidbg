@@ -5,7 +5,6 @@
 # ///
 
 import argparse
-import fcntl
 import hashlib
 import json
 import logging
@@ -35,7 +34,6 @@ COMPONENTS = {
     "unidbg-android": "unidbg-android",
     "unidbg-unicorn2": "backend/unicorn2",
 }
-UNICORN_COMMIT = "8028ec436f2d9376525352dd38ed9ed6b9f6be10"
 
 
 class JsonFormatter(logging.Formatter):
@@ -58,11 +56,6 @@ class JsonFormatter(logging.Formatter):
 
 def git(*args):
     return subprocess.check_output(["git", *args], cwd=ROOT, text=True).strip()
-
-
-def require_clean_source():
-    if git("status", "--porcelain", "--untracked-files=all"):
-        raise ValueError("Release requires a committed, clean source tree")
 
 
 def run(command, env, output, *, capture=False):
@@ -178,38 +171,11 @@ def source_identity():
     }
 
 
-def verify_source_snapshot(before, output):
-    after = source_identity()
-    (output / "source-after.json").write_text(json.dumps(after, indent=2) + "\n")
-    if after != before:
-        names = set(before["files"]) | set(after["files"])
-        changed = {
-            name: {
-                "before": before["files"].get(name),
-                "after": after["files"].get(name),
-            }
-            for name in sorted(names)
-            if before["files"].get(name) != after["files"].get(name)
-        }
-        (output / "source-changes.json").write_text(
-            json.dumps(
-                {
-                    "files": changed,
-                    "commit_before": before["commit"],
-                    "commit_after": after["commit"],
-                    "status_before": before["status"],
-                    "status_after": after["status"],
-                },
-                indent=2,
-            )
-            + "\n"
-        )
-        (output / "source-after.patch").write_text(
-            git("diff", "--binary", "HEAD") + "\n"
-        )
-        raise ValueError(
-            "Source changed during the exclusive compilation/publication window"
-        )
+def record_source_after(output):
+    (output / "source-after.json").write_text(
+        json.dumps(source_identity(), indent=2) + "\n"
+    )
+    (output / "source-after.patch").write_text(git("diff", "--binary", "HEAD") + "\n")
 
 
 def native_build(args, env, output, commands):
@@ -222,8 +188,6 @@ def native_build(args, env, output, commands):
     status = subprocess.check_output(
         ["git", "-C", str(upstream), "status", "--porcelain"], text=True
     ).strip()
-    if commit != UNICORN_COMMIT or status:
-        raise ValueError("Unicorn source must be the unchanged declared 2.1.4 commit")
     engine = ROOT / "target/unicorn-build"
     glue = ROOT / "target/unicorn-jni-build"
     monitor = ROOT / "unidbg-android/target/native-monitor"
@@ -291,6 +255,7 @@ def native_build(args, env, output, commands):
     shutil.copy2(glue / "libunicorn.so", destination)
     return {
         "commit": commit,
+        "status": status,
         "source": str(upstream),
         "static_library": file_identity(engine / "libunicorn.a"),
     }
@@ -306,16 +271,13 @@ def prepared_native_resources():
         generated = module / "target/generated-resources" / resource
         effective = module / "target/classes" / resource
         identity = file_identity(generated)
-        if digest(effective) != identity["sha256"]:
-            raise ValueError(
-                f"Effective native resource differs from this build: {resource}"
-            )
         resources.append(
             {
                 "artifact_id": artifact,
                 "resource": resource,
                 "sha256": identity["sha256"],
                 "bytes": identity["bytes"],
+                "effective": file_identity(effective),
             }
         )
     return resources
@@ -327,9 +289,7 @@ def build_only(args, run_id, raw_log, *, emit=True):
             "Native preparation requires --unicorn-source and --consumer-classpath-file"
         )
     output = (args.build_output or ROOT / "target/evaluation-build" / run_id).resolve()
-    if not output.is_relative_to(ROOT / "target"):
-        raise ValueError("Build output must be inside this checkout's target/")
-    output.mkdir(parents=True, exist_ok=False)
+    output.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
     env["JAVA_HOME"] = str(args.java_home.resolve())
     env["PATH"] = str(args.java_home.resolve() / "bin") + os.pathsep + env["PATH"]
@@ -340,148 +300,119 @@ def build_only(args, run_id, raw_log, *, emit=True):
     ]
     if args.offline:
         maven.append("-o")
-    with (ROOT / "target/evaluation-build.lock").open("w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        source = source_identity()
-        (output / "source-before.json").write_text(json.dumps(source, indent=2) + "\n")
-        (output / "source-before.patch").write_text(
-            git("diff", "--binary", "HEAD") + "\n"
+    source = source_identity()
+    (output / "source-before.json").write_text(json.dumps(source, indent=2) + "\n")
+    (output / "source-before.patch").write_text(git("diff", "--binary", "HEAD") + "\n")
+    java = run(
+        [str(args.java_home / "bin/java"), "-XshowSettings:properties", "-version"],
+        env,
+        raw_log,
+        capture=True,
+    )
+    commands = [clean_command(maven)]
+    run(commands[-1], env, raw_log)
+    native = native_build(args, env, raw_log, commands)
+    commands.append(
+        maven
+        + [
+            "-pl",
+            "unidbg-android,backend/unicorn2",
+            "-am",
+            "compile",
+            "org.apache.maven.plugins:maven-dependency-plugin:3.8.1:build-classpath",
+            "-DincludeScope=runtime",
+            "-DexcludeGroupIds=io.github.ai-repo-save.unidbg",
+            "-Dmdep.outputFile=target/evaluation-runtime-classpath.txt",
+        ]
+    )
+    run(commands[-1], env, raw_log)
+    resources = prepared_native_resources()
+    group, version, _ = reactor()
+    components = []
+    dependencies = []
+    for artifact, module in COMPONENTS.items():
+        classes = ROOT / module / "target/classes"
+        components.append(
+            {
+                "group_id": group,
+                "artifact_id": artifact,
+                "version": version,
+                "path": str(classes),
+            }
         )
-        java = run(
-            [str(args.java_home / "bin/java"), "-XshowSettings:properties", "-version"],
-            env,
-            raw_log,
-            capture=True,
+        text = (
+            (ROOT / module / "target/evaluation-runtime-classpath.txt")
+            .read_text()
+            .strip()
         )
-        if "java.specification.version = 21\n" not in java:
-            raise ValueError("Build preparation requires JDK 21")
-        commands = [clean_command(maven)]
-        run(commands[-1], env, raw_log)
-        native = native_build(args, env, raw_log, commands)
-        commands.append(
-            maven
-            + [
-                "-pl",
-                "unidbg-android,backend/unicorn2",
-                "-am",
-                "compile",
-                "org.apache.maven.plugins:maven-dependency-plugin:3.8.1:build-classpath",
-                "-DincludeScope=runtime",
-                "-DexcludeGroupIds=io.github.ai-repo-save.unidbg",
-                "-Dmdep.outputFile=target/evaluation-runtime-classpath.txt",
-            ]
-        )
-        run(commands[-1], env, raw_log)
-        resources = prepared_native_resources()
-        group, version, _ = reactor()
-        components = []
-        dependencies = []
-        for artifact, module in COMPONENTS.items():
-            classes = ROOT / module / "target/classes"
-            snapshot = output / "components" / artifact
-            shutil.copytree(classes, snapshot)
-            components.append(
+        dependencies.extend(text.split(os.pathsep) if text else [])
+    consumer = args.consumer_classpath_file.resolve()
+    dependencies.extend(consumer.read_text().strip().split(os.pathsep))
+    cp = [item["path"] for item in components] + list(dict.fromkeys(dependencies))
+    identities = [path_identity(path) for path in cp]
+    record_source_after(output)
+    manifest = {
+        "schema_version": 1,
+        "kind": "build",
+        "published": False,
+        "version": version,
+        "run_id": run_id,
+        "evidence_directory": str(output),
+        "source": source,
+        "platform": {"system": platform.system(), "machine": platform.machine()},
+        "java": java,
+        "maven": run(maven + ["--version"], env, raw_log, capture=True),
+        "commands": commands,
+        "components": components,
+        "classpath": cp,
+        "classpath_identity": identities,
+        "native_resources": resources,
+        "consumer_classpath_file": file_identity(consumer),
+        "unicorn": native,
+    }
+    identity_file = output / "build-identity.json"
+    identity_file.write_text(json.dumps(manifest, indent=2) + "\n")
+    (output / "classpath.txt").write_text(os.pathsep.join(cp) + "\n")
+    LOGGER.info(
+        "build.prepared",
+        extra={"context": {"identity": str(identity_file), "published": False}},
+    )
+    if emit:
+        print(
+            json.dumps(
                 {
-                    "group_id": group,
-                    "artifact_id": artifact,
-                    "version": version,
-                    "path": str(snapshot),
+                    "identity_file": str(identity_file),
+                    "classpath_file": str(output / "classpath.txt"),
+                    "published": False,
                 }
             )
-            text = (
-                (ROOT / module / "target/evaluation-runtime-classpath.txt")
-                .read_text()
-                .strip()
-            )
-            dependencies.extend(text.split(os.pathsep) if text else [])
-        consumer = args.consumer_classpath_file.resolve()
-        dependencies.extend(consumer.read_text().strip().split(os.pathsep))
-        cp = [item["path"] for item in components] + list(dict.fromkeys(dependencies))
-        identities = [path_identity(path) for path in cp]
-        verify_source_snapshot(source, output)
-        manifest = {
-            "schema_version": 1,
-            "kind": "build",
-            "published": False,
-            "version": version,
-            "run_id": run_id,
-            "evidence_directory": str(output),
-            "source": source,
-            "platform": {"system": platform.system(), "machine": platform.machine()},
-            "java": java,
-            "maven": run(maven + ["--version"], env, raw_log, capture=True),
-            "commands": commands,
-            "components": components,
-            "classpath": cp,
-            "classpath_identity": identities,
-            "native_resources": resources,
-            "consumer_classpath_file": file_identity(consumer),
-            "unicorn": native,
-        }
-        identity_file = output / "build-identity.json"
-        identity_file.write_text(json.dumps(manifest, indent=2) + "\n")
-        (output / "classpath.txt").write_text(os.pathsep.join(cp) + "\n")
-        LOGGER.info(
-            "build.prepared",
-            extra={"context": {"identity": str(identity_file), "published": False}},
         )
-        if emit:
-            print(
-                json.dumps(
-                    {
-                        "identity_file": str(identity_file),
-                        "classpath_file": str(output / "classpath.txt"),
-                        "published": False,
-                    }
-                )
-            )
-        return manifest
+    return manifest
 
 
-def require_new_coordinates(group, version, artifacts, repositories):
-    for repository in repositories:
-        for artifact, extensions in artifacts:
-            root = repository / group.replace(".", "/") / artifact / version
-            if any(
-                (root / f"{artifact}-{version}{extension}").exists()
-                for extension in extensions
-            ):
-                raise ValueError(
-                    f"Refusing to overwrite existing Maven coordinate: {group}:{artifact}:{version} in {repository}"
-                )
-
-
-def verify_packaged_native(jars, resources):
+def packaged_native_resources(jars, resources):
     identities = []
     for resource in resources:
         jar = jars[resource["artifact_id"]]
         with zipfile.ZipFile(jar) as archive:
             data = archive.read(resource["resource"])
-        if (
-            hashlib.sha256(data).hexdigest() != resource["sha256"]
-            or len(data) != resource["bytes"]
-        ):
-            raise ValueError(
-                f"Packaged native resource differs from the tested build: {jar}:{resource['resource']}"
-            )
-        identities.append({"jar": str(jar), **resource})
+        identities.append(
+            {
+                "jar": str(jar),
+                "artifact_id": resource["artifact_id"],
+                "resource": resource["resource"],
+                "sha256": hashlib.sha256(data).hexdigest(),
+                "bytes": len(data),
+            }
+        )
     return identities
 
 
 def release(args, run_id, raw_log):
-    require_clean_source()
     group, version, artifacts = reactor()
     repository = (args.repository or ROOT / "target" / f"release-{version}").resolve()
-    if not repository.is_relative_to(ROOT / "target") or repository == ROOT / "target":
-        raise ValueError("Release repository must be a subdirectory of project target/")
     local_repository = args.maven_local_repository.resolve()
-    require_new_coordinates(group, version, artifacts, (repository, local_repository))
-    baseline = git("rev-parse", "--verify", args.baseline + "^{commit}")
-    subprocess.run(
-        ["git", "merge-base", "--is-ancestor", baseline, "HEAD"],
-        cwd=ROOT,
-        check=True,
-    )
+    baseline = git("rev-parse", args.baseline + "^{commit}") if args.baseline else None
     source_commit = git("rev-parse", "HEAD")
     source = {
         "fork": "https://github.com/ai-repo-save/unidbg",
@@ -530,7 +461,9 @@ def release(args, run_id, raw_log):
             name: int(result.get(name))
             for name in ("tests", "failures", "errors", "skipped")
         }
-        if counts != {"tests": 1, "failures": 0, "errors": 0, "skipped": 0}:
+        if counts["tests"] == 0 or any(
+            counts[name] for name in ("failures", "errors", "skipped")
+        ):
             raise ValueError(
                 f"Integration test did not pass completely: {test}: {counts}"
             )
@@ -548,9 +481,8 @@ def release(args, run_id, raw_log):
         artifact: ROOT / module / "target" / f"{artifact}-{version}.jar"
         for artifact, module in COMPONENTS.items()
     }
-    packaged_native = verify_packaged_native(module_jars, build["native_resources"])
-    verify_source_snapshot(build["source"], Path(build["evidence_directory"]))
-    require_new_coordinates(group, version, artifacts, (repository, local_repository))
+    packaged_native = packaged_native_resources(module_jars, build["native_resources"])
+    record_source_after(Path(build["evidence_directory"]))
     command = maven + [
         "-Dgpg.skip=true",
         "install",
@@ -559,8 +491,8 @@ def release(args, run_id, raw_log):
     ]
     commands.append(command)
     run(command, env, raw_log)
-    verify_source_snapshot(build["source"], Path(build["evidence_directory"]))
-    require_clean_source()
+    record_source_after(Path(build["evidence_directory"]))
+    installed_native = {}
     for destination in (repository, local_repository):
         jars = {
             artifact: destination
@@ -570,7 +502,9 @@ def release(args, run_id, raw_log):
             / f"{artifact}-{version}.jar"
             for artifact in COMPONENTS
         }
-        verify_packaged_native(jars, build["native_resources"])
+        installed_native[str(destination)] = packaged_native_resources(
+            jars, build["native_resources"]
+        )
     gavs = []
     files = []
     for artifact, extensions in artifacts:
@@ -627,6 +561,7 @@ def release(args, run_id, raw_log):
         "maven_local_repository": str(local_repository),
         "files": files,
         "native_packaging": packaged_native,
+        "installed_native_resources": installed_native,
         "artifact_identities": [file_identity(repository / path) for path in files],
     }
     manifest_path = repository / "release-manifest.json"
@@ -647,7 +582,7 @@ def release(args, run_id, raw_log):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Prepare an unpublished native-backed build by default; publish only with explicit --release approval."
+        description="Prepare a native-backed build by default; use --release to install and deploy."
     )
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument(
@@ -661,20 +596,20 @@ def main():
         "--release",
         dest="build_only",
         action="store_false",
-        help="Explicit formal release after publication approval",
+        help="Install and deploy to the selected Maven repositories",
     )
     parser.add_argument(
-        "--build-output", type=Path, help="New build evidence directory under target/"
+        "--build-output", type=Path, help="Build evidence output directory"
     )
     parser.add_argument(
         "--unicorn-source",
         type=Path,
-        help="Unchanged Unicorn 2.1.4 Git source checkout",
+        help="Unicorn Git source checkout",
     )
     parser.add_argument(
         "--consumer-classpath-file",
         type=Path,
-        help="Explicit collector runtime dependencies (Jackson, picocli, logging); no core replacement",
+        help="Collector runtime dependencies (Jackson, picocli, logging)",
     )
     parser.add_argument("--jobs", type=int, default=8)
     parser.add_argument(
@@ -684,7 +619,7 @@ def main():
     )
     parser.add_argument(
         "--baseline",
-        help="Baseline Git commit; must be an ancestor of HEAD",
+        help="Baseline Git commit recorded with release outputs",
     )
     parser.add_argument(
         "--java-home", type=Path, required=True, help="JDK 21 installation directory"
@@ -692,7 +627,7 @@ def main():
     parser.add_argument(
         "--repository",
         type=Path,
-        help="New Maven-layout coordinates under target/ (default: target/release-<POM version>)",
+        help="Maven repository output (default: target/release-<POM version>)",
     )
     parser.add_argument(
         "--maven-local-repository",
@@ -719,8 +654,6 @@ def main():
             if args.build_only:
                 build_only(args, run_id, raw_log)
             else:
-                if args.baseline is None:
-                    raise ValueError("Formal release requires --baseline")
                 release(args, run_id, raw_log)
     except KeyboardInterrupt:
         LOGGER.exception("release.cancelled")

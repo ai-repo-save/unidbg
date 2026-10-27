@@ -5,9 +5,13 @@
 # ///
 
 import argparse
+import fcntl
+import hashlib
 import json
 import logging
 import os
+import platform
+import shutil
 import signal
 import subprocess
 import sys
@@ -25,6 +29,12 @@ TESTS = (
     "JniPrimitiveIntegrationTest",
 )
 LOGGER = logging.getLogger("unidbg.release")
+COMPONENTS = {
+    "unidbg-api": "unidbg-api",
+    "unidbg-android": "unidbg-android",
+    "unidbg-unicorn2": "backend/unicorn2",
+}
+UNICORN_COMMIT = "8028ec436f2d9376525352dd38ed9ed6b9f6be10"
 
 
 class JsonFormatter(logging.Formatter):
@@ -119,6 +129,266 @@ def reactor():
             extensions += [".jar", "-sources.jar", "-javadoc.jar"]
         artifacts.append((artifact, extensions))
     return group, version, artifacts
+
+
+def digest(path):
+    value = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            value.update(block)
+    return value.hexdigest()
+
+
+def file_identity(path):
+    path = Path(path)
+    return {"path": str(path), "sha256": digest(path), "bytes": path.stat().st_size}
+
+
+def path_identity(path):
+    path = Path(path)
+    if not path.is_dir():
+        return {"kind": "file", **file_identity(path)}
+    files = []
+    for child in sorted(path.rglob("*")):
+        if child.is_file():
+            item = file_identity(child)
+            item["path"] = child.relative_to(path).as_posix()
+            files.append(item)
+    return {"kind": "directory", "path": str(path), "files": files}
+
+
+def source_identity():
+    files = git("ls-files", "--cached", "--others", "--exclude-standard").splitlines()
+    return {
+        "commit": git("rev-parse", "HEAD"),
+        "tree": git("rev-parse", "HEAD^{tree}"),
+        "status": git("status", "--porcelain", "--untracked-files=all"),
+        "files": {
+            name: digest(ROOT / name) for name in files if (ROOT / name).is_file()
+        },
+    }
+
+
+def native_build(args, env, output, commands):
+    if platform.system() != "Linux" or platform.machine() != "x86_64":
+        raise ValueError("Native preparation is defined for Linux x86_64")
+    upstream = args.unicorn_source.resolve()
+    commit = subprocess.check_output(
+        ["git", "-C", str(upstream), "rev-parse", "HEAD"], text=True
+    ).strip()
+    status = subprocess.check_output(
+        ["git", "-C", str(upstream), "status", "--porcelain"], text=True
+    ).strip()
+    if commit != UNICORN_COMMIT or status:
+        raise ValueError("Unicorn source must be the unchanged declared 2.1.4 commit")
+    engine = ROOT / "target/unicorn-build"
+    glue = ROOT / "target/unicorn-jni-build"
+    monitor = ROOT / "unidbg-android/target/native-monitor"
+    monitor_resources = (
+        ROOT / "unidbg-android/target/generated-resources/natives/linux_64"
+    )
+    commands.extend(
+        [
+            [
+                "cmake",
+                "-S",
+                str(upstream),
+                "-B",
+                str(engine),
+                "-DCMAKE_BUILD_TYPE=Release",
+                "-DCMAKE_POSITION_INDEPENDENT_CODE=ON",
+                "-DUNICORN_ARCH=arm;aarch64",
+                "-DUNICORN_BUILD_TESTS=OFF",
+            ],
+            [
+                "cmake",
+                "--build",
+                str(engine),
+                "--target",
+                "unicorn_archive",
+                "--parallel",
+                str(args.jobs),
+            ],
+            [
+                "cmake",
+                "-S",
+                str(ROOT / "backend/unicorn2/src/main/native"),
+                "-B",
+                str(glue),
+                f"-DUNICORN_HOME={upstream}",
+                f"-DUNICORN_BUILD={engine}",
+            ],
+            ["cmake", "--build", str(glue), "--parallel", str(args.jobs)],
+            [
+                "cmake",
+                "-S",
+                str(ROOT / "unidbg-android/src/main/native/jvm-monitor"),
+                "-B",
+                str(monitor),
+                "-DCMAKE_BUILD_TYPE=Release",
+                f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={monitor_resources}",
+            ],
+            [
+                "cmake",
+                "--build",
+                str(monitor),
+                "--target",
+                "unidbg_jvm_monitor",
+                "--parallel",
+                str(args.jobs),
+            ],
+        ]
+    )
+    for command in commands[-6:]:
+        run(command, env, output)
+    destination = (
+        ROOT
+        / "backend/unicorn2/target/generated-resources/natives/linux_64/libunicorn.so"
+    )
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(glue / "libunicorn.so", destination)
+    return {
+        "commit": commit,
+        "source": str(upstream),
+        "static_library": file_identity(engine / "libunicorn.a"),
+    }
+
+
+def prepared_native_resources():
+    resources = []
+    for artifact, resource in (
+        ("unidbg-unicorn2", "natives/linux_64/libunicorn.so"),
+        ("unidbg-android", "natives/linux_64/libunidbg_jvm_monitor.so"),
+    ):
+        module = ROOT / COMPONENTS[artifact]
+        generated = module / "target/generated-resources" / resource
+        effective = module / "target/classes" / resource
+        identity = file_identity(generated)
+        if digest(effective) != identity["sha256"]:
+            raise ValueError(
+                f"Effective native resource differs from this build: {resource}"
+            )
+        resources.append(
+            {
+                "artifact_id": artifact,
+                "resource": resource,
+                "sha256": identity["sha256"],
+                "bytes": identity["bytes"],
+            }
+        )
+    return resources
+
+
+def build_only(args, run_id, raw_log):
+    if args.unicorn_source is None or args.consumer_classpath_file is None:
+        raise ValueError(
+            "--build-only requires --unicorn-source and --consumer-classpath-file"
+        )
+    output = (args.build_output or ROOT / "target/evaluation-build" / run_id).resolve()
+    if not output.is_relative_to(ROOT / "target"):
+        raise ValueError("Build output must be inside this checkout's target/")
+    output.mkdir(parents=True, exist_ok=False)
+    env = os.environ.copy()
+    env["JAVA_HOME"] = str(args.java_home.resolve())
+    env["PATH"] = str(args.java_home.resolve() / "bin") + os.pathsep + env["PATH"]
+    maven = [
+        str(ROOT / "mvnw"),
+        "-B",
+        f"-Dmaven.repo.local={args.maven_local_repository.resolve()}",
+    ]
+    if args.offline:
+        maven.append("-o")
+    with (ROOT / "target/evaluation-build.lock").open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        source = source_identity()
+        (output / "source-before.json").write_text(json.dumps(source, indent=2) + "\n")
+        java = run(
+            [str(args.java_home / "bin/java"), "-XshowSettings:properties", "-version"],
+            env,
+            raw_log,
+            capture=True,
+        )
+        if "java.specification.version = 21\n" not in java:
+            raise ValueError("Build preparation requires JDK 21")
+        commands = [clean_command(maven)]
+        run(commands[-1], env, raw_log)
+        native = native_build(args, env, raw_log, commands)
+        commands.append(
+            maven
+            + [
+                "-pl",
+                "unidbg-android,backend/unicorn2",
+                "-am",
+                "compile",
+                "org.apache.maven.plugins:maven-dependency-plugin:3.8.1:build-classpath",
+                "-DincludeScope=runtime",
+                "-DexcludeGroupIds=io.github.ai-repo-save.unidbg",
+                "-Dmdep.outputFile=target/evaluation-runtime-classpath.txt",
+            ]
+        )
+        run(commands[-1], env, raw_log)
+        resources = prepared_native_resources()
+        group, version, _ = reactor()
+        components = []
+        dependencies = []
+        for artifact, module in COMPONENTS.items():
+            classes = ROOT / module / "target/classes"
+            snapshot = output / "components" / artifact
+            shutil.copytree(classes, snapshot)
+            components.append(
+                {
+                    "group_id": group,
+                    "artifact_id": artifact,
+                    "version": version,
+                    "path": str(snapshot),
+                }
+            )
+            text = (
+                (ROOT / module / "target/evaluation-runtime-classpath.txt")
+                .read_text()
+                .strip()
+            )
+            dependencies.extend(text.split(os.pathsep) if text else [])
+        consumer = args.consumer_classpath_file.resolve()
+        dependencies.extend(consumer.read_text().strip().split(os.pathsep))
+        cp = [item["path"] for item in components] + list(dict.fromkeys(dependencies))
+        identities = [path_identity(path) for path in cp]
+        if source_identity() != source:
+            raise ValueError("Source changed during the exclusive compilation window")
+        manifest = {
+            "schema_version": 1,
+            "kind": "build",
+            "published": False,
+            "version": version,
+            "run_id": run_id,
+            "source": source,
+            "platform": {"system": platform.system(), "machine": platform.machine()},
+            "java": java,
+            "maven": run(maven + ["--version"], env, raw_log, capture=True),
+            "commands": commands,
+            "components": components,
+            "classpath": cp,
+            "classpath_identity": identities,
+            "native_resources": resources,
+            "consumer_classpath_file": file_identity(consumer),
+            "unicorn": native,
+        }
+        identity_file = output / "build-identity.json"
+        identity_file.write_text(json.dumps(manifest, indent=2) + "\n")
+        (output / "classpath.txt").write_text(os.pathsep.join(cp) + "\n")
+        LOGGER.info(
+            "build.prepared",
+            extra={"context": {"identity": str(identity_file), "published": False}},
+        )
+        print(
+            json.dumps(
+                {
+                    "identity_file": str(identity_file),
+                    "classpath_file": str(output / "classpath.txt"),
+                    "published": False,
+                }
+            )
+        )
 
 
 def release(args, run_id, raw_log):
@@ -256,9 +526,41 @@ def main():
     parser = argparse.ArgumentParser(
         description="Build, verify, install and release the committed unidbg fork locally."
     )
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--build-only",
+        dest="build_only",
+        action="store_true",
+        default=True,
+        help="Prepare an unpublished Linux x86_64 build without install/deploy (default)",
+    )
+    mode.add_argument(
+        "--release",
+        dest="build_only",
+        action="store_false",
+        help="Explicit formal release after publication approval",
+    )
+    parser.add_argument(
+        "--build-output", type=Path, help="New build evidence directory under target/"
+    )
+    parser.add_argument(
+        "--unicorn-source",
+        type=Path,
+        help="Unchanged Unicorn 2.1.4 Git source checkout",
+    )
+    parser.add_argument(
+        "--consumer-classpath-file",
+        type=Path,
+        help="Explicit collector runtime dependencies (Jackson, picocli, logging); no core replacement",
+    )
+    parser.add_argument("--jobs", type=int, default=8)
+    parser.add_argument(
+        "--offline",
+        action="store_true",
+        help="Resolve Maven dependencies from the selected cache only",
+    )
     parser.add_argument(
         "--baseline",
-        required=True,
         help="Baseline Git commit; must be an ancestor of HEAD",
     )
     parser.add_argument(
@@ -290,7 +592,14 @@ def main():
         LOGGER.addHandler(handler)
     try:
         with (logs / f"release-{run_id}.maven.log").open("w") as raw_log:
-            release(args, run_id, raw_log)
+            if args.jobs < 1:
+                raise ValueError("--jobs must be positive")
+            if args.build_only:
+                build_only(args, run_id, raw_log)
+            else:
+                if args.baseline is None:
+                    raise ValueError("Formal release requires --baseline")
+                release(args, run_id, raw_log)
     except KeyboardInterrupt:
         LOGGER.exception("release.cancelled")
         return 130

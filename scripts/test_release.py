@@ -70,6 +70,72 @@ class ReleaseIntegrationTest(unittest.TestCase):
             }
             self.assertEqual(actual, published)
 
+    def test_compiled_directory_and_jar_identity(self):
+        target = release.ROOT / "target"
+        target.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(
+            prefix="compiled-identity-test-", dir=target
+        ) as directory:
+            root = Path(directory)
+            source = root / "Witness.java"
+            source.write_text(
+                "public final class Witness { public static int value() { return 17; } }\n"
+            )
+            classes = root / "classes"
+            classes.mkdir()
+            java_home = Path(os.environ["JAVA_HOME"])
+            subprocess.run(
+                [
+                    str(java_home / "bin/javac"),
+                    "--release",
+                    "8",
+                    "-d",
+                    str(classes),
+                    str(source),
+                ],
+                check=True,
+            )
+            (classes / "resource.bin").write_bytes(b"abc")
+            jar = root / "witness.jar"
+            subprocess.run(
+                [
+                    str(java_home / "bin/jar"),
+                    "--create",
+                    "--file",
+                    str(jar),
+                    "-C",
+                    str(classes),
+                    ".",
+                ],
+                check=True,
+            )
+            identity = release.path_identity(classes)
+            self.assertEqual(
+                {item["path"] for item in identity["files"]},
+                {"Witness.class", "resource.bin"},
+            )
+            resource = next(
+                item for item in identity["files"] if item["path"] == "resource.bin"
+            )
+            self.assertEqual(resource["bytes"], 3)
+            self.assertEqual(
+                resource["sha256"],
+                "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+            )
+            artifact = release.path_identity(jar)
+            self.assertEqual(artifact["kind"], "file")
+            self.assertEqual(artifact["bytes"], jar.stat().st_size)
+            (classes / "resource.bin").write_bytes(b"changed")
+            changed = release.path_identity(classes)
+            self.assertEqual(
+                next(
+                    item["bytes"]
+                    for item in changed["files"]
+                    if item["path"] == "resource.bin"
+                ),
+                7,
+            )
+
     def test_probe_failures_preserve_original_output(self):
         target = release.ROOT / "target"
         target.mkdir(exist_ok=True)

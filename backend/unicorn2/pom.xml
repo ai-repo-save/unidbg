@@ -12,6 +12,23 @@
 
     <artifactId>unidbg-unicorn2</artifactId>
     <name>unidbg-unicorn2</name>
+    <build>
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+                <excludes>
+                    <exclude>natives/linux_64/libunicorn.so</exclude>
+                    <exclude>**/*.i64</exclude>
+                    <exclude>**/*.idb</exclude>
+                </excludes>
+                <filtering>false</filtering>
+            </resource>
+            <resource>
+                <directory>${project.build.directory}/generated-resources</directory>
+                <filtering>false</filtering>
+            </resource>
+        </resources>
+    </build>
     <dependencies>
         <dependency>
             <groupId>io.github.ai-repo-save.unidbg</groupId>

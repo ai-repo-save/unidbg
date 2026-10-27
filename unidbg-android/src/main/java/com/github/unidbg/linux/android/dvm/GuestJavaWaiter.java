@@ -33,16 +33,6 @@ public final class GuestJavaWaiter<T> implements Waiter {
         this.frame = frame;
     }
 
-    public static <T> void rearm(Emulator<?> emulator, HostJavaCall<T> call,
-                                 Consumer<HostJavaResult<T>> completion, Consumer<Throwable> abandoned) {
-        Task owner = emulator.get(Task.TASK_KEY);
-        RunnableTask frame = emulator.getThreadDispatcher().getRunningTask();
-        if (owner == null || frame == null) {
-            throw new IllegalStateException("Host waiter installation requires a current guest frame");
-        }
-        frame.setWaiter(emulator, new GuestJavaWaiter<>(call, completion, abandoned, owner, frame));
-    }
-
     public static <T> long suspend(Emulator<?> emulator, HostJavaCall<T> call,
                                   Consumer<HostJavaResult<T>> completion) {
         return suspend(emulator, call, completion, null);
@@ -50,7 +40,12 @@ public final class GuestJavaWaiter<T> implements Waiter {
 
     public static <T> long suspend(Emulator<?> emulator, HostJavaCall<T> call,
                                   Consumer<HostJavaResult<T>> completion, Consumer<Throwable> abandoned) {
-        rearm(emulator, call, completion, abandoned);
+        Task owner = emulator.get(Task.TASK_KEY);
+        RunnableTask frame = emulator.getThreadDispatcher().getRunningTask();
+        if (owner == null || frame == null) {
+            throw new IllegalStateException("Host waiter installation requires a current guest frame");
+        }
+        frame.setWaiter(emulator, new GuestJavaWaiter<>(call, completion, abandoned, owner, frame));
         throw new ThreadContextSwitchException();
     }
 

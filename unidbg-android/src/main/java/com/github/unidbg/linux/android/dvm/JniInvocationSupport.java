@@ -1,11 +1,14 @@
 package com.github.unidbg.linux.android.dvm;
 
 import com.github.unidbg.Emulator;
+import com.github.unidbg.LongJumpException;
 import com.github.unidbg.arm.Arm64Svc;
 import com.github.unidbg.arm.ArmSvc;
 import com.github.unidbg.arm.context.RegisterContext;
+import com.github.unidbg.linux.android.dvm.host.HostJavaCall;
 import com.github.unidbg.linux.android.dvm.host.HostJavaResult;
 import com.github.unidbg.linux.android.dvm.jni.ProxyDvmObject;
+import com.github.unidbg.linux.android.dvm.jni.ProxyTargetException;
 import com.sun.jna.Pointer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,14 +17,16 @@ import unicorn.ArmConst;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.concurrent.Callable;
 import java.util.function.Function;
 import java.util.function.LongSupplier;
+import java.util.function.ToLongFunction;
 
 final class JniInvocationSupport {
     private static final Logger log = LoggerFactory.getLogger(JniInvocationSupport.class);
     enum Arguments { ORDINARY, V, A }
 
-    private interface Binding { JniCallPlan bind(HostJni jni) throws ReflectiveOperationException; }
+    private interface Binding { Object invoke(HostJni jni, Function<Jni, Object> backend, HostJni.Completion completion) throws Throwable; }
 
     static Pointer register(Emulator<?> emulator, BaseVM vm, LongSupplier operation) {
         return raw(emulator, () -> {
@@ -52,15 +57,9 @@ final class JniInvocationSupport {
     }
 
     private static long dispatch(Emulator<?> emulator, BaseVM vm, Jni provider, char resultType, String member,
-                                 Binding binding, Function<Jni, Object> backend) {
-        JniCallPlan plan;
-        try {
-            plan = provider instanceof HostJni ? binding.bind((HostJni) provider) : JniCallPlan.backend(provider);
-        } catch (Throwable failure) {
-            log.debug("event=jni_plan_binding_failed signature={}", member, failure);
-            plan = JniCallPlan.failure(failure, false);
-        }
-        return runPlan(emulator, vm, resultType, plan, backend,
+                         Binding binding, Function<Jni, Object> backend) {
+        return invoke(emulator, vm, member, completion -> provider instanceof HostJni
+                        ? binding.invoke((HostJni) provider, backend, completion) : backend.apply(provider),
                 value -> result(emulator, vm, resultType, value),
                 failure -> {
                     vm.throwException(ProxyDvmObject.createObject(vm, failure));
@@ -68,32 +67,59 @@ final class JniInvocationSupport {
                 });
     }
 
-    static long runPlan(Emulator<?> emulator, BaseVM vm, char hostType, JniCallPlan plan,
-                         Function<Jni, Object> backend, java.util.function.ToLongFunction<Object> terminal,
-                         java.util.function.ToLongFunction<Throwable> targetFailure) {
-        return JniPlanExecution.run(emulator, vm, plan, backend,
-                value -> hostType == 'L' ? ProxyDvmObject.createObject(vm, value) : hostType == 'V' ? null : value,
-                value -> normalized(hostType, value), terminal, targetFailure);
+    interface Invocation { Object invoke(HostJni.Completion completion) throws Throwable; }
+
+    static long invoke(Emulator<?> emulator, BaseVM vm, String member, Invocation invocation,
+                       ToLongFunction<Object> terminal,
+                       ToLongFunction<Throwable> targetFailure) {
+        String nativeCaller = String.valueOf(emulator.getContext().getLRPointer());
+        int tid = vm.threads().currentThreadState().tid();
+        HostJni.Completion completion = new HostJni.Completion() {
+            @Override public void complete(Object value, Throwable failure, boolean targetThrown) {
+                long encoded;
+                if (failure == null) encoded = terminal.applyAsLong(value);
+                else if (targetThrown) encoded = targetFailure.applyAsLong(failure);
+                else {
+                    if (!(failure instanceof LongJumpException)) {
+                        log.error("event=jni_host_failed emulator_id={} guest_tid={} member={} native_caller={}",
+                                System.identityHashCode(emulator), tid, member, nativeCaller, failure);
+                    }
+                    throw hostFailure(failure);
+                }
+                emulator.getBackend().reg_write(emulator.is64Bit() ? Arm64Const.UC_ARM64_REG_X0 : ArmConst.UC_ARM_REG_R0,
+                        emulator.is64Bit() ? encoded : (int) encoded);
+            }
+            @Override public void cancelled(Throwable cancellation) {
+                log.debug("event=jni_host_cancelled emulator_id={} guest_tid={} member={} native_caller={}",
+                        System.identityHashCode(emulator), tid, member, nativeCaller, cancellation);
+            }
+        };
+        try { return terminal.applyAsLong(invocation.invoke(completion)); }
+        catch (ProxyTargetException failure) { return targetFailure.applyAsLong(failure.target()); }
+        catch (Throwable failure) { throw hostFailure(failure); }
     }
 
-    private static Object normalized(char type, Object value) {
-        if (type == 'L') return DvmObject.class.cast(value);
-        if (type == 'V') {
-            if (value != null) throw new ClassCastException("JNI void result must be null");
-            return null;
-        }
-        java.util.Objects.requireNonNull(value, "JNI primitive result");
-        switch (type) {
-            case 'Z': return Boolean.class.cast(value);
-            case 'B': return Byte.class.cast(value);
-            case 'C': return Character.class.cast(value);
-            case 'S': return Short.class.cast(value);
-            case 'I': return Integer.class.cast(value);
-            case 'J': return Long.class.cast(value);
-            case 'F': return Float.class.cast(value);
-            case 'D': return Double.class.cast(value);
-            default: throw new IllegalArgumentException("JNI result type=" + type);
-        }
+    static Object submit(BaseVM vm, char resultType, Callable<?> operation, HostJni.Completion completion) {
+        HostJavaCall<?> call = vm.threads().hostRuntime().submit(operation);
+        return GuestJavaWaiter.suspend(vm.getEmulator(), call, result -> {
+            Throwable failure = result.failure();
+            if (failure instanceof ProxyTargetException) {
+                completion.complete(null, ((ProxyTargetException) failure).target(), true);
+            } else if (failure != null) {
+                completion.complete(null, failure, false);
+            } else {
+                Object value;
+                try {
+                    Object hostValue = successValue(result);
+                    value = resultType == 'L' ? ProxyDvmObject.createObject(vm, hostValue)
+                            : resultType == 'V' ? null : hostValue;
+                } catch (Throwable conversionFailure) {
+                    completion.complete(null, conversionFailure, false);
+                    return;
+                }
+                completion.complete(value, null, false);
+            }
+        }, completion::cancelled);
     }
 
     static Object successValue(HostJavaResult<?> result) {
@@ -131,7 +157,7 @@ final class JniInvocationSupport {
             if (method == null) throw new IllegalArgumentException("Unknown JNI method");
             VarArg args = arguments(emulator, vm, method, mode);
             return dispatch(emulator, vm, provider(vm, clazz), returnType, method.getSignature(),
-                    host -> host.planMethod(clazz, receiver, method, args, isStatic),
+                    (host, backend, completion) -> host.invokeMethod(clazz, receiver, method, args, isStatic, backend, completion),
                     jni -> modelMethod(jni, vm, clazz, receiver, method, args, isStatic, returnType, mode));
         });
     }
@@ -143,7 +169,7 @@ final class JniInvocationSupport {
             DvmMethod constructor = clazz.getMethod(context.getIntArg(2));
             if (constructor == null) throw new IllegalArgumentException("Unknown JNI constructor");
             VarArg args = arguments(emulator, vm, constructor, mode);
-            return dispatch(emulator, vm, provider(vm, clazz), 'L', constructor.getSignature(), host -> host.planConstructor(clazz, constructor, args),
+            return dispatch(emulator, vm, provider(vm, clazz), 'L', constructor.getSignature(), (host, backend, completion) -> host.invokeConstructor(clazz, constructor, args, backend, completion),
                     jni -> mode == Arguments.ORDINARY ? jni.newObject(vm, clazz, constructor, args)
                             : jni.newObjectV(vm, clazz, constructor, (VaList) args));
         });
@@ -152,7 +178,7 @@ final class JniInvocationSupport {
     static Pointer allocate(Emulator<?> emulator, BaseVM vm) {
         return register(emulator, vm, () -> {
             DvmClass clazz = vm.resolveJniObject(emulator.getContext().getIntArg(1));
-            return dispatch(emulator, vm, provider(vm, clazz), 'L', clazz.getClassName() + "->allocObject", host -> host.planAllocation(clazz),
+            return dispatch(emulator, vm, provider(vm, clazz), 'L', clazz.getClassName() + "->allocObject", (host, backend, completion) -> host.invokeAllocation(clazz, backend, completion),
                     jni -> jni.allocObject(vm, clazz, clazz.getClassName() + "->allocObject"));
         });
     }
@@ -166,7 +192,7 @@ final class JniInvocationSupport {
             if (field == null) throw new IllegalArgumentException("Unknown JNI field");
             Object value = write ? fieldInput(emulator, vm, type) : null;
             return dispatch(emulator, vm, provider(vm, clazz), write ? 'V' : type, field.getSignature(),
-                    host -> host.planField(clazz, receiver, field, isStatic, write, value),
+                    (host, backend, completion) -> host.invokeField(clazz, receiver, field, isStatic, write, value, backend, completion),
                     jni -> modelField(jni, vm, clazz, receiver, field, type, isStatic, write, value));
         });
     }

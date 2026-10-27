@@ -9,14 +9,15 @@ import java.lang.reflect.Member;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Function;
 
-/** Binds host-only reflection plans; synchronous Jni callbacks belong to the modeled fallback. */
+/** Invokes host-only reflection; synchronous Jni callbacks belong to the modeled fallback. */
 public class ProxyJni extends JniFunction implements HostJni {
     private static final Logger log = LoggerFactory.getLogger(ProxyJni.class);
     private final ProxyClassLoader classLoader;
     private final ProxyDvmObjectVisitor visitor;
 
-    private interface Alternative { JniCallPlan bind(HostJni provider) throws ReflectiveOperationException; }
+    private interface Alternative { Object invoke(HostJni provider) throws Throwable; }
 
     public ProxyJni(ProxyClassLoader loader, ProxyDvmObjectVisitor visitor, Jni fallback) {
         super(fallback);
@@ -24,72 +25,75 @@ public class ProxyJni extends JniFunction implements HostJni {
         this.visitor = visitor;
     }
 
-    private JniCallPlan unresolved(String signature, ReflectiveOperationException missing, Alternative alternative)
-            throws ReflectiveOperationException {
+    private Object unresolved(String signature, ReflectiveOperationException missing, Alternative alternative, Function<Jni, Object> backend)
+            throws Throwable {
         log.debug("event=jni_host_binding_unresolved signature={}", signature, missing);
         Jni fallback = configuredFallback();
         if (fallback == null) throw new UnsupportedOperationException(signature, missing);
-        return fallback instanceof HostJni ? alternative.bind((HostJni) fallback) : JniCallPlan.backend(fallback);
+        return fallback instanceof HostJni ? alternative.invoke((HostJni) fallback) : backend.apply(fallback);
     }
 
     @Override
-    public JniCallPlan planMethod(DvmClass type, DvmObject<?> receiver, DvmMethod method,
-                                  VarArg arguments, boolean isStatic) throws ReflectiveOperationException {
+    public Object invokeMethod(DvmClass type, DvmObject<?> receiver, DvmMethod method,
+                                  VarArg arguments, boolean isStatic, Function<Jni, Object> backend, Completion completion) throws Throwable {
         try {
             ProxyCall call = ProxyUtils.findMethod(classLoader.loadClass(type), method, arguments, isStatic, visitor);
             Object target = isStatic ? null : ProxyDvmObject.unpack(receiver);
-            return JniCallPlan.host(() -> call.call(target));
+            String descriptor = method.getArgs();
+            char resultType = descriptor.charAt(descriptor.lastIndexOf(')') + 1);
+            return HostJni.submit(type.vm, resultType == '[' ? 'L' : resultType, () -> call.call(target), completion);
         } catch (ClassNotFoundException | NoSuchMethodException missing) {
-            return unresolved(method.getSignature(), missing, provider -> provider.planMethod(type, receiver, method, arguments, isStatic));
+            return unresolved(method.getSignature(), missing, provider -> provider.invokeMethod(type, receiver, method, arguments, isStatic, backend, completion), backend);
         }
     }
 
     @Override
-    public JniCallPlan planConstructor(DvmClass type, DvmMethod method, VarArg arguments)
-            throws ReflectiveOperationException {
+    public Object invokeConstructor(DvmClass type, DvmMethod method, VarArg arguments, Function<Jni, Object> backend, Completion completion)
+            throws Throwable {
         try {
             ProxyCall call = ProxyUtils.findConstructor(classLoader.loadClass(type), method, arguments, visitor);
-            return JniCallPlan.host(() -> call.call(null));
+            return HostJni.submit(type.vm, 'L', () -> call.call(null), completion);
         } catch (ClassNotFoundException | NoSuchMethodException missing) {
-            return unresolved(method.getSignature(), missing, provider -> provider.planConstructor(type, method, arguments));
+            return unresolved(method.getSignature(), missing, provider -> provider.invokeConstructor(type, method, arguments, backend, completion), backend);
         }
     }
 
     @Override
-    public JniCallPlan planAllocation(DvmClass type) throws ReflectiveOperationException {
+    public Object invokeAllocation(DvmClass type, Function<Jni, Object> backend, Completion completion) throws Throwable {
         try {
             ProxyCall call = ProxyUtils.findAllocConstructor(classLoader.loadClass(type), visitor);
-            return JniCallPlan.host(() -> call.call(null));
+            return HostJni.submit(type.vm, 'L', () -> call.call(null), completion);
         } catch (ClassNotFoundException | NoSuchMethodException missing) {
-            return unresolved(type.getClassName() + "->allocObject", missing, provider -> provider.planAllocation(type));
+            return unresolved(type.getClassName() + "->allocObject", missing, provider -> provider.invokeAllocation(type, backend, completion), backend);
         }
     }
 
     @Override
-    public JniCallPlan planField(DvmClass type, DvmObject<?> receiver, DvmField field,
-                                 boolean isStatic, boolean write, Object value) throws ReflectiveOperationException {
+    public Object invokeField(DvmClass type, DvmObject<?> receiver, DvmField field,
+                                 boolean isStatic, boolean write, Object value, Function<Jni, Object> backend, Completion completion) throws Throwable {
         try {
             ProxyField bound = ProxyUtils.findField(classLoader.loadClass(type), field, visitor);
             Object target = isStatic ? null : ProxyDvmObject.unpack(receiver);
             String descriptor = field.getFieldType();
             Object hostValue = write && (descriptor.startsWith("L") || descriptor.startsWith("["))
                     ? ProxyDvmObject.unpack((DvmObject<?>) value) : value;
-            return JniCallPlan.host(() -> {
+            char resultType = write ? 'V' : descriptor.charAt(0);
+            return HostJni.submit(type.vm, resultType == '[' ? 'L' : resultType, () -> {
                 if (write) { bound.setObject(target, hostValue); return null; }
                 return bound.get(target);
-            });
+            }, completion);
         } catch (ClassNotFoundException | NoSuchFieldException missing) {
             String signature = type.getClassName() + "->" + field.getFieldName() + ":" + field.getFieldType();
-            return unresolved(signature, missing, provider -> provider.planField(type, receiver, field, isStatic, write, value));
+            return unresolved(signature, missing, provider -> provider.invokeField(type, receiver, field, isStatic, write, value, backend, completion), backend);
         }
     }
 
     @Override
-    public JniCallPlan planException(DvmClass type, String message) throws ReflectiveOperationException {
+    public Object invokeException(DvmClass type, String message, Function<Jni, Object> backend, Completion completion) throws Throwable {
         Class<?> clazz = classLoader.loadClass(type);
         if (!Throwable.class.isAssignableFrom(clazz)) throw new IllegalArgumentException("ThrowNew requires a Throwable class");
         ProxyCall call = new ProxyConstructor(visitor, clazz.getConstructor(String.class), new Object[] {message});
-        return JniCallPlan.host(() -> call.call(null));
+        return HostJni.submit(type.vm, 'L', () -> call.call(null), completion);
     }
 
     @Override

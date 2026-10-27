@@ -1,13 +1,26 @@
 package com.github.unidbg.linux.android.dvm;
 
-/** Backend binding of reflection; returned operations contain host values, never VM state. */
+import java.util.concurrent.Callable;
+import java.util.function.Function;
+
+/** Host members suspend once; modeled members return their JNI value on the backend. */
 public interface HostJni extends Jni {
-    JniCallPlan planMethod(DvmClass type, DvmObject<?> receiver, DvmMethod method,
-                                VarArg arguments, boolean isStatic) throws ReflectiveOperationException;
-    JniCallPlan planConstructor(DvmClass type, DvmMethod method, VarArg arguments)
-            throws ReflectiveOperationException;
-    JniCallPlan planAllocation(DvmClass type) throws ReflectiveOperationException;
-    JniCallPlan planField(DvmClass type, DvmObject<?> receiver, DvmField field,
-                               boolean isStatic, boolean write, Object value) throws ReflectiveOperationException;
-    JniCallPlan planException(DvmClass type, String message) throws ReflectiveOperationException;
+    interface Completion {
+        void complete(Object value, Throwable failure, boolean targetThrown);
+        default void cancelled(Throwable cancellation) {}
+    }
+
+    Object invokeMethod(DvmClass type, DvmObject<?> receiver, DvmMethod method, VarArg arguments,
+                        boolean isStatic, Function<Jni, Object> backend, Completion completion) throws Throwable;
+    Object invokeConstructor(DvmClass type, DvmMethod method, VarArg arguments,
+                             Function<Jni, Object> backend, Completion completion) throws Throwable;
+    Object invokeAllocation(DvmClass type, Function<Jni, Object> backend, Completion completion) throws Throwable;
+    Object invokeField(DvmClass type, DvmObject<?> receiver, DvmField field, boolean isStatic, boolean write,
+                       Object value, Function<Jni, Object> backend, Completion completion) throws Throwable;
+    Object invokeException(DvmClass type, String message, Function<Jni, Object> backend,
+                           Completion completion) throws Throwable;
+
+    static Object submit(BaseVM vm, char resultType, Callable<?> operation, Completion completion) {
+        return JniInvocationSupport.submit(vm, resultType, operation, completion);
+    }
 }

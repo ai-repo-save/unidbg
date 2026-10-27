@@ -19,8 +19,8 @@ final class JniExceptionSupport {
                     if (pending == null) return 0;
                     Object value = pending.getValue();
                     if (value instanceof Throwable) {
-                        return runPlan(emulator, vm, 'V', JniCallPlan.host(() -> { ((Throwable) value).printStackTrace(System.err); return null; }),
-                                ignored -> { throw new UnsupportedOperationException("ExceptionDescribe has no modeled member callback"); },
+                        return invoke(emulator, vm, "JNIEnv.ExceptionDescribe",
+                                completion -> HostJni.submit(vm, 'V', () -> { ((Throwable) value).printStackTrace(System.err); return null; }, completion),
                                 ignored -> { vm.throwException(null); return 0; },
                                 failure -> { vm.throwException(ProxyDvmObject.createObject(vm, failure)); return 0; });
                     }
@@ -33,10 +33,10 @@ final class JniExceptionSupport {
                     Pointer message = emulator.getContext().getPointerArg(2);
                     String text = message == null ? null : JniStringSupport.readModifiedUtf8(message);
                     Jni jni = provider(vm, clazz);
-                    JniCallPlan plan;
-                    try { plan = jni instanceof HostJni ? ((HostJni) jni).planException(clazz, text) : JniCallPlan.backend(jni); }
-                    catch (Throwable failure) { plan = JniCallPlan.failure(failure, false); }
-                    return runPlan(emulator, vm, 'L', plan, modeled -> modelException(modeled, vm, clazz, text),
+                    java.util.function.Function<Jni, Object> backend = modeled -> modelException(modeled, vm, clazz, text);
+                    return invoke(emulator, vm, clazz.getClassName() + "-><init>(Ljava/lang/String;)V [ThrowNew]",
+                            completion -> jni instanceof HostJni
+                                    ? ((HostJni) jni).invokeException(clazz, text, backend, completion) : backend.apply(jni),
                             value -> { vm.throwException((DvmObject<?>) value); return VM.JNI_OK; },
                             failure -> { vm.throwException(ProxyDvmObject.createObject(vm, failure)); return VM.JNI_ERR; });
                 }

@@ -12,7 +12,7 @@ Guest access permissions remain separate from host mapping capabilities. A guest
 
 ## Regions and lifetime
 
-`MemoryMap` retains flags, file offset and backing region. Splitting a mapping for `mprotect` or partial `munmap` preserves the corresponding offset and lease. `msync` resolves guest ranges through these records and returns raw Linux results. A missing mapped page returns `-ENOMEM` before any region is synchronized.
+`MemoryMap` retains flags, file offset, backing region and write eligibility from the creating guest descriptor. Splitting a mapping for `mprotect` or partial `munmap` preserves these properties. Protection changes preflight the complete request; a shared view created from a read-only descriptor cannot acquire write permission after splitting or descriptor closure. `msync` resolves guest ranges through these records and returns raw Linux results. A missing mapped page returns `-ENOMEM` before any region is synchronized.
 
 `MAP_FIXED` prepares a file view before replacing overlapping guest ranges. Uncommitted views are released on failure. Closing a source or guest descriptor leaves its existing regions alive. The last guest slice releases its region. Emulator shutdown closes file resources, unmaps remaining host-backed guest slices and releases their regions before destroying the backend.
 
@@ -39,6 +39,6 @@ Use Linux x86_64 and JDK 21. Build the matching Unicorn2 JNI resource under `bac
   -Dtest=NativeFileMappingIntegrationTest -DfailIfNoTests=false test
 ```
 
-Kernel contracts: https://man7.org/linux/man-pages/man2/mmap.2.html, https://man7.org/linux/man-pages/man2/msync.2.html, https://man7.org/linux/man-pages/man2/madvise.2.html and https://man7.org/linux/man-pages/man2/ftruncate.2.html.
+Kernel contracts: https://man7.org/linux/man-pages/man2/mmap.2.html, https://man7.org/linux/man-pages/man2/msync.2.html, https://man7.org/linux/man-pages/man2/mprotect.2.html, https://man7.org/linux/man-pages/man2/madvise.2.html and https://man7.org/linux/man-pages/man2/ftruncate.2.html.
 
 Unicorn API: https://github.com/unicorn-engine/unicorn/blob/2.1.4/include/unicorn/unicorn.h.

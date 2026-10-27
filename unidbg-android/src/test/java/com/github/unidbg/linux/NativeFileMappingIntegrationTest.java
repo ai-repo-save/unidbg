@@ -184,7 +184,7 @@ public class NativeFileMappingIntegrationTest {
         assertEquals(first, map(backend, first, 3 * PAGE, RW, 0x11, fd, 0));
         assertEquals(alias, map(backend, alias, 2 * PAGE, RW, 0x11, fd, PAGE));
         assertEquals(isolated, map(backend, isolated, PAGE, RW, 0x12, readonly, PAGE));
-        assertEquals(readonlyAlias, map(backend, readonlyAlias, PAGE, UnicornConst.UC_PROT_READ,
+        assertEquals(readonlyAlias, map(backend, readonlyAlias, 2 * PAGE, UnicornConst.UC_PROT_READ,
                 0x11, readonly, PAGE));
         assertEquals(-13, map(backend, 0x49000000L, PAGE, RW, 0x11, readonly, PAGE));
         assertEquals(27, syscall(backend, 19, 62, fd, 0, 1));
@@ -219,8 +219,10 @@ public class NativeFileMappingIntegrationTest {
         expected = Arrays.copyOf(expected, 2 * PAGE + 7);
         assertArrayEquals(new byte[12], backend.mem_read(first + 2 * PAGE + 7, 12));
         assertArrayEquals(expected, Files.readAllBytes(retained));
+        assertEquals(0, syscall(backend, 125, 226, readonlyAlias + PAGE, PAGE, UnicornConst.UC_PROT_READ));
         assertEquals(0, syscall(backend, 6, 57, fd));
         assertEquals(0, syscall(backend, 6, 57, readonly));
+        assertEquals(-13, syscall(backend, 125, 226, readonlyAlias + PAGE, PAGE, RW));
         store(backend, alias + 13, 0x7b);
         expected[PAGE + 13] = 0x7b;
         assertArrayEquals(new byte[] {0x7b}, backend.mem_read(first + PAGE + 13, 1));

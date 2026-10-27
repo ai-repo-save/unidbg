@@ -31,26 +31,30 @@ public final class FileMappingManager {
     }
 
     public PendingMapping prepare(MappingSource source, int length, int prot, int flags,
-                                  long offset) throws IOException {
+                                  long offset, boolean mayWrite) throws IOException {
         if (!(backend instanceof HostMemoryBackend)) {
             throw new UnsupportedOperationException("Backend does not support host-backed file mappings");
         }
         rejectExecutable(prot);
-        return new PendingMapping(source.map(offset, length, (flags & MAP_SHARED) != 0), length, prot, flags, offset);
+        return new PendingMapping(source.map(offset, length, (flags & MAP_SHARED) != 0),
+                length, prot, flags, offset, mayWrite);
     }
 
     public final class PendingMapping implements AutoCloseable {
         private final MappedFileRegion region;
         private final int length, prot, flags;
         private final long offset;
+        private final boolean mayWrite;
         private boolean committed;
 
-        private PendingMapping(MappedFileRegion region, int length, int prot, int flags, long offset) {
+        private PendingMapping(MappedFileRegion region, int length, int prot, int flags, long offset,
+                               boolean mayWrite) {
             this.region = region;
             this.length = length;
             this.prot = prot;
             this.flags = flags;
             this.offset = offset;
+            this.mayWrite = mayWrite;
         }
 
         public MemoryMap map(long address) {
@@ -60,7 +64,7 @@ public final class FileMappingManager {
             ((HostMemoryBackend) backend).mem_map_host(address, region.buffer(), prot);
             allocations.put(region, offset);
             committed = true;
-            return new MemoryMap(address, length, prot, flags, offset, region);
+            return new MemoryMap(address, length, prot, flags, offset, region, mayWrite);
         }
 
         @Override

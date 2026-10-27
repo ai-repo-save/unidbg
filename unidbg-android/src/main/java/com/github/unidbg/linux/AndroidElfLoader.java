@@ -821,13 +821,14 @@ public class AndroidElfLoader extends AbstractLoader<AndroidFileIO> implements M
                 (type == MAP_SHARED && (prot & UnicornConst.UC_PROT_WRITE) != 0 && !file.isWritable()))) {
             return -UnixEmulator.EACCES;
         }
+        boolean mayWrite = file == null || type != MAP_SHARED || file.isWritable();
         boolean fixed = (flags & MAP_FIXED) != 0;
         long address = fixed ? start : allocateMapAddress(0, aligned);
         try {
             MemoryMap map;
             MappingSource source = file == null ? null : file.getMappingSource();
             if (source != null) {
-                try (FileMappingManager.PendingMapping pending = fileMappings.prepare(source, aligned, prot, flags, offset)) {
+                try (FileMappingManager.PendingMapping pending = fileMappings.prepare(source, aligned, prot, flags, offset, mayWrite)) {
                     if (fixed) {
                         unmapOverlaps(address, aligned);
                     }
@@ -846,7 +847,7 @@ public class AndroidElfLoader extends AbstractLoader<AndroidFileIO> implements M
                     file.mmap2(emulator, address, aligned, prot, offset, length);
                 }
                 int mapFlags = internalAnonymous ? MAP_ANONYMOUS | MAP_PRIVATE : flags;
-                map = new MemoryMap(address, aligned, prot, mapFlags, offset, null);
+                map = new MemoryMap(address, aligned, prot, mapFlags, offset, null, mayWrite);
             }
             memoryMap.put(address, map);
             if (mMapListener != null) {

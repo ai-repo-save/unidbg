@@ -14,22 +14,25 @@ public class MemoryMap implements Serializable {
     public final int flags;
     public final long offset;
     public final MappedFileRegion backing;
+    public final boolean mayWrite;
 
     public MemoryMap(long base, long size, int prot) {
-        this(base, size, prot, 0, 0, null);
+        this(base, size, prot, 0, 0, null, true);
     }
 
-    public MemoryMap(long base, long size, int prot, int flags, long offset, MappedFileRegion backing) {
+    public MemoryMap(long base, long size, int prot, int flags, long offset, MappedFileRegion backing,
+                     boolean mayWrite) {
         this.base = base;
         this.size = size;
         this.prot = prot;
         this.flags = flags;
         this.offset = offset;
         this.backing = backing;
+        this.mayWrite = mayWrite;
     }
 
     public MemoryMap slice(long address, long length, int protection) {
-        return new MemoryMap(address, length, protection, flags, offset + address - base, backing);
+        return new MemoryMap(address, length, protection, flags, offset + address - base, backing, mayWrite);
     }
 
     @Override

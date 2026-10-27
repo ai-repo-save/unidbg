@@ -23,6 +23,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import unicorn.Arm64Const;
 import unicorn.ArmConst;
+import unicorn.UnicornConst;
 
 import java.io.DataOutput;
 import java.io.File;
@@ -238,9 +239,6 @@ public abstract class AbstractLoader<T extends NewFileIO> implements Memory, Loa
         if (mMapListener != null) {
             prot = mMapListener.onProtect(address, aligned, prot);
         }
-        fileMappings.checkProtection(address, aligned, prot);
-        backend.mem_protect(address, aligned, prot);
-
         long protEnd = address + aligned;
         List<MemoryMap> affected = new ArrayList<>();
         for (MemoryMap m : memoryMap.values()) {
@@ -248,6 +246,17 @@ public abstract class AbstractLoader<T extends NewFileIO> implements Memory, Loa
                 affected.add(m);
             }
         }
+        if ((prot & UnicornConst.UC_PROT_WRITE) != 0) {
+            for (MemoryMap map : affected) {
+                if (!map.mayWrite) {
+                    log.debug("event=memory_protect_denied address=0x{} length={} prot={} mapping=0x{}",
+                            Long.toHexString(address), aligned, prot, Long.toHexString(map.base));
+                    return memoryError(UnixEmulator.EACCES);
+                }
+            }
+        }
+        fileMappings.checkProtection(address, aligned, prot);
+        backend.mem_protect(address, aligned, prot);
         for (MemoryMap map : affected) {
             long mapEnd = map.base + map.size;
             if (address <= map.base && protEnd >= mapEnd) {

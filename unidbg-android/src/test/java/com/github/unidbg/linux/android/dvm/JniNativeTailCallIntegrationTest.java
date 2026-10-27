@@ -22,7 +22,8 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 
 /**
- * Build jni-native-tailcall.c using armv7a-linux-androideabi23-clang and aarch64-linux-android23-clang with
+ * From the repository root, build unidbg-android/src/test/native/android/jni-native-tailcall.c
+ * using armv7a-linux-androideabi23-clang and aarch64-linux-android23-clang with
  * -O2 -fPIC -fno-stack-protector -nostdlib -shared -Wl,--no-undefined
  * into target/jni-native-tailcall/{arm32,arm64}.so. Run explicitly with
  * -Dtest=JniNativeTailCallIntegrationTest -Dmaven.test.skip=false

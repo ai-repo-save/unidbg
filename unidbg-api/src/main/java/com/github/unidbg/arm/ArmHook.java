@@ -5,6 +5,7 @@ import com.github.unidbg.Svc;
 import com.github.unidbg.arm.backend.Backend;
 import com.github.unidbg.memory.SvcMemory;
 import com.github.unidbg.pointer.UnidbgPointer;
+import com.github.unidbg.thread.ThreadContextSwitchException;
 import keystone.Keystone;
 import keystone.KeystoneArchitecture;
 import keystone.KeystoneEncoded;
@@ -76,8 +77,16 @@ public abstract class ArmHook extends ArmSvc {
     public final long handle(Emulator<?> emulator) {
         Backend backend = emulator.getBackend();
         UnidbgPointer sp = UnidbgPointer.register(emulator, ArmConst.UC_ARM_REG_SP);
+        long lr = emulator.getContext().getLR();
         try {
-            HookStatus status = doHook(emulator);
+            HookStatus status;
+            try {
+                status = doHook(emulator);
+            } catch (ThreadContextSwitchException suspended) {
+                sp = sp.share(-4, 0);
+                sp.setInt(0, enablePostCall ? 0 : (int) lr);
+                throw suspended;
+            }
             if (status.forward || !enablePostCall) {
                 sp = sp.share(-4, 0);
                 sp.setInt(0, (int) status.jump);

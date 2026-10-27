@@ -2,8 +2,9 @@ package com.github.unidbg.linux.android.dvm;
 
 import com.github.unidbg.Emulator;
 import com.github.unidbg.LongJumpException;
-import com.github.unidbg.arm.Arm64Svc;
-import com.github.unidbg.arm.ArmSvc;
+import com.github.unidbg.arm.Arm64Hook;
+import com.github.unidbg.arm.ArmHook;
+import com.github.unidbg.arm.HookStatus;
 import com.github.unidbg.arm.context.RegisterContext;
 import com.github.unidbg.linux.android.dvm.host.HostJavaCall;
 import com.github.unidbg.linux.android.dvm.host.HostJavaResult;
@@ -36,10 +37,14 @@ final class JniInvocationSupport {
     }
 
     static Pointer raw(Emulator<?> emulator, LongSupplier operation) {
-        return emulator.getSvcMemory().registerSvc(emulator.is64Bit() ? new Arm64Svc() {
-            @Override public long handle(Emulator<?> current) { return operation.getAsLong(); }
-        } : new ArmSvc() {
-            @Override public long handle(Emulator<?> current) { return operation.getAsLong(); }
+        return emulator.getSvcMemory().registerSvc(emulator.is64Bit() ? new Arm64Hook() {
+            @Override protected HookStatus hook(Emulator<?> current) {
+                return HookStatus.LR(current, operation.getAsLong());
+            }
+        } : new ArmHook() {
+            @Override protected HookStatus hook(Emulator<?> current) {
+                return HookStatus.LR(current, operation.getAsLong());
+            }
         });
     }
 

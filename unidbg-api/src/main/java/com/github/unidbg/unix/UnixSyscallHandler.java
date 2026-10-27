@@ -137,6 +137,16 @@ public abstract class UnixSyscallHandler<T extends NewFileIO> implements Syscall
             return failResult;
         }
 
+        if (pathname.startsWith("/proc/" + emulator.getPid() + "/fd/") || pathname.startsWith("/proc/self/fd/")) {
+            int fd = Integer.parseInt(pathname.substring(pathname.lastIndexOf("/") + 1));
+            T file = fdMap.get(fd);
+            if (file != null) {
+                @SuppressWarnings("unchecked")
+                T reopened = (T) file.reopen(oflags);
+                return FileResult.success(reopened);
+            }
+        }
+
         FileResult<T> result = emulator.getFileSystem().open(pathname, oflags);
         if (result != null && result.isSuccess()) {
             clearErrnoOnSuccess(emulator);
@@ -165,15 +175,6 @@ public abstract class UnixSyscallHandler<T extends NewFileIO> implements Syscall
             return FileResult.success(failResult.io);
         }
         
-        if (pathname.startsWith("/proc/" + emulator.getPid() + "/fd/") || pathname.startsWith("/proc/self/fd/")) {
-            int fd = Integer.parseInt(pathname.substring(pathname.lastIndexOf("/") + 1));
-            T file = fdMap.get(fd);
-            if (file != null) {
-                @SuppressWarnings("unchecked")
-                T reopened = (T) file.reopen(oflags);
-                return FileResult.success(reopened);
-            }
-        }
         if (("/proc/" + emulator.getPid() + "/fd").equals(pathname) || "/proc/self/fd".equals(pathname)) {
             return createFdDir(oflags, pathname);
         }

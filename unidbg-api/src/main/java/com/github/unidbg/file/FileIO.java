@@ -34,7 +34,7 @@ public interface FileIO {
 
     FileIO dup2();
 
-    /** Opens a new description of this held resource without resolving its old pathname. */
+    /** Opens this descriptor's proc-fd symbolic link as a new description of the held resource. */
     FileIO reopen(int flags);
 
     int connect(Pointer addr, int addrlen);

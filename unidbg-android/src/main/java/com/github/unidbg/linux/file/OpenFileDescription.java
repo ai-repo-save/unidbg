@@ -17,6 +17,9 @@ final class OpenFileDescription implements Closeable {
     private static final AtomicLong IDS = new AtomicLong();
     private static final int MUTABLE_FLAGS = IOConstants.O_APPEND | IOConstants.O_NONBLOCK;
     private static final int CREATION_FLAGS = IOConstants.O_CREAT | IOConstants.O_EXCL | IOConstants.O_CLOEXEC | 0x200;
+    private static final int REOPEN_FLAGS = 3 | CREATION_FLAGS | MUTABLE_FLAGS |
+            IOConstants.O_DIRECTORY | IOConstants.O_NOFOLLOW;
+    private static final int ELOOP = 40;
     private final long id = IDS.incrementAndGet();
     final FileBacking backing;
     private final int access;
@@ -41,10 +44,15 @@ final class OpenFileDescription implements Closeable {
 
     synchronized OpenFileDescription reopen(int flags) throws IOException {
         if (references == 0) throw new LinuxErrnoException(UnixEmulator.EBADF);
+        if ((flags & ~REOPEN_FLAGS) != 0) {
+            throw new UnsupportedOperationException("Unsupported proc-fd open flags: " + Integer.toHexString(flags));
+        }
         if ((flags & 3) == 3) throw new LinuxErrnoException(UnixEmulator.EINVAL);
         if ((flags & (IOConstants.O_CREAT | IOConstants.O_EXCL)) == (IOConstants.O_CREAT | IOConstants.O_EXCL)) {
             throw new LinuxErrnoException(UnixEmulator.EEXIST);
         }
+        if ((flags & IOConstants.O_DIRECTORY) != 0) throw new LinuxErrnoException(UnixEmulator.ENOTDIR);
+        if ((flags & IOConstants.O_NOFOLLOW) != 0) throw new LinuxErrnoException(ELOOP);
         if ((flags & 0x200) != 0) backing.truncate(0);
         return new OpenFileDescription(backing.retain(), flags);
     }

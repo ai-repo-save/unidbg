@@ -13,6 +13,7 @@ import com.github.unidbg.linux.file.SimpleFileIO;
 import com.github.unidbg.linux.file.Stdout;
 import com.github.unidbg.linux.file.LogCatFileIO;
 import com.github.unidbg.memory.MemoryBlock;
+import com.github.unidbg.pointer.UnidbgPointer;
 import com.github.unidbg.memory.mapping.MappedFileRegion;
 import org.junit.Test;
 
@@ -22,15 +23,19 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
+import java.util.stream.Collectors;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertThrows;
 
 /** Linux dup(2), fcntl(2), read(2): compiled Bionic calls plus independent file reads. */
 public class FileDescriptionIntegrationTest {
@@ -111,6 +116,30 @@ public class FileDescriptionIntegrationTest {
         int heldFd = emulator.getSyscallHandler().addFileIO(held);
         try {
             assertEquals(3, held.lseek(3, FileIO.SEEK_SET));
+            byte[] before = Files.readAllBytes(retained);
+            Set<Path> entriesBefore = workspaceEntries(retained.getParent());
+            int[][] rejected = {
+                    {IOConstants.O_NOFOLLOW, 40},
+                    {IOConstants.O_DIRECTORY, 20},
+                    {IOConstants.O_NOFOLLOW | IOConstants.O_DIRECTORY, 20},
+                    {IOConstants.O_CREAT | IOConstants.O_EXCL | IOConstants.O_NOFOLLOW, 17}
+            };
+            for (int[] sample : rejected) {
+                assertEquals("proc-fd open flags=" + Integer.toHexString(sample[0]), -1,
+                        libc.findSymbolByName("open").call(emulator, "/proc/self/fd/" + heldFd,
+                                IOConstants.O_RDWR | 0x200 | sample[0], 0).intValue());
+                UnidbgPointer errno = UnidbgPointer.pointer(emulator,
+                        libc.findSymbolByName("__errno").call(emulator).longValue());
+                assertEquals(sample[1], errno.getInt(0));
+                assertEquals(entriesBefore, workspaceEntries(retained.getParent()));
+                assertArrayEquals(before, Files.readAllBytes(retained));
+                assertEquals(3, held.lseek(0, FileIO.SEEK_CUR));
+                assertEquals(0, held.fcntl(emulator, 1, 0));
+            }
+            assertThrows(UnsupportedOperationException.class, () -> held.reopen(0x200000 | 0x200));
+            assertArrayEquals(before, Files.readAllBytes(retained));
+            assertEquals(3, held.lseek(0, FileIO.SEEK_CUR));
+            assertEquals(0, held.fcntl(emulator, 1, 0));
             int reopenedFd = libc.findSymbolByName("open").call(emulator,
                     "/proc/self/fd/" + heldFd, IOConstants.O_RDWR | IOConstants.O_CLOEXEC, 0).intValue();
             assertTrue(reopenedFd >= 0);
@@ -207,6 +236,12 @@ public class FileDescriptionIntegrationTest {
             finally { duplicate.close(); }
         } finally { logger.close(); }
         assertEquals(0, openHandles(log));
+    }
+
+    private static Set<Path> workspaceEntries(Path workspace) throws Exception {
+        try (Stream<Path> entries = Files.walk(workspace)) {
+            return entries.collect(Collectors.toCollection(TreeSet::new));
+        }
     }
 
     private static long openHandles(Path file) throws Exception {

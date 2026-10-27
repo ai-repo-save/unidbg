@@ -51,6 +51,7 @@
 !/unidbg-android/src/test/resources/certificates/isrg-root-x1.pem
 
 !/docs/native-ipc.md
+!/docs/native-tcp.md
 !/unidbg-android/src/test/native/android/native-ipc.c
 !/unidbg-android/src/test/java/com/github/unidbg/linux/NativeSeqpacketLifecycleIntegrationTest.java
 

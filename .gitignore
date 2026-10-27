@@ -81,6 +81,10 @@
 !/unidbg-android/src/main/native/jvm-monitor/
 !/unidbg-android/src/main/native/jvm-monitor/CMakeLists.txt
 !/unidbg-android/src/main/native/jvm-monitor/jvm-monitor.c
+!/unidbg-android/src/main/native/jvm-monitor/jvm-invocation.c
+!/unidbg-android/src/test/native/android/jni-nonvirtual-construction.c
+!/unidbg-android/src/test/java/com/github/unidbg/linux/android/dvm/JniNonvirtualConstructionIntegrationTest.java
+!/docs/native-jvm-invocation.md
 !/unidbg-android/src/test/native/android/guest-monitor-runtime.c
 !/unidbg-android/src/test/java/com/github/unidbg/linux/android/dvm/GuestMonitorRuntimeIntegrationTest.java
 !/unidbg-android/src/test/java/com/github/unidbg/linux/NativeFileMappingIntegrationTest.java

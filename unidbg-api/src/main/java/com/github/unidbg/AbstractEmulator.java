@@ -420,18 +420,45 @@ public abstract class AbstractEmulator<T extends NewFileIO> implements Emulator<
         }
 
         threadDispatcher.shutdown(5, java.util.concurrent.TimeUnit.SECONDS);
-        try {
-            if (debugger != null) {
+        Throwable failure = null;
+        if (debugger != null) {
+            try {
                 debugger.close();
+            } catch (RuntimeException | Error error) {
+                failure = error;
+            } finally {
                 debugger = null;
             }
-
+        }
+        try {
             closeInternal();
-
+        } catch (RuntimeException | Error error) {
+            failure = collectCloseFailure(failure, error);
+        }
+        try {
             backend.destroy();
+        } catch (RuntimeException | Error error) {
+            failure = collectCloseFailure(failure, error);
         } finally {
             closed = true;
         }
+        if (failure != null) {
+            log.error("event=emulator_close_failed emulator={}", System.identityHashCode(this), failure);
+            if (failure instanceof Error) {
+                throw (Error) failure;
+            }
+            throw (RuntimeException) failure;
+        }
+    }
+
+    private static Throwable collectCloseFailure(Throwable primary, Throwable next) {
+        if (primary == null) {
+            return next;
+        }
+        if (primary != next) {
+            primary.addSuppressed(next);
+        }
+        return primary;
     }
 
     protected abstract void closeInternal();

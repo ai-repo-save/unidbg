@@ -111,6 +111,7 @@
 !/unidbg-android/src/test/java/com/github/unidbg/linux/android/dvm/JniPrimitiveLeaseIntegrationTest.java
 !/unidbg-android/src/test/native/android/jni-native-tailcall.c
 !/unidbg-android/src/test/native/android/jni-thread-attachment.c
+!/unidbg-android/src/test/java/com/github/unidbg/linux/NativeSeqpacketTransferIntegrationTest.java
 !/unidbg-android/src/test/java/com/github/unidbg/linux/android/dvm/JniThreadAttachmentIntegrationTest.java
 !/unidbg-android/src/test/java/com/github/unidbg/linux/android/dvm/JniNativeTailCallIntegrationTest.java
 !/unidbg-android/src/test/native/android/jni-argument-abi.c

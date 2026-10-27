@@ -85,6 +85,9 @@
 !/unidbg-android/src/test/java/com/github/unidbg/linux/android/dvm/GuestMonitorRuntimeIntegrationTest.java
 !/unidbg-android/src/test/java/com/github/unidbg/linux/NativeFileMappingIntegrationTest.java
 !/unidbg-android/src/test/java/com/github/unidbg/linux/AnonymousRemapIntegrationTest.java
+!/unidbg-android/src/main/java/com/github/unidbg/linux/file/FileBacking.java
+!/unidbg-android/src/main/java/com/github/unidbg/linux/file/OpenFileDescription.java
+!/unidbg-android/src/test/java/com/github/unidbg/linux/FileDescriptionIntegrationTest.java
 !/docs/native-jvm-monitors.md
 !/docs/native-file-mapping.md
 !/unidbg-android/src/main/java/com/github/unidbg/linux/android/dvm/JniReferences.java

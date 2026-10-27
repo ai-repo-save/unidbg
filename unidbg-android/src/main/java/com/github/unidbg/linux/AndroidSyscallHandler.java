@@ -57,6 +57,15 @@ public abstract class AndroidSyscallHandler extends UnixSyscallHandler<AndroidFi
 
     private static final Logger log = LoggerFactory.getLogger(AndroidSyscallHandler.class);
 
+    @Override
+    protected final int syscallError(Emulator<?> emulator, int errno) {
+        return -errno;
+    }
+
+    @Override
+    protected final void clearErrnoOnSuccess(Emulator<?> emulator) {
+    }
+
     static final int MREMAP_MAYMOVE = 1;
     static final int MREMAP_FIXED = 2;
 
@@ -446,8 +455,7 @@ public abstract class AndroidSyscallHandler extends UnixSyscallHandler<AndroidFi
         FileResult<AndroidFileIO> result = resolve(emulator, path, IOConstants.O_RDONLY);
         if (result == null) {
             log.info("statfs64 buf={}, path={}", buf, path);
-            emulator.getMemory().setErrno(UnixEmulator.ENOENT);
-            return -1;
+            return -UnixEmulator.ENOENT;
         }
         if (result.isSuccess()) {
             StatFS statFS = emulator.is64Bit() ? new StatFS64(buf) : new StatFS32(buf);
@@ -465,8 +473,7 @@ public abstract class AndroidSyscallHandler extends UnixSyscallHandler<AndroidFi
             return ret;
         } else {
             log.info("statfs64 buf={}, path={}", buf, path);
-            emulator.getMemory().setErrno(result.errno);
-            return -1;
+            return -result.errno;
         }
     }
 
@@ -546,8 +553,7 @@ public abstract class AndroidSyscallHandler extends UnixSyscallHandler<AndroidFi
             return 0;
         } else {
             log.info("mkdir pathname={}, mode={}", pathname, mode);
-            emulator.getMemory().setErrno(UnixEmulator.EACCES);
-            return -1;
+            return -UnixEmulator.EACCES;
         }
     }
 

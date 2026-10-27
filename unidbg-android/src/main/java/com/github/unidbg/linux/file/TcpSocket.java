@@ -5,6 +5,7 @@ import com.github.unidbg.Emulator;
 import com.github.unidbg.arm.backend.Backend;
 import com.github.unidbg.file.FileIO;
 import com.github.unidbg.file.linux.AndroidFileIO;
+import com.github.unidbg.linux.LinuxErrnoException;
 import com.github.unidbg.unix.UnixEmulator;
 import com.github.unidbg.utils.Inspector;
 import com.sun.jna.Pointer;
@@ -64,8 +65,7 @@ public class TcpSocket extends SocketIO implements FileIO {
             outputStream.write(data);
             return data.length;
         } catch (IOException e) {
-            log.debug("write failed", e);
-            return -1;
+            throw new IllegalStateException("Socket write failed", e);
         }
     }
 
@@ -105,7 +105,7 @@ public class TcpSocket extends SocketIO implements FileIO {
             }
             int read = inputStream.read(receiveBuf, 0, Math.min(count, receiveBuf.length));
             if (read <= 0) {
-                return read;
+                return 0;
             }
 
             byte[] data = Arrays.copyOf(receiveBuf, read);
@@ -115,8 +115,7 @@ public class TcpSocket extends SocketIO implements FileIO {
             }
             return data.length;
         } catch (IOException e) {
-            log.debug("readInternal", e);
-            return -1;
+            throw new IllegalStateException("Socket read failed", e);
         }
     }
 
@@ -129,15 +128,16 @@ public class TcpSocket extends SocketIO implements FileIO {
             return 0;
         } catch (IOException e) {
             log.debug("listen failed", e);
-            emulator.getMemory().setErrno(UnixEmulator.EOPNOTSUPP);
-            return -1;
+            return -UnixEmulator.EOPNOTSUPP;
         }
     }
 
     @Override
     public AndroidFileIO accept(Pointer addr, Pointer addrlen) {
+        Socket accepted = null;
         try {
             Socket socket = serverSocket.accept();
+            accepted = socket;
             TcpSocket io = new TcpSocket(emulator, socket);
             io.inputStream = new BufferedInputStream(socket.getInputStream());
             io.outputStream = socket.getOutputStream();
@@ -146,9 +146,9 @@ public class TcpSocket extends SocketIO implements FileIO {
             }
             return io;
         } catch (IOException e) {
+            IOUtils.close(accepted);
             log.debug("accept failed", e);
-            emulator.getMemory().setErrno(UnixEmulator.EAGAIN);
-            return null;
+            throw new LinuxErrnoException(UnixEmulator.EAGAIN, e);
         }
     }
 
@@ -170,8 +170,7 @@ public class TcpSocket extends SocketIO implements FileIO {
             return 0;
         } catch (IOException e) {
             log.debug("bind ipv4 failed", e);
-            emulator.getMemory().setErrno(UnixEmulator.EADDRINUSE);
-            return -1;
+            return -UnixEmulator.EADDRINUSE;
         }
     }
 
@@ -196,8 +195,7 @@ public class TcpSocket extends SocketIO implements FileIO {
             return 0;
         } catch (IOException e) {
             log.debug("connect ipv4 failed", e);
-            emulator.getMemory().setErrno(UnixEmulator.ECONNREFUSED);
-            return -1;
+            return -UnixEmulator.ECONNREFUSED;
         }
     }
 
@@ -222,8 +220,7 @@ public class TcpSocket extends SocketIO implements FileIO {
             return 0;
         } catch (IOException e) {
             log.debug("connect ipv6 failed", e);
-            emulator.getMemory().setErrno(UnixEmulator.ECONNREFUSED);
-            return -1;
+            return -UnixEmulator.ECONNREFUSED;
         }
     }
 

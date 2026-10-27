@@ -52,7 +52,7 @@ public class NetLinkSocket extends SocketIO implements FileIO {
     @Override
     public int read(Backend backend, Pointer buffer, int count) {
         if (netlinkType == -1) {
-            return -1;
+            throw new UnsupportedOperationException("No pending netlink response");
         }
 
         return handleType(buffer, count, netlinkType);

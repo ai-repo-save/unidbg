@@ -71,8 +71,7 @@ public class UdpSocket extends SocketIO implements FileIO {
             return 0;
         } catch (IOException e) {
             log.debug("connect ipv6 failed", e);
-            emulator.getMemory().setErrno(UnixEmulator.ECONNREFUSED);
-            return -1;
+            return -UnixEmulator.ECONNREFUSED;
         }
     }
 
@@ -95,8 +94,7 @@ public class UdpSocket extends SocketIO implements FileIO {
             return 0;
         } catch (IOException e) {
             log.debug("connect ipv4 failed", e);
-            emulator.getMemory().setErrno(UnixEmulator.ECONNREFUSED);
-            return -1;
+            return -UnixEmulator.ECONNREFUSED;
         }
     }
 
@@ -141,8 +139,7 @@ public class UdpSocket extends SocketIO implements FileIO {
             throw new UnsupportedOperationException("address=" + address);
         } catch (IOException e) {
             log.debug("sendto failed", e);
-            emulator.getMemory().setErrno(UnixEmulator.EACCES);
-            return -1;
+            return -UnixEmulator.EACCES;
         }
     }
 

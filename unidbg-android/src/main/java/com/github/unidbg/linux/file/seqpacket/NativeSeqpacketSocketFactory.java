@@ -2,6 +2,7 @@ package com.github.unidbg.linux.file.seqpacket;
 
 import com.github.unidbg.Emulator;
 import com.github.unidbg.file.linux.AndroidFileIO;
+import com.github.unidbg.linux.LinuxErrnoException;
 import com.sun.jna.Native;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,8 +27,7 @@ public final class NativeSeqpacketSocketFactory {
                 LinuxSocketCalls.SOCK_SEQPACKET | LinuxSocketCalls.SOCK_CLOEXEC, 0, descriptors) < 0) {
             int errno = Native.getLastError();
             log.debug("event=native_socketpair_failed emulator={} errno={}", System.identityHashCode(emulator), errno);
-            emulator.getMemory().setErrno(errno);
-            return null;
+            throw new LinuxErrnoException(errno);
         }
         long pair = PAIRS.incrementAndGet();
         log.debug("event=native_socketpair_created emulator={} pair={} host_fds={},{}",

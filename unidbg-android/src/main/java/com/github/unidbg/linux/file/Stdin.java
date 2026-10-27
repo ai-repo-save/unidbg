@@ -33,7 +33,7 @@ public class Stdin extends BaseAndroidFileIO implements AndroidFileIO {
             byte[] data = new byte[count];
             int read = System.in.read(data, 0, count);
             if (read <= 0) {
-                return read;
+                return 0;
             }
 
             buffer.write(0, Arrays.copyOf(data, read), 0, read);

@@ -1,6 +1,7 @@
 package com.github.unidbg.linux.file;
 
 import com.github.unidbg.Emulator;
+import com.github.unidbg.unix.UnixEmulator;
 import com.github.unidbg.arm.backend.Backend;
 import com.github.unidbg.file.NewFileIO;
 import com.github.unidbg.file.linux.AndroidFileIO;
@@ -92,7 +93,7 @@ public class DriverFileIO extends BaseAndroidFileIO implements NewFileIO, Androi
             }
 
             log.info("alarm ioctl request=0x{}, argp=0x{}, nr={}, type={}, size={}, dir={}", Long.toHexString(request), Long.toHexString(argp), nr, type, size, dir);
-            return -1;
+            return -UnixEmulator.ENOTTY;
         }
 
         return super.ioctl(emulator, request, argp);
@@ -126,7 +127,7 @@ public class DriverFileIO extends BaseAndroidFileIO implements NewFileIO, Androi
         }
 
         log.info("androidAlarm argp=0x{}, c={}, type={}, size={}, dir={}", Long.toHexString(argp), c, type, size, dir);
-        return -1;
+        return -UnixEmulator.ENOTTY;
     }
 
     @Override

@@ -41,6 +41,15 @@ public abstract class UnixSyscallHandler<T extends NewFileIO> implements Syscall
 
     protected final Map<Integer, T> fdMap = new TreeMap<>();
 
+    protected int syscallError(Emulator<?> emulator, int errno) {
+        emulator.getMemory().setErrno(errno);
+        return -1;
+    }
+
+    protected void clearErrnoOnSuccess(Emulator<?> emulator) {
+        emulator.getMemory().setErrno(0);
+    }
+
     @Override
     public FileIO getFileIO(int fd) {
         return fdMap.get(fd);
@@ -114,7 +123,7 @@ public abstract class UnixSyscallHandler<T extends NewFileIO> implements Syscall
         for (IOResolver<T> resolver : resolvers) {
             FileResult<T> result = resolver.resolve(emulator, pathname, oflags);
             if (result != null && result.isSuccess()) {
-                emulator.getMemory().setErrno(0);
+                clearErrnoOnSuccess(emulator);
                 return result;
             } else if (result != null) {
                 // Resolvers are ordered by priority. Preserve the first errno while
@@ -130,7 +139,7 @@ public abstract class UnixSyscallHandler<T extends NewFileIO> implements Syscall
 
         FileResult<T> result = emulator.getFileSystem().open(pathname, oflags);
         if (result != null && result.isSuccess()) {
-            emulator.getMemory().setErrno(0);
+            clearErrnoOnSuccess(emulator);
             return result;
         } else if (failResult == null) {
             failResult = result;
@@ -142,7 +151,7 @@ public abstract class UnixSyscallHandler<T extends NewFileIO> implements Syscall
                 for (MemRegion memRegion : module.getRegions()) {
                     if (pathname.equals(memRegion.getName())) {
                         try {
-                            emulator.getMemory().setErrno(0);
+                            clearErrnoOnSuccess(emulator);
                             return FileResult.success(createByteArrayFileIO(pathname, oflags, memRegion.readLibrary()));
                         } catch (IOException e) {
                             throw new IllegalStateException(e);
@@ -276,8 +285,7 @@ public abstract class UnixSyscallHandler<T extends NewFileIO> implements Syscall
         if (log.isDebugEnabled()) {
             log.debug("sigprocmask how={}, set={}, oldset={}", how, set, oldset);
         }
-        emulator.getMemory().setErrno(UnixEmulator.EINVAL);
-        return -1;
+        return syscallError(emulator, UnixEmulator.EINVAL);
     }
 
     protected final int read(Emulator<?> emulator, int fd, Pointer buffer, int count) {
@@ -287,8 +295,7 @@ public abstract class UnixSyscallHandler<T extends NewFileIO> implements Syscall
 
         FileIO file = fdMap.get(fd);
         if (file == null) {
-            emulator.getMemory().setErrno(UnixEmulator.EBADF);
-            return -1;
+            return syscallError(emulator, UnixEmulator.EBADF);
         }
         int read = file.read(emulator.getBackend(), buffer, count);
         if (verbose && !file.isStdIO()) {
@@ -313,8 +320,7 @@ public abstract class UnixSyscallHandler<T extends NewFileIO> implements Syscall
 
         FileIO file = fdMap.get(fd);
         if (file == null) {
-            emulator.getMemory().setErrno(UnixEmulator.EBADF);
-            return -1;
+            return syscallError(emulator, UnixEmulator.EBADF);
         }
         int read = file.pread(emulator.getBackend(), buffer, count, offset);
         if (verbose) {
@@ -335,8 +341,7 @@ public abstract class UnixSyscallHandler<T extends NewFileIO> implements Syscall
             }
             return 0;
         } else {
-            emulator.getMemory().setErrno(UnixEmulator.EBADF);
-            return -1;
+            return syscallError(emulator, UnixEmulator.EBADF);
         }
     }
 
@@ -346,7 +351,7 @@ public abstract class UnixSyscallHandler<T extends NewFileIO> implements Syscall
 
         FileResult<T> resolveResult = resolve(emulator, pathname, oflags);
         if (resolveResult != null && resolveResult.isSuccess()) {
-            emulator.getMemory().setErrno(0);
+            clearErrnoOnSuccess(emulator);
             this.fdMap.put(minFd, resolveResult.io);
             if (verbose) {
                 System.out.printf("File opened '%s' with oflags=0x%x from %s%n", resolveResult.io, oflags, emulator.getContext().getLRPointer());
@@ -359,7 +364,7 @@ public abstract class UnixSyscallHandler<T extends NewFileIO> implements Syscall
 
         T driverIO = createDriverFileIO(emulator, oflags, pathname);
         if (driverIO != null) {
-            emulator.getMemory().setErrno(0);
+            clearErrnoOnSuccess(emulator);
             this.fdMap.put(minFd, driverIO);
             if (verbose) {
                 System.out.printf("File opened '%s' with oflags=0x%x from %s%n", driverIO, oflags, emulator.getContext().getLRPointer());
@@ -375,11 +380,10 @@ public abstract class UnixSyscallHandler<T extends NewFileIO> implements Syscall
             result = resolveResult;
         }
         int errno = result != null ? result.errno : UnixEmulator.ENOENT;
-        emulator.getMemory().setErrno(errno);
         if (verbose) {
             System.out.printf("File opened '%s' with oflags=0x%x errno is %d from %s%n", pathname, oflags, errno, emulator.getContext().getLRPointer());
         }
-        return -1;
+        return syscallError(emulator, errno);
     }
 
     protected abstract T createDriverFileIO(Emulator<?> emulator, int oflags, String pathname);
@@ -391,8 +395,7 @@ public abstract class UnixSyscallHandler<T extends NewFileIO> implements Syscall
 
         FileIO file = fdMap.get(fd);
         if (file == null) {
-            emulator.getMemory().setErrno(UnixEmulator.EBADF);
-            return -1;
+            return syscallError(emulator, UnixEmulator.EBADF);
         }
         return file.fcntl(emulator, cmd, arg);
     }
@@ -502,8 +505,7 @@ public abstract class UnixSyscallHandler<T extends NewFileIO> implements Syscall
 
         FileIO file = fdMap.get(sockfd);
         if (file == null) {
-            emulator.getMemory().setErrno(UnixEmulator.EBADF);
-            return -1;
+            return syscallError(emulator, UnixEmulator.EBADF);
         }
         return file.bind(addr, addrlen);
     }
@@ -515,8 +517,7 @@ public abstract class UnixSyscallHandler<T extends NewFileIO> implements Syscall
 
         FileIO file = fdMap.get(sockfd);
         if (file == null) {
-            emulator.getMemory().setErrno(UnixEmulator.EBADF);
-            return -1;
+            return syscallError(emulator, UnixEmulator.EBADF);
         }
         return file.listen(backlog);
     }
@@ -529,8 +530,7 @@ public abstract class UnixSyscallHandler<T extends NewFileIO> implements Syscall
 
         FileIO file = fdMap.get(sockfd);
         if (file == null) {
-            emulator.getMemory().setErrno(UnixEmulator.EBADF);
-            return -1;
+            return syscallError(emulator, UnixEmulator.EBADF);
         }
         return file.connect(addr, addrlen);
     }
@@ -542,8 +542,7 @@ public abstract class UnixSyscallHandler<T extends NewFileIO> implements Syscall
         }
         FileIO file = fdMap.get(sockfd);
         if (file == null) {
-            emulator.getMemory().setErrno(UnixEmulator.EBADF);
-            return -1;
+            return syscallError(emulator, UnixEmulator.EBADF);
         }
         return file.sendto(data, flags, dest_addr, addrlen);
     }
@@ -556,8 +555,7 @@ public abstract class UnixSyscallHandler<T extends NewFileIO> implements Syscall
 
         FileIO file = fdMap.get(fd);
         if (file == null) {
-            emulator.getMemory().setErrno(UnixEmulator.EBADF);
-            return -1;
+            return syscallError(emulator, UnixEmulator.EBADF);
         }
         int write = file.write(data);
         if (verbose && !file.isStdIO()) {

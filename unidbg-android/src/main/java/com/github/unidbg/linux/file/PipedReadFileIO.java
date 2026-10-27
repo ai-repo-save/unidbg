@@ -32,7 +32,7 @@ public class PipedReadFileIO extends BaseAndroidFileIO implements AndroidFileIO 
             byte[] receiveBuf = new byte[Math.min(count, inputStream.available())];
             int read = inputStream.read(receiveBuf, 0, receiveBuf.length);
             if (read <= 0) {
-                return read;
+                return 0;
             }
 
             byte[] data = Arrays.copyOf(receiveBuf, read);

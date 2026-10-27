@@ -119,7 +119,6 @@ public class LocalAndroidUdpSocket extends LocalUdpSocket implements AndroidFile
             return 0;
         }
 
-        emulator.getMemory().setErrno(UnixEmulator.EPERM);
-        return -1;
+        return -UnixEmulator.EPERM;
     }
 }

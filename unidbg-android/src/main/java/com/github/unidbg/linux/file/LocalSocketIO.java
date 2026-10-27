@@ -106,8 +106,7 @@ public class LocalSocketIO extends SocketIO implements FileIO {
         if (handler != null) {
             return 0;
         } else {
-            emulator.getMemory().setErrno(UnixEmulator.EPERM);
-            return -1;
+            return -UnixEmulator.EPERM;
         }
     }
 
@@ -116,8 +115,7 @@ public class LocalSocketIO extends SocketIO implements FileIO {
         if (log.isDebugEnabled()) {
             log.debug(Inspector.inspectString(addr.getByteArray(0, addrlen), "bind addrlen=" + addrlen));
         }
-        emulator.getMemory().setErrno(UnixEmulator.EPERM);
-        return -1;
+        return -UnixEmulator.EPERM;
     }
 
     @Override

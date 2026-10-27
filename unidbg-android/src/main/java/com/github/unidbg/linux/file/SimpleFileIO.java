@@ -235,8 +235,7 @@ public class SimpleFileIO extends BaseAndroidFileIO implements NewFileIO {
             channel.truncate(length);
             return 0;
         } catch (IOException e) {
-            log.debug("ftruncate failed", e);
-            return -1;
+            throw new IllegalStateException("ftruncate failed: " + file, e);
         }
     }
 

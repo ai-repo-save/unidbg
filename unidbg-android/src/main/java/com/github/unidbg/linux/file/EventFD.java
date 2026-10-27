@@ -2,6 +2,7 @@ package com.github.unidbg.linux.file;
 
 import com.github.unidbg.arm.backend.Backend;
 import com.github.unidbg.file.NewFileIO;
+import com.github.unidbg.unix.UnixEmulator;
 import com.github.unidbg.file.linux.BaseAndroidFileIO;
 import com.github.unidbg.file.linux.IOConstants;
 import com.sun.jna.Pointer;
@@ -33,7 +34,7 @@ public class EventFD extends BaseAndroidFileIO implements NewFileIO {
         }
         if (counter == 0) {
             if (nonblock) {
-                return -1;
+                return -UnixEmulator.EAGAIN;
             } else {
                 throw new UnsupportedOperationException();
             }

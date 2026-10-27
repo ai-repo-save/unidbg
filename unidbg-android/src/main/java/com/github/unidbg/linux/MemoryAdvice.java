@@ -13,7 +13,11 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
-/** Linux memory advice for the emulator's anonymous mappings. */
+import static com.github.unidbg.linux.AndroidElfLoader.MAP_ANONYMOUS;
+import static com.github.unidbg.linux.AndroidElfLoader.MAP_PRIVATE;
+import static com.github.unidbg.linux.AndroidElfLoader.MAP_SHARED;
+
+/** Linux memory advice for the emulator's mappings. */
 final class MemoryAdvice {
     private static final Logger log = LoggerFactory.getLogger(MemoryAdvice.class);
 
@@ -49,10 +53,29 @@ final class MemoryAdvice {
             return -UnixEmulator.ENOMEM;
         }
         if (advice == 4) {
+            for (MemoryMap map : maps) {
+                if (Math.max(address, map.base) >= Math.min(end, map.base + map.size)) continue;
+                if (map.backing == null &&
+                        (map.flags & (MAP_ANONYMOUS | MAP_PRIVATE | MAP_SHARED)) != (MAP_ANONYMOUS | MAP_PRIVATE)) {
+                    throw new UnsupportedOperationException("MADV_DONTNEED requires a host-backed file or private anonymous mapping: " +
+                            map + ", flags=0x" + Integer.toHexString(map.flags));
+                }
+            }
             // MADV_DONTNEED preserves the mapping and its protections. Kernel writes do not
             // require guest write permission; private anonymous pages become zero-filled.
             byte[] zero = new byte[pageSize];
-            for (long page = address; page < end; page += pageSize) emulator.getBackend().mem_write(page, zero);
+            for (MemoryMap map : maps) {
+                long start = Math.max(address, map.base);
+                long stop = Math.min(end, map.base + map.size);
+                if (start >= stop) continue;
+                if (map.backing != null) {
+                    int result = emulator.getMemory().discardFileMapping(start, (int) (stop - start));
+                    log.debug("madvise file discard address=0x{}, length={}, result={}", Long.toHexString(start), stop - start, result);
+                    if (result != 0) return result;
+                } else {
+                    for (long page = start; page < stop; page += pageSize) emulator.getBackend().mem_write(page, zero);
+                }
+            }
         }
         log.debug("madvise completed address=0x{}, length={}, advice={}", Long.toHexString(address), length, advice);
         return 0;

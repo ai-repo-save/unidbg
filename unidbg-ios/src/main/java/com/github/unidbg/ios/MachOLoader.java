@@ -2268,7 +2268,7 @@ public class MachOLoader extends AbstractLoader<DarwinFileIO> implements Memory,
     }
 
     @Override
-    public long mmap2(long start, int length, int prot, int flags, int fd, int offset) {
+    public long mmap2(long start, int length, int prot, int flags, int fd, long offset) {
         int aligned = (int) ARM.alignSize(length, emulator.getPageAlign());
 
         boolean isAnonymous = ((flags & com.github.unidbg.ios.MachO.MAP_ANONYMOUS) != 0) || (start == 0 && fd <= 0 && offset == 0);

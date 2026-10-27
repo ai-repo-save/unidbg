@@ -16,11 +16,15 @@ import com.github.unidbg.memory.MemoryAllocBlock;
 import com.github.unidbg.memory.MemoryBlock;
 import com.github.unidbg.memory.MemoryBlockImpl;
 import com.github.unidbg.memory.MemoryMap;
+import com.github.unidbg.memory.mapping.FileMappingManager;
+import com.github.unidbg.memory.mapping.HostMappingException;
+import com.github.unidbg.memory.mapping.MappingSource;
 import com.github.unidbg.pointer.UnidbgPointer;
 import com.github.unidbg.spi.*;
 import com.github.unidbg.thread.Task;
 import com.github.unidbg.unix.IO;
 import com.github.unidbg.unix.UnixSyscallHandler;
+import com.github.unidbg.unix.UnixEmulator;
 import com.github.unidbg.virtualmodule.VirtualSymbol;
 import com.sun.jna.Pointer;
 import net.fornwall.jelf.ArmExIdx;
@@ -749,114 +753,126 @@ public class AndroidElfLoader extends AbstractLoader<AndroidFileIO> implements M
         return (int) this.brk;
     }
 
-    private static final int MAP_FAILED = -1;
+    public static final int MAP_SHARED = 1;
+    public static final int MAP_PRIVATE = 2;
     public static final int MAP_FIXED = 0x10;
     public static final int MAP_ANONYMOUS = 0x20;
 
     @Override
-    public long mmap2(long start, int length, int prot, int flags, int fd, int offset) {
-        int aligned = (int) ARM.alignSize(length, emulator.getPageAlign());
-        if (log.isDebugEnabled()) {
-            log.debug("mmap2: start=0x{}, length=0x{}, prot=0x{}, fd={}, offset=0x{}", Long.toHexString(start), Integer.toHexString(length), Integer.toHexString(prot), fd, Integer.toHexString(offset));
-        }
+    protected int memoryError(int errno) {
+        return -errno;
+    }
 
-        boolean isAnonymous = ((flags & MAP_ANONYMOUS) != 0) || (start == 0 && fd <= 0 && offset == 0);
-        if ((flags & MAP_FIXED) != 0 && isAnonymous) {
-            if (log.isDebugEnabled()) {
-                log.debug("mmap2 MAP_FIXED start=0x{}, length={}, prot={}", Long.toHexString(start), length, prot);
-            }
-
-            boolean hasOverlap = false;
-            for (MemoryMap map : memoryMap.values()) {
-                if (start < map.base + map.size && start + aligned > map.base) {
-                    hasOverlap = true;
-                    break;
-                }
-            }
-            if (hasOverlap) {
-                munmap(start, length);
-            } else if (log.isDebugEnabled()) {
-                log.debug("mmap2 MAP_FIXED no existing mapping at start=0x{}", Long.toHexString(start));
-            }
-            backend.mem_map(start, aligned, prot);
-            if (mMapListener != null) {
-                mMapListener.onMap(start, aligned, prot);
-            }
-            if (memoryMap.put(start, new MemoryMap(start, aligned, prot)) != null) {
-                log.warn("mmap2 replace exists memory map: start={}", Long.toHexString(start));
-            }
-            return start;
-        }
-        if (isAnonymous) {
-            long addr = allocateMapAddress(0, aligned);
-            if (log.isDebugEnabled()) {
-                log.debug("mmap2 addr=0x{}, mmapBaseAddress=0x{}, start={}, fd={}, offset={}, aligned={}, LR={}", Long.toHexString(addr), Long.toHexString(mmapBaseAddress), start, fd, offset, aligned, emulator.getContext().getLRPointer());
-            }
-            backend.mem_map(addr, aligned, prot);
-            if (mMapListener != null) {
-                mMapListener.onMap(addr, aligned, prot);
-            }
-            if (memoryMap.put(addr, new MemoryMap(addr, aligned, prot)) != null) {
-                log.warn("memoryMap mmap2 replace exists memory map addr={}", Long.toHexString(addr));
-            }
-            return addr;
-        }
+    @Override
+    public int msync(long address, int length, int flags) {
         try {
-            FileIO file;
-            if (start == 0 && fd > 0 && (file = syscallHandler.getFileIO(fd)) != null) {
-                long addr = allocateMapAddress(0, aligned);
-                if (log.isDebugEnabled()) {
-                    log.debug("mmap2 addr=0x{}, mmapBaseAddress=0x{}", Long.toHexString(addr), Long.toHexString(mmapBaseAddress));
-                }
-                long ret = file.mmap2(emulator, addr, aligned, prot, offset, length);
-                if (mMapListener != null) {
-                    mMapListener.onMap(addr, aligned, prot);
-                }
-                if (memoryMap.put(addr, new MemoryMap(addr, aligned, prot)) != null) {
-                    log.warn("mmap2 replace exists memory map addr=0x{}", Long.toHexString(addr));
-                }
-                return ret;
-            }
-        } catch (IOException e) {
-            throw new IllegalStateException(e);
+            int result = fileMappings.sync(address, length, flags);
+            log.debug("event=memory_synced address=0x{} length={} flags={} result={}",
+                    Long.toHexString(address), length, flags, result);
+            return result;
+        } catch (HostMappingException error) {
+            return -error.getErrno();
+        } catch (IOException error) {
+            log.error("event=memory_sync_failed address=0x{} length={} flags={}",
+                    Long.toHexString(address), length, flags, error);
+            throw new IllegalStateException(error);
         }
-        try {
-            FileIO file;
-            if (fd > 0 && (file = syscallHandler.getFileIO(fd)) != null) {
-                if ((start & (emulator.getPageAlign() - 1)) != 0) {
-                    if (log.isDebugEnabled()) {
-                        log.warn("mmap2 start=0x{}, start=0x{}, flags=0x{}, length=0x{}", Long.toHexString(start), Long.toHexString(start), Integer.toHexString(flags), Integer.toHexString(length));
-                    }
-                    return MAP_FAILED;
-                }
-                long end = start + length;
-                for (Map.Entry<Long, MemoryMap> entry : memoryMap.entrySet()) {
-                    MemoryMap map = entry.getValue();
-                    if (Math.max(start, entry.getKey()) <= Math.min(map.base + map.size, end)) {
-                        if (log.isDebugEnabled()) {
-                            log.warn("mmap2 start=0x{}, entry={}, flags=0x{}, length=0x{}", Long.toHexString(start), entry, Integer.toHexString(flags), Integer.toHexString(length));
-                        }
-                        return MAP_FAILED;
-                    }
-                }
-                if (log.isDebugEnabled()) {
-                    log.debug("mmap2 start=0x{}, mmapBaseAddress=0x{}, flags=0x{}, length=0x{}", Long.toHexString(start), Long.toHexString(mmapBaseAddress), Integer.toHexString(flags), Integer.toHexString(length));
-                }
-                long ret = file.mmap2(emulator, start, aligned, prot, offset, length);
-                if (mMapListener != null) {
-                    mMapListener.onMap(start, aligned, prot);
-                }
-                if (memoryMap.put(start, new MemoryMap(start, aligned, prot)) != null) {
-                    log.warn("mmap2 replace exists memory map start=0x{}", Long.toHexString(start));
-                }
-                return ret;
-            }
-        } catch (IOException e) {
-            throw new IllegalStateException(e);
-        }
+    }
 
-        emulator.attach().debug("mmap2 failed: start=0x" + Long.toHexString(start) + ", length=" + length + ", prot=0x" + Integer.toHexString(prot) + ", flags=0x" + Integer.toHexString(flags) + ", fd=" + fd + ", offset=" + offset);
-        throw new AbstractMethodError("mmap2 start=0x" + Long.toHexString(start) + ", length=" + length + ", prot=0x" + Integer.toHexString(prot) + ", flags=0x" + Integer.toHexString(flags) + ", fd=" + fd + ", offset=" + offset);
+    @Override
+    public int discardFileMapping(long address, int length) {
+        try {
+            return fileMappings.discard(address, length);
+        } catch (HostMappingException error) {
+            return -error.getErrno();
+        } catch (IOException error) {
+            log.error("event=file_mapping_discard_failed address=0x{} length={}",
+                    Long.toHexString(address), length, error);
+            throw new IllegalStateException(error);
+        }
+    }
+
+    @Override
+    public long mmap2(long start, int length, int prot, int flags, int fd, long offset) {
+        log.debug("event=memory_map_requested address=0x{} length={} prot={} flags={} fd={} offset={}",
+                Long.toHexString(start), length, prot, flags, fd, offset);
+        int page = emulator.getPageAlign();
+        long alignedLength = ARM.alignSize(length, page);
+        if (length <= 0 || offset < 0 || offset % page != 0 ||
+                ((flags & MAP_FIXED) != 0 && start % page != 0)) {
+            return -UnixEmulator.EINVAL;
+        }
+        if (alignedLength > Integer.MAX_VALUE) {
+            return -UnixEmulator.ENOMEM;
+        }
+        int aligned = (int) alignedLength;
+        // AbstractLoader.mmap uses a platform-neutral anonymous allocation request.
+        boolean internalAnonymous = flags == 0 && fd == -1 && start == 0 && offset == 0;
+        boolean anonymous = (flags & MAP_ANONYMOUS) != 0 || internalAnonymous;
+        int type = flags & 0xf;
+        if (!internalAnonymous && type != MAP_SHARED && type != MAP_PRIVATE) {
+            return -UnixEmulator.EINVAL;
+        }
+        FileIO file = anonymous ? null : syscallHandler.getFileIO(fd);
+        if (!anonymous && file == null) {
+            return -UnixEmulator.EBADF;
+        }
+        if (file != null && (!file.isReadable() ||
+                (type == MAP_SHARED && (prot & UnicornConst.UC_PROT_WRITE) != 0 && !file.isWritable()))) {
+            return -UnixEmulator.EACCES;
+        }
+        boolean fixed = (flags & MAP_FIXED) != 0;
+        long address = fixed ? start : allocateMapAddress(0, aligned);
+        try {
+            MemoryMap map;
+            MappingSource source = file == null ? null : file.getMappingSource();
+            if (source != null) {
+                try (FileMappingManager.PendingMapping pending = fileMappings.prepare(source, aligned, prot, flags, offset)) {
+                    if (fixed) {
+                        unmapOverlaps(address, aligned);
+                    }
+                    map = pending.map(address);
+                }
+            } else {
+                if (file != null && type == MAP_SHARED) {
+                    throw new UnsupportedOperationException("File does not provide host-backed shared mappings: " + file);
+                }
+                if (fixed) {
+                    unmapOverlaps(address, aligned);
+                }
+                if (anonymous) {
+                    backend.mem_map(address, aligned, prot);
+                } else {
+                    file.mmap2(emulator, address, aligned, prot, offset, length);
+                }
+                int mapFlags = internalAnonymous ? MAP_ANONYMOUS | MAP_PRIVATE : flags;
+                map = new MemoryMap(address, aligned, prot, mapFlags, offset, null);
+            }
+            memoryMap.put(address, map);
+            if (mMapListener != null) {
+                mMapListener.onMap(address, aligned, prot);
+            }
+            log.debug("event=memory_mapped address=0x{} length={} fd={} backing={}",
+                    Long.toHexString(address), aligned, fd, map.backing);
+            return address;
+        } catch (HostMappingException error) {
+            return -error.getErrno();
+        } catch (IOException error) {
+            log.error("event=memory_map_failed address=0x{} length={} fd={} offset={}",
+                    Long.toHexString(address), aligned, fd, offset, error);
+            throw new IllegalStateException(error);
+        }
+    }
+
+    private void unmapOverlaps(long address, int length) {
+        long end = address + length;
+        for (MemoryMap map : new ArrayList<>(memoryMap.values())) {
+            long from = Math.max(address, map.base);
+            long to = Math.min(end, map.base + map.size);
+            if (from < to) {
+                munmap(from, (int) (to - from));
+            }
+        }
     }
 
     private Pointer errno;

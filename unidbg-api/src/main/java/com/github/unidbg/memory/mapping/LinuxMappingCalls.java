@@ -15,6 +15,7 @@ final class LinuxMappingCalls {
     static final int PROT_READ_WRITE = 3;
     static final int MAP_SHARED = 1;
     static final int MAP_PRIVATE = 2;
+    static final int MADV_DONTNEED = 4;
     static final int O_CLOEXEC = 0x80000;
     static final int O_RDWR = 2;
     static final int S_IFMT = 0170000;
@@ -24,6 +25,7 @@ final class LinuxMappingCalls {
         int open(String path, int flags);
         int fstat(int fd, FileStat stat);
         int getpagesize();
+        int madvise(Pointer address, long length, int advice);
     }
 
     // Linux x86_64 struct stat, including its ABI padding and reserved tail.

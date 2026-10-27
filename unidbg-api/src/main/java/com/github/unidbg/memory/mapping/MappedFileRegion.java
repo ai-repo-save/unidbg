@@ -21,4 +21,7 @@ public interface MappedFileRegion extends Closeable {
      * Private changes remain private. This does not change buffer position.
      */
     void sync(long offset, long length, int flags) throws IOException;
+
+    /** Discards resident pages with Linux MADV_DONTNEED, preserving file contents. */
+    void discard(long offset, long length) throws IOException;
 }

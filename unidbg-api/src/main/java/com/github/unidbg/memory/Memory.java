@@ -29,7 +29,10 @@ public interface Memory extends IO, Loader, StackMemory {
     long getStackBase();
     int getStackSize();
 
-    long mmap2(long start, int length, int prot, int flags, int fd, int offset);
+    long mmap2(long start, int length, int prot, int flags, int fd, long offset);
+    int msync(long address, int length, int flags);
+    int discardFileMapping(long address, int length);
+    void close();
     int mprotect(long address, int length, int prot);
     int brk(long address);
 

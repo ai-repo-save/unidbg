@@ -57,6 +57,22 @@ final class LinuxMappedFileRegion implements MappedFileRegion {
     }
 
     @Override
+    public synchronized void discard(long offset, long count) throws IOException {
+        requireOpen();
+        if (offset < 0 || offset % LinuxMappingCalls.PAGE_SIZE != 0 || count <= 0 ||
+                offset > length || count > length - offset) {
+            throw new IllegalArgumentException("Invalid mapping discard offset=" + offset + ", length=" + count);
+        }
+        if (LinuxMappingCalls.FILES.madvise(address.share(offset), count, LinuxMappingCalls.MADV_DONTNEED) < 0) {
+            HostMappingException failure = LinuxMappingCalls.failure("madvise", "region=" + id);
+            log.debug("event=file_region_discard_failed region={} offset={} length={} errno={}",
+                    id, offset, count, failure.getErrno(), failure);
+            throw failure;
+        }
+        log.debug("event=file_region_discarded region={} offset={} length={}", id, offset, count);
+    }
+
+    @Override
     public synchronized void close() throws IOException {
         if (closed) {
             return;
@@ -71,6 +87,11 @@ final class LinuxMappedFileRegion implements MappedFileRegion {
             closed = true;
             log.debug("event=file_region_unmapped region={}", id);
         }
+    }
+
+    @Override
+    public String toString() {
+        return "MappedFileRegion{id=" + id + '}';
     }
 
     long lastFilePage() {

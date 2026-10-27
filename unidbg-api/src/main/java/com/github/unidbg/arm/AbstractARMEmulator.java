@@ -156,11 +156,23 @@ public abstract class AbstractARMEmulator<T extends NewFileIO> extends AbstractE
 
     @Override
     protected void closeInternal() {
-        syscallHandler.destroy();
-        
-        IOUtils.close(thumbDisassemblerCache);
-        IOUtils.close(armDisassemblerCache);
-        disassembleCache.clear();
+        try {
+            try {
+                syscallHandler.destroy();
+            } catch (RuntimeException | Error failure) {
+                try {
+                    memory.close();
+                } catch (RuntimeException | Error cleanup) {
+                    failure.addSuppressed(cleanup);
+                }
+                throw failure;
+            }
+            memory.close();
+        } finally {
+            IOUtils.close(thumbDisassemblerCache);
+            IOUtils.close(armDisassemblerCache);
+            disassembleCache.clear();
+        }
     }
 
     @Override

@@ -152,10 +152,22 @@ public abstract class AbstractARM64Emulator<T extends NewFileIO> extends Abstrac
 
     @Override
     protected void closeInternal() {
-        syscallHandler.destroy();
-
-        IOUtils.close(arm64DisassemblerCache);
-        disassembleCache.clear();
+        try {
+            try {
+                syscallHandler.destroy();
+            } catch (RuntimeException | Error failure) {
+                try {
+                    memory.close();
+                } catch (RuntimeException | Error cleanup) {
+                    failure.addSuppressed(cleanup);
+                }
+                throw failure;
+            }
+            memory.close();
+        } finally {
+            IOUtils.close(arm64DisassemblerCache);
+            disassembleCache.clear();
+        }
     }
 
     @Override

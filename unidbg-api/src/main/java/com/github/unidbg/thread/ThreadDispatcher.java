@@ -33,4 +33,7 @@ public interface ThreadDispatcher extends SignalOps {
 
     void shutdown(long timeout, TimeUnit unit);
 
+    /** True after the shutdown barrier completes, including shutdowns that report cleanup errors. */
+    boolean isClosed();
+
 }

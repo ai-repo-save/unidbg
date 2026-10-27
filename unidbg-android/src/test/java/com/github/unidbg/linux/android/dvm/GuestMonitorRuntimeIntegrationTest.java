@@ -32,6 +32,7 @@ import java.lang.management.ThreadMXBean;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -196,6 +197,112 @@ public class GuestMonitorRuntimeIntegrationTest {
         assertNull(threads.getThreadInfo(host.closingThread.getId()));
         assertNull(threads.getThreadInfo(plans.cancelHostThread.getId()));
         assertNull(host.observerFailure.get());
+        failedShutdownReleasesReferences(new File(fixture), workspace.resolve("failed-shutdown"));
+    }
+
+    private static void failedShutdownReleasesReferences(File fixture, Path workspace) throws Exception {
+        Files.createDirectories(workspace);
+        RuntimeException localFailure = new IllegalStateException("local reference cleanup failure");
+        RuntimeException globalFailure = new IllegalArgumentException("global reference cleanup failure");
+        AtomicReference<Thread> worker = new AtomicReference<>();
+        CountDownLatch workerReady = new CountDownLatch(1);
+        try (FileChannel failedLocal = channel(workspace.resolve("failed-local.bin"));
+             FileChannel otherLocal = channel(workspace.resolve("other-local.bin"));
+             FileChannel mainLocal = channel(workspace.resolve("main-local.bin"));
+             FileChannel global = channel(workspace.resolve("global.bin"))) {
+            RuntimeException observed = assertThrows(RuntimeException.class, () -> {
+                try (AndroidEmulator emulator = AndroidEmulatorBuilder.for64Bit()
+                        .setRootDir(workspace.resolve("root").toFile())
+                        .addBackendFactory(new Unicorn2Factory(true)).build()) {
+                    emulator.getMemory().setLibraryResolver(new AndroidResolver(23));
+                    emulator.getSyscallHandler().setEnableThreadDispatcher(true);
+                    BaseVM vm = (BaseVM) emulator.createDalvikVM();
+                    UnidbgPointer outEnv = emulator.getSvcMemory().allocate(8, "fault-thread-env");
+                    UnidbgPointer references = emulator.getSvcMemory().registerSvc(new Arm64Svc() {
+                        @Override public long handle(Emulator<?> current) {
+                            if (current.getContext().getIntArg(0) == 3) {
+                                assertEquals(VM.JNI_OK, vm.threads().attach(outEnv, null, false));
+                                if (current.getContext().getIntArg(1) == 0) {
+                                    vm.addLocalObject(closingReference(failedLocal,
+                                            workspace.resolve("failed-local.closed"), localFailure));
+                                } else {
+                                    vm.addLocalObject(closingReference(otherLocal,
+                                            workspace.resolve("other-local.closed"), null));
+                                }
+                            }
+                            return 0;
+                        }
+                    });
+                    Module module = emulator.loadLibrary(fixture, false);
+                    assertEquals(0, module.callFunction(emulator, "monitor_start", references).intValue());
+                    emulator.getThreadDispatcher().runThreads(10, TimeUnit.SECONDS);
+                    assertEquals(0, module.callFunction(emulator, "monitor_join").intValue());
+                    vm.addLocalObject(closingReference(mainLocal, workspace.resolve("main-local.closed"), null));
+                    vm.addGlobalObject(closingReference(global, workspace.resolve("global.closed"), globalFailure));
+                    GuestJavaRuntime runtime = vm.threads().hostRuntime();
+                    UnidbgPointer failure = emulator.getSvcMemory().registerSvc(new Arm64Svc() {
+                        @Override public long handle(Emulator<?> current) {
+                            HostJavaCall<Integer> call = runtime.submit(() -> {
+                                worker.set(Thread.currentThread());
+                                Thread.currentThread().interrupt();
+                                workerReady.countDown();
+                                return 0x31;
+                            });
+                            await(workerReady);
+                            join(worker.get());
+                            assertEquals(Thread.State.TERMINATED, worker.get().getState());
+                            try {
+                                return call.result().get();
+                            } catch (Exception error) {
+                                throw new AssertionError(error);
+                            }
+                        }
+                    });
+                    assertEquals(0x31, emulator.eFunc(failure.peer).intValue());
+                }
+            });
+            assertSame(localFailure, observed);
+            assertEquals(2, observed.getSuppressed().length);
+            assertEquals(new HashSet<>(Arrays.asList(InterruptedException.class, IllegalArgumentException.class)),
+                    new HashSet<>(Arrays.asList(observed.getSuppressed()[0].getClass(), observed.getSuppressed()[1].getClass())));
+            assertEquals(true, Arrays.asList(observed.getSuppressed()).contains(globalFailure));
+            assertEquals(false, failedLocal.isOpen());
+            assertEquals(false, otherLocal.isOpen());
+            assertEquals(false, mainLocal.isOpen());
+            assertEquals(false, global.isOpen());
+            for (String marker : Arrays.asList("failed-local.closed", "other-local.closed", "main-local.closed", "global.closed")) {
+                assertEquals("closed\n", new String(Files.readAllBytes(workspace.resolve(marker)), StandardCharsets.US_ASCII));
+            }
+            assertEquals(Thread.State.TERMINATED, worker.get().getState());
+            assertNull(ManagementFactory.getThreadMXBean().getThreadInfo(worker.get().getId()));
+        }
+    }
+
+    private static FileChannel channel(Path path) throws IOException {
+        return FileChannel.open(path, StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE);
+    }
+
+    private static DvmObject<FileChannel> closingReference(FileChannel channel, Path marker, RuntimeException failure) {
+        return new DvmObject<FileChannel>(null, channel) {
+            @Override protected void releaseAdditionalMemory() {
+                try {
+                    getValue().close();
+                    Files.write(marker, "closed\n".getBytes(StandardCharsets.US_ASCII));
+                } catch (IOException error) {
+                    throw new UncheckedIOException(error);
+                }
+                if (failure != null) throw failure;
+            }
+        };
+    }
+
+    private static void join(Thread thread) {
+        try {
+            thread.join(3000);
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(error);
+        }
     }
 
     private static <T extends Number> long suspendNumber(Emulator<?> emulator, HostJavaCall<T> call,

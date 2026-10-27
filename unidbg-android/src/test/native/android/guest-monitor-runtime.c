@@ -88,3 +88,44 @@ int monitor_close_start(void) {
 int monitor_close_join(void) {
     return pthread_join(close_thread, NULL);
 }
+
+int monitor_two_step(void) {
+    return (int)bridge(11, 0x1357);
+}
+
+static pthread_t plan_cancel_thread;
+
+static void *plan_cancel(void *unused) {
+    (void)unused;
+    const unsigned char before[] = {0x13, 0x57};
+    const unsigned char after[] = {0x24, 0x68};
+    int fd = open("/monitor-plan-cancel.bin", O_CREAT | O_TRUNC | O_WRONLY, 0600);
+    if (fd < 0) return NULL;
+    if (write(fd, before, sizeof(before)) != sizeof(before)) {
+        close(fd);
+        return NULL;
+    }
+    close(fd);
+    bridge(12, 0x2468);
+    fd = open("/monitor-plan-cancel.bin", O_APPEND | O_WRONLY);
+    if (fd >= 0) {
+        if (write(fd, after, sizeof(after)) != sizeof(after)) {
+            close(fd);
+            return NULL;
+        }
+        close(fd);
+    }
+    return NULL;
+}
+
+int monitor_plan_cancel_start(void) {
+    return pthread_create(&plan_cancel_thread, NULL, plan_cancel, NULL);
+}
+
+int monitor_plan_cancel_control(void) {
+    return (int)bridge(13, 0x369a);
+}
+
+int monitor_plan_cancel_join(void) {
+    return pthread_join(plan_cancel_thread, NULL);
+}

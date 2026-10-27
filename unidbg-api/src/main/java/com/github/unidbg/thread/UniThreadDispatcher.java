@@ -30,6 +30,7 @@ public class UniThreadDispatcher implements ThreadDispatcher {
 
     private final List<Task> taskList = new ArrayList<>();
     private final AbstractEmulator<?> emulator;
+    private final Thread backendThread = Thread.currentThread();
     private final Map<Task, Deque<NativeCallFrame>> nativeFrames = new IdentityHashMap<>();
     private final Map<RunnableTask, Long> stackPoints = new IdentityHashMap<>();
     private final List<DispatcherEventSource> eventSources = new ArrayList<>();
@@ -117,7 +118,11 @@ public class UniThreadDispatcher implements ThreadDispatcher {
             ret = run(0, null);
         } catch (RuntimeException | Error failure) {
             if (taskList.remove(main)) {
-                destroyTask(main);
+                try {
+                    destroyTask(main);
+                } catch (RuntimeException | Error cleanupFailure) {
+                    collectFailure(failure, cleanupFailure);
+                }
             }
             throw failure;
         }
@@ -133,18 +138,96 @@ public class UniThreadDispatcher implements ThreadDispatcher {
     }
 
     private void destroyTask(Task task) {
-        abortNativeFrames(task, new CancellationException("Guest task terminated: " + task.getId()));
-        task.destroy(emulator);
+        Throwable failure = null;
+        try {
+            abortNativeFrames(task, new CancellationException("Guest task terminated: " + task.getId()));
+        } catch (RuntimeException | Error error) {
+            failure = error;
+        }
+        try {
+            task.destroy(emulator);
+        } catch (RuntimeException | Error error) {
+            failure = collectFailure(failure, error);
+        }
         stackPoints.remove(task);
         for (SignalTask signalTask : task.getSignalTaskList()) {
-            signalTask.destroy(emulator);
-            task.removeSignalTask(signalTask);
+            try {
+                signalTask.destroy(emulator);
+            } catch (RuntimeException | Error error) {
+                failure = collectFailure(failure, error);
+            } finally {
+                task.removeSignalTask(signalTask);
+            }
         }
         if (!task.isMainThread()) {
             for (ThreadLifecycleListener listener : lifecycleListeners) {
-                listener.onThreadTerminated(task);
+                try {
+                    listener.onThreadTerminated(task);
+                } catch (RuntimeException | Error error) {
+                    failure = collectFailure(failure, error);
+                }
             }
         }
+        throwFailure(failure);
+    }
+
+    private static Throwable collectFailure(Throwable primary, Throwable next) {
+        if (primary == null) return next;
+        if (primary != next) primary.addSuppressed(next);
+        return primary;
+    }
+
+    private static void throwFailure(Throwable failure) {
+        if (failure instanceof Error) throw (Error) failure;
+        if (failure != null) throw (RuntimeException) failure;
+    }
+
+    @Override
+    public void runInTaskContext(Task owner, RunnableTask frame, Runnable cleanup) {
+        if (Thread.currentThread() != backendThread) {
+            throw new IllegalStateException("Task cleanup requires the backend owner thread");
+        }
+        Task previousOwner = emulator.get(Task.TASK_KEY);
+        RunnableTask previousRunning = runningTask;
+        Backend backend = emulator.getBackend();
+        long context = backend.context_alloc();
+        backend.context_save(context);
+        long stack = emulator.getMemory().getStackPoint();
+        Throwable failure = null;
+        try {
+            if (previousOwner != owner || previousRunning != frame) {
+                if (!frame.isContextSaved()) {
+                    throw new IllegalStateException("Original guest frame has no saved cleanup context");
+                }
+                frame.restoreContext(emulator);
+                emulator.getMemory().setStackPoint(stackPoints.getOrDefault(frame,
+                        com.github.unidbg.pointer.UnidbgPointer.nativeValue(emulator.getStackPointer())));
+            }
+            emulator.set(Task.TASK_KEY, owner);
+            runningTask = frame;
+            cleanup.run();
+        } catch (RuntimeException | Error error) {
+            failure = error;
+        } finally {
+            emulator.set(Task.TASK_KEY, previousOwner);
+            runningTask = previousRunning;
+            try {
+                emulator.getMemory().setStackPoint(stack);
+            } catch (RuntimeException | Error error) {
+                failure = collectFailure(failure, error);
+            }
+            try {
+                backend.context_restore(context);
+            } catch (RuntimeException | Error error) {
+                failure = collectFailure(failure, error);
+            }
+            try {
+                backend.context_free(context);
+            } catch (RuntimeException | Error error) {
+                failure = collectFailure(failure, error);
+            }
+        }
+        throwFailure(failure);
     }
 
     @Override
@@ -179,14 +262,24 @@ public class UniThreadDispatcher implements ThreadDispatcher {
 
     private void abortNativeFrames(Task owner, Throwable failure) {
         Deque<NativeCallFrame> frames = nativeFrames.remove(owner);
+        Throwable cleanupFailure = null;
         if (frames != null) {
             while (!frames.isEmpty()) {
                 NativeCallFrame frame = frames.removeLast();
-                frame.destroy(emulator);
+                try {
+                    frame.destroy(emulator);
+                } catch (RuntimeException | Error error) {
+                    cleanupFailure = collectFailure(cleanupFailure, error);
+                }
                 stackPoints.remove(frame.entry);
-                frame.completion.complete(null, failure);
+                try {
+                    frame.completion.complete(null, failure);
+                } catch (RuntimeException | Error error) {
+                    cleanupFailure = collectFailure(cleanupFailure, error);
+                }
             }
         }
+        throwFailure(cleanupFailure);
     }
 
     private void finishNativeFrame(Task owner, Number result, Throwable failure) {
@@ -222,9 +315,15 @@ public class UniThreadDispatcher implements ThreadDispatcher {
             source.beginClose();
         }
         promotePendingThreads();
+        Throwable cleanupFailure = null;
         for (Task task : new ArrayList<>(taskList)) {
-            destroyTask(task);
-            taskList.remove(task);
+            try {
+                destroyTask(task);
+            } catch (RuntimeException | Error error) {
+                cleanupFailure = collectFailure(cleanupFailure, error);
+            } finally {
+                taskList.remove(task);
+            }
         }
         while (true) {
             dispatchEvents();
@@ -235,15 +334,17 @@ public class UniThreadDispatcher implements ThreadDispatcher {
             if (complete) {
                 for (DispatcherEventSource source : eventSources) {
                     if (source.closeFailure() != null) {
-                        throw new IllegalStateException("Dispatcher resource cleanup failed", source.closeFailure());
+                        cleanupFailure = collectFailure(cleanupFailure, source.closeFailure());
                     }
                 }
                 closed = true;
                 log.debug("event=thread_dispatcher_closed emulator={}", System.identityHashCode(emulator));
+                throwFailure(cleanupFailure);
                 return;
             }
             if (System.nanoTime() >= deadline) {
                 IllegalStateException failure = new IllegalStateException("Dispatcher resource cleanup budget exhausted");
+                if (cleanupFailure != null) failure.addSuppressed(cleanupFailure);
                 log.error("event=thread_dispatcher_close_failed emulator={} threads={}",
                         System.identityHashCode(emulator), ManagementFactory.getThreadMXBean().dumpAllThreads(true, true), failure);
                 throw failure;
@@ -359,7 +460,11 @@ public class UniThreadDispatcher implements ThreadDispatcher {
                                 finishNativeFrame(task, null, failure);
                             } else {
                                 taskList.remove(task);
-                                destroyTask(task);
+                                try {
+                                    destroyTask(task);
+                                } catch (RuntimeException | Error cleanupFailure) {
+                                    collectFailure(failure, cleanupFailure);
+                                }
                                 throw failure;
                             }
                         }

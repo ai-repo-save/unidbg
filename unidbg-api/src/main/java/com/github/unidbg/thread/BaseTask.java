@@ -103,28 +103,61 @@ public abstract class BaseTask implements RunnableTask {
         Waiter waiter = getWaiter();
         if (waiter != null) {
             waiter.onContinueRun(emulator);
-            setWaiter(emulator, null);
+            Waiter next = getWaiter();
+            if (next != null && next != waiter) {
+                return null;
+            }
+            if (next == waiter) {
+                setWaiter(emulator, null);
+            }
         }
         return emulator.emulate(pc, until);
     }
 
     @Override
     public void destroy(Emulator<?> emulator) {
-        setWaiter(emulator, null);
-        Backend backend = emulator.getBackend();
-
+        Throwable failure = null;
+        try {
+            setWaiter(emulator, null);
+        } catch (RuntimeException | Error error) {
+            failure = error;
+        }
         if (stackSpaceAllocIndex != -1) {
-            emulator.getMemory().freeThreadIndex(stackSpaceAllocIndex);
+            try {
+                emulator.getMemory().freeThreadIndex(stackSpaceAllocIndex);
+            } catch (RuntimeException | Error error) {
+                failure = collectFailure(failure, error);
+            } finally {
+                stackSpaceAllocIndex = -1;
+            }
         }
-
-        if (this.context != 0) {
-            backend.context_free(this.context);
-            this.context = 0;
+        if (context != 0) {
+            try {
+                emulator.getBackend().context_free(context);
+            } catch (RuntimeException | Error error) {
+                failure = collectFailure(failure, error);
+            } finally {
+                context = 0;
+            }
         }
-
         if (destroyListener != null) {
-            destroyListener.onDestroy(emulator);
+            try {
+                destroyListener.onDestroy(emulator);
+            } catch (RuntimeException | Error error) {
+                failure = collectFailure(failure, error);
+            }
         }
+        if (failure != null) {
+            log.error("event=task_cleanup_failed task={}", this, failure);
+            if (failure instanceof Error) throw (Error) failure;
+            throw (RuntimeException) failure;
+        }
+    }
+
+    private static Throwable collectFailure(Throwable primary, Throwable next) {
+        if (primary == null) return next;
+        if (primary != next) primary.addSuppressed(next);
+        return primary;
     }
 
     public static final int THREAD_STACK_PAGE = 64;

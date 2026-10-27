@@ -4,7 +4,7 @@
     <groupId>io.github.ai-repo-save.unidbg</groupId>
     <artifactId>unidbg</artifactId>
     <packaging>pom</packaging>
-    <version>0.13.1</version>
+    <version>0.13.2</version>
     <modules>
         <module>unidbg-api</module>
         <module>unidbg-android</module>

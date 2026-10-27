@@ -11,7 +11,7 @@ The release uses committed, clean source descended from the baseline. The genera
 
 ## Coordinates
 
-All reactor artifacts use group `io.github.ai-repo-save.unidbg` and version `0.13.1`:
+All reactor artifacts use group `io.github.ai-repo-save.unidbg` and version `0.13.2`:
 
 - `unidbg` (parent POM).
 - `unidbg-api`.
@@ -45,7 +45,7 @@ The protected method descriptors changed, so extensions compiled against `0.9.10
 
 Version `0.11.0` adds `public int DalvikModule.callJNI_OnLoadWithResult(Emulator<?> emulator)`. It returns the actual native JNI version after the existing VM version check and releases local references in `finally`, including on native-call or validation failure. A missing module-local `JNI_OnLoad` throws `IllegalStateException`, following `Module.callFunction`'s missing-symbol contract; it does not synthesize a return value. Missing-symbol lookup does not start a JNI call or clear references.
 
-The existing `void callJNI_OnLoad` retains its descriptor and missing-symbol no-op. When the symbol exists, it delegates to the result API. `VM.callJNI_OnLoad` retains the same behavior through its existing delegation. Existing callers retain their behavior; consumers of the current fork release declare `0.13.1`.
+The existing `void callJNI_OnLoad` retains its descriptor and missing-symbol no-op. When the symbol exists, it delegates to the result API. `VM.callJNI_OnLoad` retains the same behavior through its existing delegation. Existing callers retain their behavior; consumers of the current fork release declare `0.13.2`.
 
 ## Proxy host values
 
@@ -63,6 +63,14 @@ Unchecked host implementation failures propagate from `Emulator.eFunc` / `Module
 
 Version `0.13.0` adds public `BooleanArray(VM, boolean[])`, `CharArray(VM, char[])` and `LongArray(VM, long[])` wrappers through `ProxyDvmObject.createObject`. Their JNI New/Elements/Release/Region slots work on both architectures, with 8-bit jboolean, 16-bit jchar and 64-bit jlong storage. Each elements/critical acquisition owns an independent copy. Release mode 0 copies back into the original host array and frees that copy; JNI_COMMIT copies back while retaining it; JNI_ABORT frees without copying back. VM reference cleanup releases outstanding copies through the new protected `DvmObject.releaseAdditionalMemory()` hook. Existing wrappers retain their behavior.
 
+## Native IPC and dispatch
+
+Version `0.13.2` fixes ARM64 AF_UNIX SOCK_SEQPACKET socketpairs on Linux x86_64 using kernel sockets through JNA. SDK23 Bionic calls preserve packet boundaries, peeking, socket timeouts and descriptor lifetime while yielding native tasks for blocking I/O. The adapter returns raw Linux syscall errors for Bionic to set the calling thread's errno.
+
+`Waiter.onDestroy(Emulator<?>)` releases an operation when its Waiter is replaced or its task is destroyed, independently of the existing DestroyListener. Pending native threads remain dispatchable after main returns. `runThreads` restores the caller's CPU context and stack, including TLS; debug logging adds no scheduling delay. Socket state changes carry correlated debug events.
+
+The opt-in `NativeSeqpacketLifecycleIntegrationTest` validates the native IPC lifecycle separately from the release entry point's five JNI tests. Build its ARM64 fixture with the NDK and supply `-Dunidbg.nativeIpcLibrary=<fixture>` when invoking that test explicitly.
+
 ## Release
 
 Requirements: Git, uv, JDK 21 and the repository Maven Wrapper (Maven 3.9.9). Maven uses `~/.m2/settings.xml` for configured HTTP/HTTPS proxies; configure the local proxy there when network access requires it.
@@ -73,10 +81,10 @@ From the repository root:
 uv run --python 3.12 scripts/release.py \
   --baseline 129151171590d0cfaaf46f98f93f1ac5f97fc401 \
   --java-home /usr/lib/jvm/java-21-openjdk-amd64 \
-  --repository target/release-0.13.1
+  --repository target/release-0.13.2
 ```
 
-`--help` lists repository and Maven cache options. `--repository` selects a Maven-layout directory below this project's `target/` and defaults to `<checkout>/target/release-0.13.1`. Maven file deploy creates or reuses that directory and updates artifacts and metadata according to normal Maven semantics. The entry point records the latest completed release in `release-manifest.json`. Maven `clean` selects only the child modules listed in the parent POM; it does not clean the parent project's `target/` or the release repository.
+`--help` lists repository and Maven cache options. `--repository` selects a Maven-layout directory below this project's `target/` and defaults to `<checkout>/target/release-0.13.2`. Maven file deploy creates or reuses that directory and updates artifacts and metadata according to normal Maven semantics. The entry point records the latest completed release in `release-manifest.json`. Maven `clean` selects only the child modules listed in the parent POM; it does not clean the parent project's `target/` or the release repository.
 
 The entry point performs these steps with JDK 21:
 
@@ -88,10 +96,10 @@ The entry point performs these steps with JDK 21:
 
 Default outputs:
 
-- Maven-layout repository: `target/release-0.13.1/`.
+- Maven-layout repository: `target/release-0.13.2/`.
 - Ordinary Maven installation/cache: `~/.m2/repository/`.
-- Provenance: `target/release-0.13.1/release-manifest.json`, with source identities, toolchain, exact commands, test results, stable GAVs and produced artifact paths.
-- License: `target/release-0.13.1/LICENSE`.
+- Provenance: `target/release-0.13.2/release-manifest.json`, with source identities, toolchain, exact commands, test results, stable GAVs and produced artifact paths.
+- License: `target/release-0.13.2/LICENSE`.
 - Structured release events: `logs/release-<run-id>.jsonl`.
 - Original Maven output: `logs/release-<run-id>.maven.log`.
 
@@ -122,8 +130,8 @@ Same-user Maven and Gradle builds can use the ordinary Maven installation. To co
 ```xml
 <repository>
     <id>unidbg-local-release</id>
-    <url>file:///home/bluebird/git/unidbg/target/release-0.13.1</url>
+    <url>file:///home/bluebird/git/unidbg/target/release-0.13.2</url>
 </repository>
 ```
 
-For example, the Android runtime dependency is `io.github.ai-repo-save.unidbg:unidbg-android:0.13.1`. Transitive reactor dependencies resolve from the same repository. Third-party dependencies still resolve from their configured upstream repositories or Maven cache. The exported fork repository is not a complete offline dependency mirror.
+For example, the Android runtime dependency is `io.github.ai-repo-save.unidbg:unidbg-android:0.13.2`. Transitive reactor dependencies resolve from the same repository. Third-party dependencies still resolve from their configured upstream repositories or Maven cache. The exported fork repository is not a complete offline dependency mirror.

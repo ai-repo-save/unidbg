@@ -102,6 +102,8 @@
 !/unidbg-android/src/main/java/com/github/unidbg/linux/android/dvm/JniObjectIdentity.java
 !/unidbg-android/src/main/java/com/github/unidbg/linux/android/dvm/HostJni.java
 !/unidbg-android/src/main/java/com/github/unidbg/linux/android/dvm/JniCallPlan.java
+!/unidbg-android/src/main/java/com/github/unidbg/linux/android/dvm/JniPlanExecution.java
+!/unidbg-android/src/test/java/com/github/unidbg/linux/android/dvm/JniCallPlanIntegrationTest.java
 !/unidbg-android/src/main/java/com/github/unidbg/linux/android/dvm/jni/ProxyTargetException.java
 !/unidbg-android/src/test/java/com/github/unidbg/linux/android/dvm/JniReferenceOwnerIntegrationTest.java
 !/unidbg-android/src/test/java/com/github/unidbg/linux/android/dvm/ModifiedUtf8Test.java

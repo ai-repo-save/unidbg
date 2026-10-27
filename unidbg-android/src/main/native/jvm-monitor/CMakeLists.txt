@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.16)
+project(unidbg_jvm_monitor LANGUAGES C)
+find_package(JNI REQUIRED)
+add_library(unidbg_jvm_monitor SHARED jvm-monitor.c)
+target_include_directories(unidbg_jvm_monitor PRIVATE ${JNI_INCLUDE_DIRS})
+target_compile_options(unidbg_jvm_monitor PRIVATE -Wall -Wextra -Werror)

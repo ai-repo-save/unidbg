@@ -419,6 +419,7 @@ public abstract class AbstractEmulator<T extends NewFileIO> implements Emulator<
             throw new IOException("Already closed.");
         }
 
+        threadDispatcher.shutdown(5, java.util.concurrent.TimeUnit.SECONDS);
         try {
             if (debugger != null) {
                 debugger.close();

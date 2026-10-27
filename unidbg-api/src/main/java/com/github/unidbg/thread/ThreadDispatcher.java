@@ -23,4 +23,12 @@ public interface ThreadDispatcher extends SignalOps {
 
     RunnableTask getRunningTask();
 
+    void submitNativeCall(Task owner, MainTask entry, NativeCallCompletion completion);
+
+    void addEventSource(DispatcherEventSource source);
+
+    void addThreadLifecycleListener(ThreadLifecycleListener listener);
+
+    void shutdown(long timeout, TimeUnit unit);
+
 }

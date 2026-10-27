@@ -9,10 +9,16 @@ import com.github.unidbg.signal.UnixSigSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.lang.management.ManagementFactory;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Deque;
+import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -24,6 +30,11 @@ public class UniThreadDispatcher implements ThreadDispatcher {
 
     private final List<Task> taskList = new ArrayList<>();
     private final AbstractEmulator<?> emulator;
+    private final Map<Task, Deque<NativeCallFrame>> nativeFrames = new IdentityHashMap<>();
+    private final Map<RunnableTask, Long> stackPoints = new IdentityHashMap<>();
+    private final List<DispatcherEventSource> eventSources = new ArrayList<>();
+    private final List<ThreadLifecycleListener> lifecycleListeners = new ArrayList<>();
+    private boolean closed;
 
     public UniThreadDispatcher(AbstractEmulator<?> emulator) {
         this.emulator = emulator;
@@ -33,6 +44,9 @@ public class UniThreadDispatcher implements ThreadDispatcher {
 
     @Override
     public void addThread(ThreadTask task) {
+        if (closed) {
+            throw new IllegalStateException("Thread dispatcher is closed");
+        }
         threadTaskList.add(task);
     }
 
@@ -91,6 +105,9 @@ public class UniThreadDispatcher implements ThreadDispatcher {
 
     @Override
     public Number runMainForResult(MainTask main) {
+        if (closed) {
+            throw new IllegalStateException("Thread dispatcher is closed");
+        }
         taskList.add(0, main);
 
         log.debug("runMainForResult main={}", main);
@@ -116,15 +133,130 @@ public class UniThreadDispatcher implements ThreadDispatcher {
     }
 
     private void destroyTask(Task task) {
+        abortNativeFrames(task, new CancellationException("Guest task terminated: " + task.getId()));
         task.destroy(emulator);
+        stackPoints.remove(task);
         for (SignalTask signalTask : task.getSignalTaskList()) {
             signalTask.destroy(emulator);
             task.removeSignalTask(signalTask);
+        }
+        if (!task.isMainThread()) {
+            for (ThreadLifecycleListener listener : lifecycleListeners) {
+                listener.onThreadTerminated(task);
+            }
+        }
+    }
+
+    @Override
+    public void addEventSource(DispatcherEventSource source) {
+        eventSources.add(source);
+    }
+
+    @Override
+    public void addThreadLifecycleListener(ThreadLifecycleListener listener) {
+        lifecycleListeners.add(listener);
+    }
+
+    @Override
+    public void submitNativeCall(Task owner, MainTask entry, NativeCallCompletion completion) {
+        if (closed || emulator.isRunning() || !taskList.contains(owner) || !owner.isContextSaved()) {
+            throw new IllegalStateException("Native reentry requires a suspended live guest task");
+        }
+        RunnableTask parent = activeTask(owner);
+        parent.restoreContext(emulator);
+        long parentStack = stackPoints.getOrDefault(parent, emulator.getMemory().getStackPoint());
+        nativeFrames.computeIfAbsent(owner, ignored -> new ArrayDeque<>())
+                .addLast(new NativeCallFrame(emulator, entry, completion, parentStack));
+        emulator.getMemory().setStackPoint(com.sun.jna.Pointer.nativeValue(emulator.getStackPointer()));
+        stackPoints.put(entry, emulator.getMemory().getStackPoint());
+        log.debug("event=native_reentry_submitted tid={} entry={}", owner.getId(), entry);
+    }
+
+    private RunnableTask activeTask(Task owner) {
+        Deque<NativeCallFrame> frames = nativeFrames.get(owner);
+        return frames == null || frames.isEmpty() ? owner : frames.getLast().entry;
+    }
+
+    private void abortNativeFrames(Task owner, Throwable failure) {
+        Deque<NativeCallFrame> frames = nativeFrames.remove(owner);
+        if (frames != null) {
+            while (!frames.isEmpty()) {
+                NativeCallFrame frame = frames.removeLast();
+                frame.destroy(emulator);
+                stackPoints.remove(frame.entry);
+                frame.completion.complete(null, failure);
+            }
+        }
+    }
+
+    private void finishNativeFrame(Task owner, Number result, Throwable failure) {
+        Deque<NativeCallFrame> frames = nativeFrames.get(owner);
+        NativeCallFrame frame = frames.removeLast();
+        frame.destroy(emulator);
+        stackPoints.remove(frame.entry);
+        activeTask(owner).restoreContext(emulator);
+        if (frames.isEmpty()) {
+            nativeFrames.remove(owner);
+        }
+        emulator.getMemory().setStackPoint(frame.parentStackPoint);
+        log.debug("event=native_reentry_completed tid={} result={}", owner.getId(), result, failure);
+        frame.completion.complete(result, failure);
+    }
+
+    private void dispatchEvents() {
+        for (DispatcherEventSource source : eventSources) {
+            source.dispatchPending();
+        }
+    }
+
+    @Override
+    public void shutdown(long timeout, TimeUnit unit) {
+        if (closed) {
+            return;
+        }
+        if (timeout <= 0 || unit == null || emulator.isRunning()) {
+            throw new IllegalArgumentException("Shutdown requires a positive budget and an idle backend");
+        }
+        long deadline = System.nanoTime() + unit.toNanos(timeout);
+        for (DispatcherEventSource source : eventSources) {
+            source.beginClose();
+        }
+        promotePendingThreads();
+        for (Task task : new ArrayList<>(taskList)) {
+            destroyTask(task);
+            taskList.remove(task);
+        }
+        while (true) {
+            dispatchEvents();
+            boolean complete = true;
+            for (DispatcherEventSource source : eventSources) {
+                complete &= source.isClosed();
+            }
+            if (complete) {
+                for (DispatcherEventSource source : eventSources) {
+                    if (source.closeFailure() != null) {
+                        throw new IllegalStateException("Dispatcher resource cleanup failed", source.closeFailure());
+                    }
+                }
+                closed = true;
+                log.debug("event=thread_dispatcher_closed emulator={}", System.identityHashCode(emulator));
+                return;
+            }
+            if (System.nanoTime() >= deadline) {
+                IllegalStateException failure = new IllegalStateException("Dispatcher resource cleanup budget exhausted");
+                log.error("event=thread_dispatcher_close_failed emulator={} threads={}",
+                        System.identityHashCode(emulator), ManagementFactory.getThreadMXBean().dumpAllThreads(true, true), failure);
+                throw failure;
+            }
+            Thread.yield();
         }
     }
 
     @Override
     public void runThreads(long timeout, TimeUnit unit) {
+        if (closed) {
+            throw new IllegalStateException("Thread dispatcher is closed");
+        }
         if (timeout <= 0 || unit == null) {
             throw new IllegalArgumentException("Invalid timeout.");
         }
@@ -145,6 +277,7 @@ public class UniThreadDispatcher implements ThreadDispatcher {
         try {
             long start = System.currentTimeMillis();
             while (true) {
+                dispatchEvents();
                 if (taskList.isEmpty()) {
                     promotePendingThreads();
                     if (taskList.isEmpty()) {
@@ -152,19 +285,19 @@ public class UniThreadDispatcher implements ThreadDispatcher {
                         return null;
                     }
                 }
-                for (Iterator<Task> iterator = taskList.iterator(); iterator.hasNext(); ) {
-                    Task task = iterator.next();
+                for (Task task : new ArrayList<>(taskList)) {
                     if (task.isFinish()) {
-                        iterator.remove();
+                        taskList.remove(task);
                         destroyTask(task);
                         continue;
                     }
-                    if (task.canDispatch()) {
+                    RunnableTask active = activeTask(task);
+                    if (active.canDispatch()) {
                         log.debug("Start dispatch task={}", task);
                         emulator.set(Task.TASK_KEY, task);
 
-                        if(task.isContextSaved()) {
-                            task.restoreContext(emulator);
+                        if (active.isContextSaved()) {
+                            active.restoreContext(emulator);
                             for (SignalTask signalTask : task.getSignalTaskList()) {
                                 if (signalTask.canDispatch()) {
                                     log.debug("Start run signalTask={}", signalTask);
@@ -194,25 +327,41 @@ public class UniThreadDispatcher implements ThreadDispatcher {
                         }
 
                         try {
-                            this.runningTask = task;
-                            Number ret = task.dispatch(emulator);
-                            log.debug("End dispatch task={}, ret={}", task, ret);
+                            this.runningTask = active;
+                            if (active != task && !active.isContextSaved()) {
+                                nativeFrames.get(task).getLast().restoreInitial(emulator);
+                            }
+                            Long stack = stackPoints.get(active);
+                            if (stack != null) {
+                                emulator.getMemory().setStackPoint(stack);
+                            }
+                            Number ret = ((Task) active).dispatch(emulator);
+                            log.debug("End dispatch task={}, ret={}", active, ret);
                             if (ret != null) {
-                                task.setResult(emulator, ret);
-                                destroyTask(task);
-                                iterator.remove();
-                                if(task.isMainThread()) {
-                                    return ret;
+                                if (active != task) {
+                                    finishNativeFrame(task, ret, null);
+                                } else {
+                                    task.setResult(emulator, ret);
+                                    taskList.remove(task);
+                                    destroyTask(task);
+                                    if (task.isMainThread()) {
+                                        return ret;
+                                    }
                                 }
                             } else {
-                                task.saveContext(emulator);
+                                active.saveContext(emulator);
+                                stackPoints.put(active, emulator.getMemory().getStackPoint());
                             }
-                        } catch(PopContextException e) {
+                        } catch (PopContextException e) {
                             this.runningTask.popContext(emulator);
                         } catch (RuntimeException | Error failure) {
-                            iterator.remove();
-                            destroyTask(task);
-                            throw failure;
+                            if (active != task) {
+                                finishNativeFrame(task, null, failure);
+                            } else {
+                                taskList.remove(task);
+                                destroyTask(task);
+                                throw failure;
+                            }
                         }
                     }
                 }

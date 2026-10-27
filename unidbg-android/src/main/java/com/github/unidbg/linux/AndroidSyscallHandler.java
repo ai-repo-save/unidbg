@@ -118,13 +118,15 @@ public abstract class AndroidSyscallHandler extends UnixSyscallHandler<AndroidFi
             }
             AndroidFileIO previous = fdMap.put(newfd, replacement);
             installed = true;
-            if (previous != null) {
-                previous.close();
-            }
             log.debug("event=descriptor_duplicated emulator={} old_fd={} new_fd={} flags={}",
                     System.identityHashCode(emulator), oldfd, newfd, flags);
-            return newfd;
+            return previous == null ? newfd : previous.close(emulator, ignored -> newfd);
         } catch (LinuxErrnoException failure) {
+            if (installed) {
+                log.warn("event=descriptor_implicit_close_failed emulator={} old_fd={} new_fd={}",
+                        System.identityHashCode(emulator), oldfd, newfd, failure);
+                return newfd;
+            }
             return -failure.getErrno();
         } finally {
             if (!installed) {

@@ -286,3 +286,70 @@ int tcp_send_blocking(int family, int port, const unsigned char *bytes, int size
     close(fd);
     return result < 0 ? -error : result;
 }
+
+static int linger_fd, linger_mode, linger_notified;
+static void (*linger_callback)(void);
+int tcp_linger_results[3];
+
+int tcp_linger_prepare(int family, int port) {
+    address(family, (unsigned short)port);
+    linger_fd = socket(family, SOCK_STREAM, 0);
+    int capacity = 4096;
+    struct linger linger = {1, 2};
+    if (linger_fd < 0 || setsockopt(linger_fd, SOL_SOCKET, SO_SNDBUF, &capacity, sizeof(capacity)) ||
+        setsockopt(linger_fd, SOL_SOCKET, SO_LINGER, &linger, sizeof(linger)) ||
+        connect(linger_fd, (struct sockaddr *)&endpoint, endpoint_size)) return -errno;
+    unsigned char bytes[8192];
+    memset(bytes, 0x6d, sizeof(bytes));
+    int total = 0;
+    for (int i = 0; i < 1024; ++i) {
+        int count = send(linger_fd, bytes, sizeof(bytes), MSG_DONTWAIT | MSG_NOSIGNAL);
+        if (count < 0 && errno == EAGAIN) return total;
+        if (count < 0) return -errno;
+        total += count;
+    }
+    return -1015;
+}
+
+static void *linger_notify(void *unused) {
+    if (linger_mode) {
+        struct linger current = {-1, -1};
+        socklen_t size = sizeof(current);
+        tcp_linger_results[2] = getsockopt(linger_fd, SOL_SOCKET, SO_LINGER, &current, &size) ? -errno : current.l_onoff;
+    }
+    linger_callback();
+    linger_notified = 1;
+    return NULL;
+}
+
+int tcp_linger_finish(int mode, void (*notify)(void)) {
+    linger_mode = mode;
+    linger_notified = 0;
+    linger_callback = notify;
+    memset(tcp_linger_results, 0, sizeof(tcp_linger_results));
+    int replacement = mode ? socket(endpoint.ss_family, SOCK_STREAM, 0) : -1;
+    if (mode && replacement < 0) return -errno;
+    pthread_t thread;
+    int error = pthread_create(&thread, NULL, linger_notify, NULL);
+    if (error) return -error;
+    int result = mode ? dup2(replacement, linger_fd) : close(linger_fd);
+    tcp_linger_results[0] = mode && result == linger_fd ? 0 : result;
+    tcp_linger_results[1] = linger_notified;
+    if (mode) {
+        close(replacement);
+        close(linger_fd);
+    }
+    return 0;
+}
+
+static void *linger_pending(void *unused) {
+    linger_callback();
+    close(linger_fd);
+    return NULL;
+}
+
+int tcp_linger_pending_start(void (*ready)(void)) {
+    linger_callback = ready;
+    pthread_t thread;
+    return pthread_create(&thread, NULL, linger_pending, NULL);
+}

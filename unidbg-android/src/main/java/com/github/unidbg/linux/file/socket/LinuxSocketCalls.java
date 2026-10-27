@@ -18,7 +18,7 @@ public final class LinuxSocketCalls {
     public static final int SOL_SOCKET = 1, SO_ERROR = 4, SO_RCVLOWAT = 18, SO_RCVTIMEO = 20, SO_SNDTIMEO = 21;
     public static final int MSG_OOB = 1, MSG_PEEK = 2, MSG_TRUNC = 0x20, MSG_DONTWAIT = 0x40, MSG_WAITALL = 0x100, MSG_NOSIGNAL = 0x4000;
     public static final int F_GETFD = 1, F_SETFD = 2, F_GETFL = 3, F_SETFL = 4, F_DUPFD_CLOEXEC = 1030, O_NONBLOCK = 0x800;
-    public static final int EAGAIN = 11, EINTR = 4, EFAULT = 14, EINVAL = 22, EINPROGRESS = 115;
+    public static final int EBADF = 9, EAGAIN = 11, EINTR = 4, EFAULT = 14, EINVAL = 22, EINPROGRESS = 115;
     public static final short POLLIN = 1, POLLOUT = 4, POLLHUP = 0x10, POLLRDHUP = 0x2000;
     private static final Logger log = LoggerFactory.getLogger(LinuxSocketCalls.class);
 

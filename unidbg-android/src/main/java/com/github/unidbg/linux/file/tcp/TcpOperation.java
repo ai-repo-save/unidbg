@@ -3,6 +3,7 @@ package com.github.unidbg.linux.file.tcp;
 import com.github.unidbg.Emulator;
 import com.github.unidbg.file.linux.AndroidFileIO;
 import com.github.unidbg.linux.file.socket.LinuxSocketCalls;
+import com.github.unidbg.linux.file.socket.NativeSocketCloseService;
 import com.github.unidbg.signal.SignalTask;
 import com.github.unidbg.thread.RunnableTask;
 import com.github.unidbg.thread.ThreadContextSwitchException;
@@ -32,7 +33,8 @@ abstract class TcpOperation implements Waiter {
     final long id;
     private final long timeout, started = System.nanoTime();
     private final int timeoutErrno;
-    private boolean finished, released, destroyed, interrupted;
+    private boolean finished, destroyed, interrupted, published;
+    private NativeSocketCloseService.Request releaseRequest;
     int result;
 
     TcpOperation(NativeTcpSocket socket, boolean sending, int flags, int timeoutErrno) {
@@ -42,7 +44,7 @@ abstract class TcpOperation implements Waiter {
         try {
             timeout = SocketOptions.timeoutNanos(fd, sending);
         } catch (RuntimeException | Error failure) {
-            LinuxSocketCalls.close(fd);
+            socket.owner.release(socket.id, fd);
             throw failure;
         }
         this.timeoutErrno = timeoutErrno;
@@ -85,7 +87,7 @@ abstract class TcpOperation implements Waiter {
                 }
             }
         }
-        return finished;
+        return finished && releaseRequest.isDone();
     }
 
     final int execute() {
@@ -107,7 +109,9 @@ abstract class TcpOperation implements Waiter {
 
     private int result() {
         try {
+            releaseRequest.result();
             publish();
+            published = true;
             return result;
         } finally {
             onDestroy(socket.emulator);
@@ -129,7 +133,7 @@ abstract class TcpOperation implements Waiter {
     public void onDestroy(Emulator<?> emulator) {
         if (!destroyed) {
             destroyed = true;
-            if (!finished) {
+            if (!published) {
                 log.debug("event=native_tcp_operation_cancelled socket={} operation={}", socket.id, id);
             }
             release();
@@ -138,9 +142,10 @@ abstract class TcpOperation implements Waiter {
     }
 
     private void release() {
-        if (!released) {
-            released = true;
-            LinuxSocketCalls.close(fd);
+        if (releaseRequest == null) {
+            releaseRequest = socket.owner.release(socket.id, fd);
+            log.debug("event=native_tcp_operation_release_transferred socket={} operation={} close_request={}",
+                    socket.id, id, releaseRequest.id());
         }
     }
 
@@ -325,7 +330,9 @@ abstract class TcpOperation implements Waiter {
         @Override
         public void onDestroy(Emulator<?> emulator) {
             if (accepted >= 0) {
-                LinuxSocketCalls.close(accepted);
+                NativeSocketCloseService.Request request = socket.owner.release(socket.id, accepted);
+                log.debug("event=native_tcp_accepted_close_transferred socket={} operation={} close_request={}",
+                        socket.id, id, request.id());
                 accepted = -1;
             }
             super.onDestroy(emulator);

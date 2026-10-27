@@ -1,7 +1,10 @@
 package com.github.unidbg.linux;
 
 import com.github.unidbg.AndroidEmulator;
+import com.github.unidbg.Emulator;
 import com.github.unidbg.Module;
+import com.github.unidbg.arm.Arm64Svc;
+import com.github.unidbg.arm.ArmSvc;
 import com.github.unidbg.arm.backend.Unicorn2Factory;
 import com.github.unidbg.linux.android.AndroidEmulatorBuilder;
 import com.github.unidbg.linux.android.AndroidResolver;
@@ -21,6 +24,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -54,6 +58,7 @@ public class NativeTcpLoopbackIntegrationTest {
 
     private static void lifecycle(boolean arm64, int family, File library) throws Exception {
         Set<String> baseline = sockets();
+        Set<String> originalWorkers = socketWorkers();
         InetAddress loopback = InetAddress.getByName(family == 2 ? "127.0.0.1" : "::1");
         ExecutorService host = Executors.newSingleThreadExecutor();
         try (AndroidEmulator emulator = (arm64 ? AndroidEmulatorBuilder.for64Bit() : AndroidEmulatorBuilder.for32Bit())
@@ -159,6 +164,22 @@ public class NativeTcpLoopbackIntegrationTest {
             }
             assertEquals(baseline, sockets());
 
+            for (int mode : new int[] {0, 1}) {
+                try (ServerSocket server = lingerServer(loopback)) {
+                    int transferred = module.callFunction(emulator, "tcp_linger_prepare", family, server.getLocalPort()).intValue();
+                    assertTrue("queued TCP payload", transferred > 0);
+                    CountDownLatch drain = new CountDownLatch(1);
+                    Future<byte[]> peerBytes = lingerPeer(host, server, transferred, drain);
+                    Pointer notify = callback(emulator, drain::countDown);
+                    assertEquals(0, module.callFunction(emulator, "tcp_linger_finish", mode, notify).intValue());
+                    assertArrayEquals(new int[] {0, 1, 0}, module.findSymbolByName("tcp_linger_results")
+                            .createPointer(emulator).getIntArray(0, 3));
+                    assertArrayEquals(lingerPayload(transferred), peerBytes.get(3, TimeUnit.SECONDS));
+                }
+                emulator.getThreadDispatcher().runThreads(1, TimeUnit.SECONDS);
+                assertEquals(baseline, sockets());
+            }
+
             try (ServerSocket server = server(loopback)) {
                 assertEquals(0, module.callFunction(emulator, "tcp_pending_start", family, server.getLocalPort()).intValue());
                 try (Socket socket = server.accept()) {
@@ -180,11 +201,85 @@ public class NativeTcpLoopbackIntegrationTest {
                     assertEquals(2, emulator.getThreadDispatcher().getTaskCount());
                 }
             }
+            try (ServerSocket closing = lingerServer(loopback); ServerSocket abandoned = lingerServer(loopback)) {
+                int first = module.callFunction(emulator, "tcp_linger_prepare", family, closing.getLocalPort()).intValue();
+                assertTrue("queued TCP payload", first > 0);
+                CountDownLatch drain = new CountDownLatch(1), armed = new CountDownLatch(1);
+                Future<byte[]> cancelled = lingerPeer(host, closing, first, drain);
+                Pointer ready = callback(emulator, () -> {
+                    emulator.getThreadDispatcher().getRunningTask().setDestroyListener(ignored -> drain.countDown());
+                    armed.countDown();
+                });
+                assertEquals(0, module.callFunction(emulator, "tcp_linger_pending_start", ready).intValue());
+                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(1);
+                while (armed.getCount() != 0 && System.nanoTime() < deadline) {
+                    emulator.getThreadDispatcher().runThreads(1, TimeUnit.MILLISECONDS);
+                }
+                assertEquals(0, armed.getCount());
+                int second = module.callFunction(emulator, "tcp_linger_prepare", family, abandoned.getLocalPort()).intValue();
+                assertTrue("queued TCP payload", second > 0);
+                Future<byte[]> orphaned = lingerPeer(host, abandoned, second, drain);
+                emulator.getThreadDispatcher().shutdown(5, TimeUnit.SECONDS);
+                assertArrayEquals(lingerPayload(first), cancelled.get(3, TimeUnit.SECONDS));
+                assertArrayEquals(lingerPayload(second), orphaned.get(3, TimeUnit.SECONDS));
+                assertEquals(0, emulator.getThreadDispatcher().getTaskCount());
+                assertEquals(originalWorkers, socketWorkers());
+            }
         } finally {
             host.shutdownNow();
             assertTrue(host.awaitTermination(3, TimeUnit.SECONDS));
         }
         assertEquals(baseline, sockets());
+        assertEquals(originalWorkers, socketWorkers());
+    }
+
+    private static Pointer callback(AndroidEmulator emulator, Runnable action) {
+        return emulator.getSvcMemory().registerSvc(emulator.is64Bit() ? new Arm64Svc() {
+            @Override
+            public long handle(Emulator<?> current) {
+                action.run();
+                return 0;
+            }
+        } : new ArmSvc() {
+            @Override
+            public long handle(Emulator<?> current) {
+                action.run();
+                return 0;
+            }
+        });
+    }
+
+    private static ServerSocket lingerServer(InetAddress address) throws IOException {
+        ServerSocket server = new ServerSocket();
+        server.setReceiveBufferSize(4096);
+        server.bind(new InetSocketAddress(address, 0));
+        server.setSoTimeout(2000);
+        return server;
+    }
+
+    private static Future<byte[]> lingerPeer(ExecutorService host, ServerSocket server, int count, CountDownLatch drain) {
+        return host.submit(() -> {
+            try (Socket socket = server.accept()) {
+                socket.setSoTimeout(2000);
+                assertTrue(drain.await(3, TimeUnit.SECONDS));
+                byte[] bytes = read(socket, count);
+                assertEquals(-1, socket.getInputStream().read());
+                return bytes;
+            }
+        });
+    }
+
+    private static byte[] lingerPayload(int count) {
+        byte[] bytes = new byte[count];
+        java.util.Arrays.fill(bytes, (byte) 0x6d);
+        return bytes;
+    }
+
+    private static Set<String> socketWorkers() {
+        return Thread.getAllStackTraces().keySet().stream()
+                .filter(Thread::isAlive).map(Thread::getName)
+                .filter(name -> name.startsWith("unidbg-socket-close-"))
+                .collect(Collectors.toCollection(TreeSet::new));
     }
 
     private static ServerSocket server(InetAddress address) throws IOException {

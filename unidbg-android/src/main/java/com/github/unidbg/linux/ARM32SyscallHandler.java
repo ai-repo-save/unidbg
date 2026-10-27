@@ -1032,17 +1032,7 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
     }
 
     private int shutdown(Backend backend, Emulator<?> emulator) {
-        int sockfd = backend.reg_read(ArmConst.UC_ARM_REG_R0).intValue();
-        int how = backend.reg_read(ArmConst.UC_ARM_REG_R1).intValue();
-        if (log.isDebugEnabled()) {
-            log.debug("shutdown sockfd={}, how={}", sockfd, how);
-        }
-
-        FileIO io = fdMap.get(sockfd);
-        if (io == null) {
-            return -UnixEmulator.EBADF;
-        }
-        return io.shutdown(how);
+        return shutdown(emulator);
     }
 
     private int dup(Emulator<?> emulator) {

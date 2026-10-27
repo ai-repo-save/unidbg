@@ -17,6 +17,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.IntFunction;
 
+import static com.github.unidbg.linux.file.socket.LinuxSocketCalls.*;
+
 public final class ReadinessOperation implements Waiter {
     private static final Logger log = LoggerFactory.getLogger(ReadinessOperation.class);
     private static final AtomicLong OPERATIONS = new AtomicLong();
@@ -71,10 +73,10 @@ public final class ReadinessOperation implements Waiter {
     public static int poll(Emulator<?> emulator, IntFunction<? extends FileIO> lookup, Pointer fds, int count,
                            long timeout, Pointer timePointer) {
         if (count < 0) {
-            return -22;
+            return -EINVAL;
         }
         if (fds == null && count != 0) {
-            return -14;
+            return -EFAULT;
         }
         return new ReadinessOperation(emulator, lookup, fds, count, null, null, null, timeout, timePointer, false).execute();
     }
@@ -82,7 +84,7 @@ public final class ReadinessOperation implements Waiter {
     public static int select(Emulator<?> emulator, IntFunction<? extends FileIO> lookup, int count, Pointer reads,
                              Pointer writes, Pointer exceptions, Pointer timePointer, boolean timeval) {
         if (count < 0) {
-            return -22;
+            return -EINVAL;
         }
         long timeout;
         try {
@@ -101,7 +103,7 @@ public final class ReadinessOperation implements Waiter {
         long fraction = emulator.is64Bit() ? pointer.getLong(8) : pointer.getInt(4);
         long scale = timeval ? 1000000 : 1000000000;
         if (seconds < 0 || fraction < 0 || fraction >= scale) {
-            throw new LinuxErrnoException(22);
+            throw new LinuxErrnoException(EINVAL);
         }
         long whole = TimeUnit.SECONDS.toNanos(seconds);
         long part = timeval ? TimeUnit.MICROSECONDS.toNanos(fraction) : fraction;
@@ -122,7 +124,7 @@ public final class ReadinessOperation implements Waiter {
             return true;
         }
         if (interrupted) {
-            complete(-4);
+            complete(-EINTR);
             return true;
         }
         int ready = 0;
@@ -140,7 +142,7 @@ public final class ReadinessOperation implements Waiter {
                     ready += value == 0 ? 0 : 1;
                 } else {
                     if ((value & POLLNVAL) != 0) {
-                        complete(-9);
+                        complete(-EBADF);
                         return true;
                     }
                     if (contains(reads, i) && (value & (POLLIN | POLLERR | POLLHUP)) != 0) {

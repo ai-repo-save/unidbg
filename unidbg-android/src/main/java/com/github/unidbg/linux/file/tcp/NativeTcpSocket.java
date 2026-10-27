@@ -9,6 +9,8 @@ import com.github.unidbg.file.linux.IOConstants;
 import com.github.unidbg.file.linux.StatStructure;
 import com.github.unidbg.linux.LinuxErrnoException;
 import com.github.unidbg.linux.file.socket.LinuxSocketCalls;
+import com.github.unidbg.linux.file.socket.NativeSocketCloseService;
+import com.github.unidbg.linux.file.socket.SocketCloseWaiter;
 import com.github.unidbg.unix.IO;
 import com.sun.jna.Native;
 import com.sun.jna.Pointer;
@@ -16,6 +18,7 @@ import org.apache.commons.codec.binary.Hex;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.function.IntUnaryOperator;
 import java.util.function.Supplier;
 import java.util.function.ToIntFunction;
 
@@ -28,6 +31,7 @@ public final class NativeTcpSocket extends BaseAndroidFileIO {
     final long id;
     private final Status status;
     private int fd;
+    private NativeSocketCloseService.Request closeRequest;
 
     static final class Status {
         boolean nonblocking;
@@ -45,6 +49,7 @@ public final class NativeTcpSocket extends BaseAndroidFileIO {
         this.fd = fd;
         this.status = status;
         op = cloexec ? 1 : 0;
+        owner.opened(this);
     }
 
     int fd() {
@@ -55,13 +60,26 @@ public final class NativeTcpSocket extends BaseAndroidFileIO {
         return status.nonblocking;
     }
 
+    private NativeSocketCloseService.Request release() {
+        if (fd >= 0) {
+            int descriptor = fd;
+            fd = -1;
+            owner.closed(this);
+            closeRequest = owner.release(id, descriptor);
+            log.debug("event=native_tcp_close_transferred socket={} host_fd={} request={}", id, descriptor, closeRequest.id());
+        }
+        return closeRequest;
+    }
+
     @Override
     public void close() {
-        if (fd >= 0) {
-            log.debug("event=native_tcp_closed socket={} host_fd={}", id, fd);
-            LinuxSocketCalls.close(fd);
-            fd = -1;
-        }
+        release();
+    }
+
+    @Override
+    public int close(Emulator<?> emulator, IntUnaryOperator completion) {
+        NativeSocketCloseService.Request request = release();
+        return request == null ? completion.applyAsInt(0) : SocketCloseWaiter.await(emulator, request, completion);
     }
 
     @Override

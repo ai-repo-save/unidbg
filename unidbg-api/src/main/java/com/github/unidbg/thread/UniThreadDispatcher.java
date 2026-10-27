@@ -167,7 +167,7 @@ public class UniThreadDispatcher implements ThreadDispatcher {
         long parentStack = stackPoints.getOrDefault(parent, emulator.getMemory().getStackPoint());
         nativeFrames.computeIfAbsent(owner, ignored -> new ArrayDeque<>())
                 .addLast(new NativeCallFrame(emulator, entry, completion, parentStack));
-        emulator.getMemory().setStackPoint(com.sun.jna.Pointer.nativeValue(emulator.getStackPointer()));
+        emulator.getMemory().setStackPoint(com.github.unidbg.pointer.UnidbgPointer.nativeValue(emulator.getStackPointer()));
         stackPoints.put(entry, emulator.getMemory().getStackPoint());
         log.debug("event=native_reentry_submitted tid={} entry={}", owner.getId(), entry);
     }

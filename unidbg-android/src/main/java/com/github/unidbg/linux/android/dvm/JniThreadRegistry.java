@@ -75,7 +75,7 @@ final class JniThreadRegistry implements DispatcherEventSource, ThreadLifecycleL
 
     JniThreadState requireAttachedState(Pointer env) {
         JniThreadState state = currentThreadState();
-        if (!state.attached() || Pointer.nativeValue(state.env()) != Pointer.nativeValue(env)) {
+        if (!state.attached() || UnidbgPointer.nativeValue(state.env()) != UnidbgPointer.nativeValue(env)) {
             throw new IllegalArgumentException("JNIEnv does not belong to the current attached guest thread");
         }
         return state;

@@ -15,7 +15,11 @@ import static org.junit.Assert.assertEquals;
 public class NativeSeqpacketLifecycleIntegrationTest {
     @Test
     public void nativeLifecycle() throws Exception {
-        File library = new File(System.getProperty("unidbg.nativeIpcLibrary"));
+        String libraryPath = System.getProperty("unidbg.nativeIpcLibrary");
+        if (libraryPath == null || libraryPath.isEmpty()) {
+            throw new IllegalArgumentException("Required property: -Dunidbg.nativeIpcLibrary=<ARM64 native fixture>");
+        }
+        File library = new File(libraryPath);
         try (AndroidEmulator emulator = AndroidEmulatorBuilder.for64Bit()
                 .addBackendFactory(new Unicorn2Factory(true)).build()) {
             emulator.getMemory().setLibraryResolver(new AndroidResolver(23));

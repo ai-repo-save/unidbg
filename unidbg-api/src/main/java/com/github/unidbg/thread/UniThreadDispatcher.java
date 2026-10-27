@@ -107,12 +107,8 @@ public class UniThreadDispatcher implements ThreadDispatcher {
             Task task = iterator.next();
             if (task.isFinish()) {
                 log.debug("Finish task={}", task);
-                task.destroy(emulator);
                 iterator.remove();
-                for (SignalTask signalTask : task.getSignalTaskList()) {
-                    signalTask.destroy(emulator);
-                    task.removeSignalTask(signalTask);
-                }
+                destroyTask(task);
             }
         }
         return ret;
@@ -141,6 +137,7 @@ public class UniThreadDispatcher implements ThreadDispatcher {
                 if (taskList.isEmpty()) {
                     promotePendingThreads();
                     if (taskList.isEmpty()) {
+                        log.debug("event=thread_dispatch_completed reason=empty");
                         return null;
                     }
                 }
@@ -191,7 +188,7 @@ public class UniThreadDispatcher implements ThreadDispatcher {
                             log.debug("End dispatch task={}, ret={}", task, ret);
                             if (ret != null) {
                                 task.setResult(emulator, ret);
-                                task.destroy(emulator);
+                                destroyTask(task);
                                 iterator.remove();
                                 if(task.isMainThread()) {
                                     return ret;
@@ -221,9 +218,11 @@ public class UniThreadDispatcher implements ThreadDispatcher {
 
                 if (timeout > 0 && unit != null &&
                         System.currentTimeMillis() - start >= unit.toMillis(timeout)) {
+                    log.debug("event=thread_dispatch_budget_exhausted active={} pending={}", taskList.size(), threadTaskList.size());
                     return null;
                 }
                 if (taskList.isEmpty()) {
+                    log.debug("event=thread_dispatch_completed reason=empty");
                     return null;
                 }
 
@@ -241,6 +240,9 @@ public class UniThreadDispatcher implements ThreadDispatcher {
     }
 
     private void promotePendingThreads() {
+        if (!threadTaskList.isEmpty()) {
+            log.debug("event=thread_dispatch_pending_promoted count={}", threadTaskList.size());
+        }
         Collections.reverse(threadTaskList);
         for (ThreadTask thread : threadTaskList) {
             taskList.add(0, thread);

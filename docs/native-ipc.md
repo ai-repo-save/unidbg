@@ -1,8 +1,8 @@
 # Native IPC integration
 
-`NativeSeqpacketLifecycleIntegrationTest` is opt-in and uses the bundled SDK23 ARM64 Bionic libc. It does not load DroidGuard libraries or contact a device.
+`NativeSeqpacketLifecycleIntegrationTest` is opt-in and uses the bundled SDK23 ARM64 Bionic libc.
 
-Build and run on the configured Linux development server with JDK 21 and Android NDK r28:
+Build and run on a 64-bit Linux host with JDK 21 and Android NDK r28. Set `ANDROID_NDK_HOME` to the NDK directory:
 
 ```sh
 mkdir -p target/native-ipc

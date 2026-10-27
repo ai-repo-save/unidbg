@@ -14,6 +14,7 @@ public interface ThreadDispatcher extends SignalOps {
 
     Number runMainForResult(MainTask main);
 
+    /** Runs pending and active threads until completion or budget exhaustion; an empty dispatcher is complete. */
     void runThreads(long timeout, TimeUnit unit);
 
     int getTaskCount();

@@ -49,3 +49,7 @@
 !/unidbg-android/src/main/java/com/github/unidbg/linux/android/dvm/jni/ProxyMethodResolver.java
 !/unidbg-android/src/test/resources/certificates/
 !/unidbg-android/src/test/resources/certificates/isrg-root-x1.pem
+
+!/docs/native-ipc.md
+!/unidbg-android/src/test/native/android/native-ipc.c
+!/unidbg-android/src/test/java/com/github/unidbg/linux/NativeSeqpacketLifecycleIntegrationTest.java

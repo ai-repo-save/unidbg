@@ -139,11 +139,16 @@ public class UniThreadDispatcher implements ThreadDispatcher {
             long start = System.currentTimeMillis();
             while (true) {
                 if (taskList.isEmpty()) {
-                    throw new IllegalStateException();
+                    promotePendingThreads();
+                    if (taskList.isEmpty()) {
+                        return null;
+                    }
                 }
                 for (Iterator<Task> iterator = taskList.iterator(); iterator.hasNext(); ) {
                     Task task = iterator.next();
                     if (task.isFinish()) {
+                        iterator.remove();
+                        destroyTask(task);
                         continue;
                     }
                     if (task.canDispatch()) {
@@ -212,11 +217,7 @@ public class UniThreadDispatcher implements ThreadDispatcher {
                     }
                 }
 
-                Collections.reverse(threadTaskList);
-                for (Iterator<ThreadTask> iterator = threadTaskList.iterator(); iterator.hasNext(); ) {
-                    taskList.add(0, iterator.next());
-                    iterator.remove();
-                }
+                promotePendingThreads();
 
                 if (timeout > 0 && unit != null &&
                         System.currentTimeMillis() - start >= unit.toMillis(timeout)) {
@@ -237,6 +238,14 @@ public class UniThreadDispatcher implements ThreadDispatcher {
             this.runningTask = null;
             emulator.set(Task.TASK_KEY, null);
         }
+    }
+
+    private void promotePendingThreads() {
+        Collections.reverse(threadTaskList);
+        for (ThreadTask thread : threadTaskList) {
+            taskList.add(0, thread);
+        }
+        threadTaskList.clear();
     }
 
     @Override

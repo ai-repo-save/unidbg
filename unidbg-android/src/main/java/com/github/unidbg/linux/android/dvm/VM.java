@@ -62,6 +62,10 @@ public interface VM {
     int addLocalObject(DvmObject<?> object);
     int addGlobalObject(DvmObject<?> object);
 
+    DvmObject<?> canonicalizeObject(DvmObject<?> object);
+    JniReferenceRoot retainObject(DvmObject<?> object);
+    void close();
+
     void callJNI_OnLoad(Emulator<?> emulator, Module module);
 
     /**

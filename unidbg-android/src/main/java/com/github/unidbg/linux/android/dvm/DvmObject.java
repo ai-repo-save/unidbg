@@ -98,22 +98,21 @@ public class DvmObject<T> extends Hashable {
     }
 
     protected static Number callJniMethod(Emulator<?> emulator, VM vm, DvmClass objectType, DvmObject<?> thisObj, String method, Object...args) {
+        ((BaseVM) vm).locals().push(16);
         UnidbgPointer fnPtr = objectType.findNativeFunction(emulator, method);
-        vm.addLocalObject(thisObj);
         List<Object> list = new ArrayList<>(10);
         list.add(vm.getJNIEnv());
-        list.add(thisObj.hashCode());
+        list.add(vm.addLocalObject(thisObj));
         if (args != null) {
             for (Object arg : args) {
                 if (arg instanceof Boolean) {
                     list.add((Boolean) arg ? VM.JNI_TRUE : VM.JNI_FALSE);
                     continue;
+                } else if (arg instanceof DvmObject) {
+                    list.add(vm.addLocalObject((DvmObject<?>) arg));
+                    continue;
                 } else if(arg instanceof Hashable) {
-                    list.add(arg.hashCode()); // dvm object
-
-                    if(arg instanceof DvmObject) {
-                        vm.addLocalObject((DvmObject<?>) arg);
-                    }
+                    list.add(arg.hashCode());
                     continue;
                 } else if (arg instanceof DvmAwareObject ||
                         arg instanceof String ||
@@ -124,8 +123,7 @@ public class DvmObject<T> extends Hashable {
                         arg instanceof double[] ||
                         arg instanceof Enum) {
                     DvmObject<?> obj = ProxyDvmObject.createObject(vm, arg);
-                    list.add(obj.hashCode());
-                    vm.addLocalObject(obj);
+                    list.add(vm.addLocalObject(obj));
                     continue;
                 }
 
@@ -148,6 +146,10 @@ public class DvmObject<T> extends Hashable {
         }
 
         return objectType.getName() + "@" + Integer.toHexString(hashCode());
+    }
+
+    protected final JniReferenceRoot retainNativeLease() {
+        return vm.retainObject(this);
     }
 
     protected MemoryBlock memoryBlock;

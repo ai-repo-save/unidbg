@@ -38,3 +38,32 @@ JNIEXPORT void invoke_a(a_sink sink, jobject anchor) {
     }
     sink(NULL, anchor, NULL, args);
 }
+
+/* Fixed-signature field calls additionally exercise the non-variadic FP/wide ABI. */
+JNIEXPORT void invoke_fields(JNIEnv *env, jobject target, jvalue *observed) {
+    jclass type = (*env)->GetObjectClass(env, target);
+#define FIELD(Type, member, signature, input, slot) do { \
+    jfieldID instance = (*env)->GetFieldID(env, type, #member, signature); \
+    jfieldID stat = (*env)->GetStaticFieldID(env, type, "s" #member, signature); \
+    (*env)->Set##Type##Field(env, target, instance, input); \
+    (*env)->SetStatic##Type##Field(env, type, stat, input); \
+    observed[slot].member = (*env)->Get##Type##Field(env, target, instance); \
+    observed[9 + slot].member = (*env)->GetStatic##Type##Field(env, type, stat); \
+} while (0)
+    FIELD(Boolean, z, "Z", JNI_TRUE, 0);
+    FIELD(Byte, b, "B", (jbyte)-101, 1);
+    FIELD(Char, c, "C", (jchar)0xffe1, 2);
+    FIELD(Short, s, "S", (jshort)-12345, 3);
+    FIELD(Int, i, "I", (jint)-123456789, 4);
+    FIELD(Long, j, "J", (jlong)0x1020304050607080LL, 5);
+    FIELD(Float, f, "F", (jfloat)1.5f, 6);
+    FIELD(Double, d, "D", (jdouble)-2.25, 7);
+#undef FIELD
+    jfieldID instance = (*env)->GetFieldID(env, type, "object", "Ljava/lang/Object;");
+    jfieldID stat = (*env)->GetStaticFieldID(env, type, "sobject", "Ljava/lang/Object;");
+    (*env)->SetObjectField(env, target, instance, target);
+    (*env)->SetStaticObjectField(env, type, stat, target);
+    observed[8].l = (*env)->GetObjectField(env, target, instance);
+    observed[17].l = (*env)->GetStaticObjectField(env, type, stat);
+    (*env)->DeleteLocalRef(env, type);
+}

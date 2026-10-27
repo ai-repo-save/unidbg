@@ -181,10 +181,15 @@ public class JniProxyUnpackIntegrationTest {
             invoke(emulator, table, width, 223, env, handle, critical, 0);
             contents(committed[kind], initial[kind]);
             assertArrayEquals(maps, memoryMaps(emulator));
-            invoke(emulator, table, width, 183 + offset, env, handle, 0);
-            invoke(emulator, table, width, 183 + offset, env, handle, 0);
+            Pointer retainedFirst = pointer(emulator, invoke(emulator, table, width, 183 + offset, env, handle, 0));
+            Pointer retainedSecond = pointer(emulator, invoke(emulator, table, width, 183 + offset, env, handle, 0));
             invoke(emulator, table, width, 22, env, handle);
-            assertNull(vm.getObject(handle));
+            int reacquired = vm.addGlobalObject(ProxyDvmObject.createObject(vm, initial[kind]));
+            assertArrayEquals(edits, retainedFirst.getByteArray(0, edits.length));
+            assertArrayEquals(edits, retainedSecond.getByteArray(0, edits.length));
+            invoke(emulator, table, width, 191 + offset, env, reacquired, retainedFirst, VM.JNI_ABORT);
+            invoke(emulator, table, width, 191 + offset, env, reacquired, retainedSecond, VM.JNI_ABORT);
+            invoke(emulator, table, width, 22, env, reacquired);
             assertArrayEquals(maps, memoryMaps(emulator));
 
             int empty = invoke(emulator, table, width, 175 + offset, env, 0).intValue();

@@ -59,19 +59,20 @@ public class JniOnLoadResultIntegrationTest {
                 assertThrows(IllegalStateException.class, () -> dalvik.callJNI_OnLoadWithResult(emulator));
                 assertSame(local, vm.getObject(retainedHandle));
 
+                // The entry's frame owns references created inside JNI_OnLoad, not caller-frame locals.
                 symbols.put("JNI_OnLoad", entry);
                 for (int expected : new int[] {VM.JNI_VERSION_1_1, VM.JNI_VERSION_1_2, VM.JNI_VERSION_1_4,
                         VM.JNI_VERSION_1_6, VM.JNI_VERSION_1_8}) {
                     version[0] = expected;
                     int handle = vm.addLocalObject(local);
                     assertEquals(expected, dalvik.callJNI_OnLoadWithResult(emulator));
-                    assertNull(vm.getObject(handle));
+                    assertSame(local, vm.getObject(handle));
                     assertNull(vm.getObject(createdHandle[0]));
                     assertSame(global, vm.getObject(globalHandle));
                 }
                 int handle = vm.addLocalObject(local);
                 dalvik.callJNI_OnLoad(emulator);
-                assertNull(vm.getObject(handle));
+                assertSame(local, vm.getObject(handle));
                 assertNull(vm.getObject(createdHandle[0]));
                 assertSame(global, vm.getObject(globalHandle));
 
@@ -83,7 +84,7 @@ public class JniOnLoadResultIntegrationTest {
                             if (withResult) dalvik.callJNI_OnLoadWithResult(emulator);
                             else dalvik.callJNI_OnLoad(emulator);
                         });
-                        assertNull(vm.getObject(invalidHandle));
+                        assertSame(local, vm.getObject(invalidHandle));
                         assertNull(vm.getObject(createdHandle[0]));
                         assertSame(global, vm.getObject(globalHandle));
                     }

@@ -23,7 +23,7 @@ public abstract class VarArg {
      */
     public final <T extends DvmObject<?>> T getObjectArg(int index) {
         int hash = getIntArg(index);
-        return vm.getObject(hash);
+        return vm.resolveJniObject(hash);
     }
 
     /**

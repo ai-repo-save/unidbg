@@ -62,6 +62,13 @@ final class JniReferences implements AutoCloseable {
         this.dispose = Objects.requireNonNull(dispose, "dispose");
     }
 
+    DvmObject<?> canonicalize(DvmObject<?> object) {
+        requireOpen();
+        if (object == null) return null;
+        Root root = roots.get(Objects.requireNonNull(identity.apply(object), "object identity"));
+        return root == null ? object : root.object;
+    }
+
     JniReferenceRoot retain(DvmObject<?> object) {
         requireOpen();
         Objects.requireNonNull(object, "object");
@@ -124,6 +131,11 @@ final class JniReferences implements AutoCloseable {
         return handle;
     }
 
+    DvmObject<?> find(int handle, JniLocalFrames owner) {
+        requireOpen();
+        return handle != VM.JNI_NULL && !handles.containsKey(handle) ? null : lookup(handle, owner);
+    }
+
     DvmObject<?> lookup(int handle, JniLocalFrames owner) {
         requireOpen();
         if (handle == VM.JNI_NULL) return null;
@@ -134,6 +146,13 @@ final class JniReferences implements AutoCloseable {
         Root rooted = roots.get(key);
         if (rooted != null) return rooted.object;
         return Objects.requireNonNull(materialize.apply(key), "materialized object");
+    }
+
+    int count(int kind) {
+        requireOpen();
+        int count = 0;
+        for (Reference reference : handles.values()) if (reference.kind == kind) count++;
+        return count;
     }
 
     int referenceType(int handle, JniLocalFrames owner) {

@@ -93,6 +93,24 @@ public class AndroidARMEmulator extends AbstractARMEmulator<AndroidFileIO> imple
         return true;
     }
 
+    @Override
+    protected void closeInternal() {
+        Throwable failure = null;
+        try {
+            if (vm != null) vm.close();
+        } catch (RuntimeException | Error error) {
+            failure = error;
+        }
+        try {
+            super.closeInternal();
+        } catch (RuntimeException | Error cleanup) {
+            if (failure == null) failure = cleanup;
+            else if (failure != cleanup) failure.addSuppressed(cleanup);
+        }
+        if (failure instanceof RuntimeException) throw (RuntimeException) failure;
+        if (failure instanceof Error) throw (Error) failure;
+    }
+
     private VM vm;
 
     @Override

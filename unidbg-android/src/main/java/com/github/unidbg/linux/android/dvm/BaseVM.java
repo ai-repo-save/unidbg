@@ -19,7 +19,7 @@ import java.lang.management.MemoryMXBean;
 import java.lang.management.MemoryUsage;
 import java.util.*;
 
-public abstract class BaseVM implements VM, DvmClassFactory {
+public abstract class BaseVM implements VM, DvmClassFactory, JniThreadResources {
 
     private static final Logger log = LoggerFactory.getLogger(BaseVM.class);
 
@@ -37,7 +37,9 @@ public abstract class BaseVM implements VM, DvmClassFactory {
 
     Jni jni;
 
-    DvmObject<?> throwable;
+    private final JniReferences references;
+    private final JniThreadRegistry threads;
+    private final Map<JniThreadState, JniReferenceRoot> pendingRoots = new IdentityHashMap<>();
 
     boolean verbose, verboseMethodOperation, verboseFieldOperation;
 
@@ -58,12 +60,64 @@ public abstract class BaseVM implements VM, DvmClassFactory {
 
     @Override
     public void throwException(DvmObject<?> throwable) {
-        this.throwable = throwable;
-        if (throwable == null) {
-            return;
+        JniThreadState state = currentState();
+        JniReferenceRoot next = throwable == null ? null : references.retain(throwable);
+        JniReferenceRoot previous = next == null ? pendingRoots.remove(state) : pendingRoots.put(state, next);
+        state.pendingException(next == null ? null : next.object());
+        if (previous != null) previous.close();
+        log.debug("event=jni_pending_exception_changed tid={} pending={} lr={}",
+                state.tid(), throwable != null, emulator.getContext().getLRPointer());
+    }
+
+    final DvmObject<?> pendingException() { return currentState().pendingException(); }
+    final JniThreadRegistry threads() { return threads; }
+    final JniLocalFrames locals() { return currentState().locals(); }
+    final JniReferences references() { return references; }
+
+    private JniThreadState currentState() {
+        JniThreadState state = threads.currentThreadState();
+        if (!state.attached()) throw new IllegalStateException("Current guest thread is not attached");
+        return state;
+    }
+
+    final void bindJniThreads(com.github.unidbg.pointer.UnidbgPointer table) {
+        threads.bindJniFunctionTable(table);
+        threads.initializeMainThread(emulator.getPid());
+    }
+
+    @Override
+    public final com.sun.jna.Pointer getJNIEnv() { return currentState().env(); }
+
+    @Override
+    public final JniLocalFrames createLocals(JniThreadState state) {
+        return new JniLocalFrames(references, state.tid());
+    }
+
+    @Override
+    public final void clearThreadReferences(JniThreadState state) {
+        JniReferenceRoot pending = pendingRoots.remove(state);
+        state.pendingException(null);
+        try (JniReferenceRoot ignored = pending) {
+            state.locals().clear();
         }
-        addLocalObject(throwable);
-        log.warn("throwException class={} lr={}", throwable.getObjectType().getClassName(), emulator.getContext().getLRPointer(), throwable.getValue());
+    }
+
+    @Override
+    public final boolean supportsJniVersion(int version) {
+        return version == JNI_VERSION_1_1 || version == JNI_VERSION_1_2 || version == JNI_VERSION_1_4
+                || version == JNI_VERSION_1_6 || version == JNI_VERSION_1_8;
+    }
+
+    @Override
+    public final JniReferenceRoot retainObject(DvmObject<?> object) { return references.retain(object); }
+
+    @Override
+    public final DvmObject<?> canonicalizeObject(DvmObject<?> object) { return references.canonicalize(object); }
+
+    @Override
+    public final void close() {
+        if (!threads.isClosed()) threads.close();
+        references.close();
     }
 
     @Override
@@ -84,26 +138,12 @@ public abstract class BaseVM implements VM, DvmClassFactory {
     BaseVM(AndroidEmulator emulator, File apkFile) {
         this.emulator = emulator;
         this.apk = apkFile == null ? null : ApkFactory.createApk(apkFile);
+        this.references = new JniReferences(JniObjectIdentity::identity,
+                value -> value instanceof DvmObject ? (DvmObject<?>) value
+                        : com.github.unidbg.linux.android.dvm.jni.ProxyDvmObject.createObject(this, value),
+                DvmObject::onDeleteRef);
+        this.threads = new JniThreadRegistry(emulator, this);
     }
-
-    final static class ObjRef {
-        final DvmObject<?> obj;
-        final boolean weak;
-        ObjRef(DvmObject<?> obj, boolean weak) {
-            this.obj = obj;
-            this.weak = weak;
-            this.refCount = 1;
-        }
-        int refCount;
-        @Override
-        public String toString() {
-            return String.valueOf(obj);
-        }
-    }
-
-    final Map<Integer, ObjRef> globalObjectMap = new HashMap<>();
-    final Map<Integer, ObjRef> weakGlobalObjectMap = new HashMap<>();
-    final Map<Integer, ObjRef> localObjectMap = new HashMap<>();
 
     private DvmClassFactory dvmClassFactory;
 
@@ -151,7 +191,6 @@ public abstract class BaseVM implements VM, DvmClassFactory {
                 throw new IllegalStateException("Hash collision: " + oldClass.getClassName() + " and " + className + " have the same hash=0x" + Integer.toHexString(hash));
             }
         }
-        addGlobalObject(dvmClass);
         return dvmClass;
     }
 
@@ -161,30 +200,11 @@ public abstract class BaseVM implements VM, DvmClassFactory {
     }
 
     final int addObject(DvmObject<?> object, boolean global, boolean weak) {
-        int hash = object.hashCode();
-        if (log.isDebugEnabled()) {
-            log.debug("addObject hash=0x{}, global={}", Long.toHexString(hash), global);
-        }
         Object value = object.getValue();
         if (value instanceof DvmAwareObject) {
             ((DvmAwareObject) value).initializeDvm(emulator, this, object);
         }
-        if (global) {
-            ObjRef old = weak ? weakGlobalObjectMap.get(hash) : globalObjectMap.get(hash);
-            if (old == null) {
-                old = new ObjRef(object, weak);
-            } else {
-                old.refCount++;
-            }
-            if (weak) {
-                weakGlobalObjectMap.put(hash, old);
-            } else {
-                globalObjectMap.put(hash, old);
-            }
-        } else {
-            localObjectMap.put(hash, new ObjRef(object, weak));
-        }
-        return hash;
+        return global ? weak ? references.newWeakGlobal(object) : references.newGlobal(object) : locals().newLocal(object);
     }
 
     @Override
@@ -208,15 +228,12 @@ public abstract class BaseVM implements VM, DvmClassFactory {
     @SuppressWarnings("unchecked")
     @Override
     public final <T extends DvmObject<?>> T getObject(int hash) {
-        ObjRef ref;
-        if (localObjectMap.containsKey(hash)) {
-            ref = localObjectMap.get(hash);
-        } else if(globalObjectMap.containsKey(hash)) {
-            ref = globalObjectMap.get(hash);
-        } else {
-            ref = weakGlobalObjectMap.get(hash);
-        }
-        return ref == null ? null : (T) ref.obj;
+        return (T) references.find(hash, locals());
+    }
+
+    @SuppressWarnings("unchecked")
+    final <T extends DvmObject<?>> T resolveJniObject(int handle) {
+        return (T) references.lookup(handle, locals());
     }
 
     @Override
@@ -225,23 +242,11 @@ public abstract class BaseVM implements VM, DvmClassFactory {
     }
 
     final void deleteLocalRefs() {
-        for (ObjRef ref : localObjectMap.values()) {
-            ref.obj.onDeleteRef();
-        }
-        localObjectMap.clear();
-
-        if (throwable != null) {
-            throwable.onDeleteRef();
-            throwable = null;
-        }
+        locals().pop(JNI_NULL);
     }
 
     final void checkVersion(int version) {
-        if (version != JNI_VERSION_1_1 &&
-                version != JNI_VERSION_1_2 &&
-                version != JNI_VERSION_1_4 &&
-                version != JNI_VERSION_1_6 &&
-                version != JNI_VERSION_1_8) {
+        if (!supportsJniVersion(version)) {
             if (log.isTraceEnabled()) {
                 emulator.attach().debug("Illegal JNI version: 0x" + Integer.toHexString(version));
             }
@@ -360,11 +365,9 @@ public abstract class BaseVM implements VM, DvmClassFactory {
         MemoryMXBean memoryMXBean = ManagementFactory.getMemoryMXBean();
         MemoryUsage heap = memoryMXBean.getHeapMemoryUsage();
         MemoryUsage nonHeap = memoryMXBean.getNonHeapMemoryUsage();
-        Map<Integer, ObjRef> map = new HashMap<>(globalObjectMap);
-        for (Integer key : classMap.keySet()) {
-            map.remove(key);
-        }
-        System.err.println("globalObjectSize=" + globalObjectMap.size() + ", localObjectSize=" + localObjectMap.size() + ", weakGlobalObjectSize=" + weakGlobalObjectMap.size() + ", classSize=" + classMap.size() + ", globalObjectSize=" + map.size());
+        System.err.println("globalObjectSize=" + references.count(JNIGlobalRefType)
+                + ", localObjectSize=" + references.count(JNILocalRefType)
+                + ", weakGlobalObjectSize=" + references.count(JNIWeakGlobalRefType) + ", classSize=" + classMap.size());
         System.err.println("heap: " + memoryUsage(heap) + ", nonHeap: " + memoryUsage(nonHeap));
     }
 

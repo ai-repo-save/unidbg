@@ -1223,4 +1223,121 @@ public abstract class AbstractJni implements Jni {
     public double callDoubleMethodV(BaseVM vm, DvmObject<?> dvmObject, String signature, VaList vaList) {
         throw new UnsupportedOperationException(signature);
     }
+
+    @Override
+    public void setByteField(BaseVM vm, DvmObject<?> dvmObject, DvmField dvmField, byte value) {
+        setByteField(vm, dvmObject, dvmField.getSignature(), value);
+    }
+    @Override
+    public void setByteField(BaseVM vm, DvmObject<?> dvmObject, String signature, byte value) {
+        throw new UnsupportedOperationException(signature);
+    }
+
+    @Override
+    public void setCharField(BaseVM vm, DvmObject<?> dvmObject, DvmField dvmField, char value) {
+        setCharField(vm, dvmObject, dvmField.getSignature(), value);
+    }
+    @Override
+    public void setCharField(BaseVM vm, DvmObject<?> dvmObject, String signature, char value) {
+        throw new UnsupportedOperationException(signature);
+    }
+
+    @Override
+    public void setShortField(BaseVM vm, DvmObject<?> dvmObject, DvmField dvmField, short value) {
+        setShortField(vm, dvmObject, dvmField.getSignature(), value);
+    }
+    @Override
+    public void setShortField(BaseVM vm, DvmObject<?> dvmObject, String signature, short value) {
+        throw new UnsupportedOperationException(signature);
+    }
+
+    @Override
+    public void setStaticByteField(BaseVM vm, DvmClass dvmClass, DvmField dvmField, byte value) {
+        setStaticByteField(vm, dvmClass, dvmField.getSignature(), value);
+    }
+    @Override
+    public void setStaticByteField(BaseVM vm, DvmClass dvmClass, String signature, byte value) {
+        throw new UnsupportedOperationException(signature);
+    }
+
+    @Override
+    public void setStaticCharField(BaseVM vm, DvmClass dvmClass, DvmField dvmField, char value) {
+        setStaticCharField(vm, dvmClass, dvmField.getSignature(), value);
+    }
+    @Override
+    public void setStaticCharField(BaseVM vm, DvmClass dvmClass, String signature, char value) {
+        throw new UnsupportedOperationException(signature);
+    }
+
+    @Override
+    public void setStaticShortField(BaseVM vm, DvmClass dvmClass, DvmField dvmField, short value) {
+        setStaticShortField(vm, dvmClass, dvmField.getSignature(), value);
+    }
+    @Override
+    public void setStaticShortField(BaseVM vm, DvmClass dvmClass, String signature, short value) {
+        throw new UnsupportedOperationException(signature);
+    }
+
+    @Override
+    public byte callByteMethod(BaseVM vm, DvmObject<?> dvmObject, DvmMethod dvmMethod, VarArg varArg) {
+        return callByteMethod(vm, dvmObject, dvmMethod.getSignature(), varArg);
+    }
+    @Override
+    public byte callByteMethod(BaseVM vm, DvmObject<?> dvmObject, String signature, VarArg varArg) {
+        throw new UnsupportedOperationException(signature);
+    }
+
+    @Override
+    public char callCharMethod(BaseVM vm, DvmObject<?> dvmObject, DvmMethod dvmMethod, VarArg varArg) {
+        return callCharMethod(vm, dvmObject, dvmMethod.getSignature(), varArg);
+    }
+    @Override
+    public char callCharMethod(BaseVM vm, DvmObject<?> dvmObject, String signature, VarArg varArg) {
+        throw new UnsupportedOperationException(signature);
+    }
+
+    @Override
+    public short callShortMethod(BaseVM vm, DvmObject<?> dvmObject, DvmMethod dvmMethod, VarArg varArg) {
+        return callShortMethod(vm, dvmObject, dvmMethod.getSignature(), varArg);
+    }
+    @Override
+    public short callShortMethod(BaseVM vm, DvmObject<?> dvmObject, String signature, VarArg varArg) {
+        throw new UnsupportedOperationException(signature);
+    }
+
+    @Override
+    public float callFloatMethod(BaseVM vm, DvmObject<?> dvmObject, DvmMethod dvmMethod, VarArg varArg) {
+        return callFloatMethod(vm, dvmObject, dvmMethod.getSignature(), varArg);
+    }
+    @Override
+    public float callFloatMethod(BaseVM vm, DvmObject<?> dvmObject, String signature, VarArg varArg) {
+        throw new UnsupportedOperationException(signature);
+    }
+
+    @Override
+    public byte callStaticByteMethod(BaseVM vm, DvmClass dvmClass, DvmMethod dvmMethod, VarArg varArg) {
+        return callStaticByteMethod(vm, dvmClass, dvmMethod.getSignature(), varArg);
+    }
+    @Override
+    public byte callStaticByteMethod(BaseVM vm, DvmClass dvmClass, String signature, VarArg varArg) {
+        throw new UnsupportedOperationException(signature);
+    }
+
+    @Override
+    public char callStaticCharMethod(BaseVM vm, DvmClass dvmClass, DvmMethod dvmMethod, VarArg varArg) {
+        return callStaticCharMethod(vm, dvmClass, dvmMethod.getSignature(), varArg);
+    }
+    @Override
+    public char callStaticCharMethod(BaseVM vm, DvmClass dvmClass, String signature, VarArg varArg) {
+        throw new UnsupportedOperationException(signature);
+    }
+
+    @Override
+    public short callStaticShortMethod(BaseVM vm, DvmClass dvmClass, DvmMethod dvmMethod, VarArg varArg) {
+        return callStaticShortMethod(vm, dvmClass, dvmMethod.getSignature(), varArg);
+    }
+    @Override
+    public short callStaticShortMethod(BaseVM vm, DvmClass dvmClass, String signature, VarArg varArg) {
+        throw new UnsupportedOperationException(signature);
+    }
 }

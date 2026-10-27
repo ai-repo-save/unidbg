@@ -265,4 +265,34 @@ public class DvmField extends Hashable {
         BaseVM vm = dvmClass.vm;
         return checkJni(vm, dvmClass).getStaticDoubleField(vm, dvmClass, this);
     }
+
+    void setByteField(DvmObject<?> dvmObject, byte value) {
+        BaseVM vm = dvmClass.vm;
+        checkJni(vm, dvmClass).setByteField(vm, dvmObject, this, value);
+    }
+
+    void setCharField(DvmObject<?> dvmObject, char value) {
+        BaseVM vm = dvmClass.vm;
+        checkJni(vm, dvmClass).setCharField(vm, dvmObject, this, value);
+    }
+
+    void setShortField(DvmObject<?> dvmObject, short value) {
+        BaseVM vm = dvmClass.vm;
+        checkJni(vm, dvmClass).setShortField(vm, dvmObject, this, value);
+    }
+
+    void setStaticByteField(byte value) {
+        BaseVM vm = dvmClass.vm;
+        checkJni(vm, dvmClass).setStaticByteField(vm, dvmClass, this, value);
+    }
+
+    void setStaticCharField(char value) {
+        BaseVM vm = dvmClass.vm;
+        checkJni(vm, dvmClass).setStaticCharField(vm, dvmClass, this, value);
+    }
+
+    void setStaticShortField(short value) {
+        BaseVM vm = dvmClass.vm;
+        checkJni(vm, dvmClass).setStaticShortField(vm, dvmClass, this, value);
+    }
 }

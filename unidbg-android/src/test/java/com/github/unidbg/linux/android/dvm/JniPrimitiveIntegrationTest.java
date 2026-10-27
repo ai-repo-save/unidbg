@@ -83,11 +83,11 @@ public class JniPrimitiveIntegrationTest {
                 @Override
                 protected Jni createJni(ProxyClassLoader loader, ProxyDvmObjectVisitor visits, Jni fallback) {
                     Jni delegate = super.createJni(loader, visits, fallback);
-                    return (Jni) Proxy.newProxyInstance(Jni.class.getClassLoader(), new Class<?>[] {Jni.class}, (proxy, method, args) -> {
-                        if (method.getName().equals("callIntMethodV")) {
+                    return (Jni) Proxy.newProxyInstance(Jni.class.getClassLoader(), new Class<?>[] {HostJni.class}, (proxy, method, args) -> {
+                        if (method.getName().equals("planMethod")) {
                             String target = ((DvmMethod) args[2]).getMethodName();
-                            if (target.equals("hostFailure")) throw HOST_FAILURE;
-                            if (target.equals("hostError")) throw HOST_ERROR;
+                            if (target.equals("hostFailure")) return JniCallPlan.host(() -> { throw HOST_FAILURE; });
+                            if (target.equals("hostError")) return JniCallPlan.host(() -> { throw HOST_ERROR; });
                         }
                         try {
                             return method.invoke(delegate, args);

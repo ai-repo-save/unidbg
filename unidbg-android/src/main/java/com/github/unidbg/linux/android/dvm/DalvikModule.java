@@ -46,6 +46,7 @@ public class DalvikModule {
         if (onLoad == null) {
             throw new IllegalStateException("find symbol failed: JNI_OnLoad");
         }
+        vm.locals().push(16);
         try {
             long start = System.currentTimeMillis();
             if (log.isDebugEnabled()) {

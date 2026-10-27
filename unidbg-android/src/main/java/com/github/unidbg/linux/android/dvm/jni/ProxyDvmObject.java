@@ -37,6 +37,18 @@ public class ProxyDvmObject extends DvmObject<Object> {
      * mapping java object to dvm object
      */
     public static DvmObject<?> createObject(VM vm, Object value) {
+        return vm.canonicalizeObject(wrapObject(vm, value));
+    }
+
+    public static Object identityKey(DvmObject<?> object) {
+        if (object instanceof ProxyArrayObject) return ((ProxyArrayObject) object).backingArray();
+        if (object instanceof ProxyDvmObject || object instanceof StringObject ||
+                object instanceof com.github.unidbg.linux.android.dvm.array.PrimitiveArray)
+            return object.getValue();
+        return object;
+    }
+
+    private static DvmObject<?> wrapObject(VM vm, Object value) {
         if (value == null) {
             return null;
         }

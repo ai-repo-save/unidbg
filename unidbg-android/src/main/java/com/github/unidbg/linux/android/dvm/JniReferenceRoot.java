@@ -1,7 +1,7 @@
 package com.github.unidbg.linux.android.dvm;
 
 /** A backend-owned strong JNI root independent of a particular local/global handle. */
-final class JniReferenceRoot implements AutoCloseable {
+public final class JniReferenceRoot implements AutoCloseable {
     private final JniReferences references;
     private final Object identity;
     private final DvmObject<?> object;

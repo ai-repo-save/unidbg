@@ -206,4 +206,43 @@ public interface Jni {
 
     double callDoubleMethodV(BaseVM vm, DvmObject<?> dvmObject, DvmMethod dvmMethod, VaList vaList);
     double callDoubleMethodV(BaseVM vm, DvmObject<?> dvmObject, String signature, VaList vaList);
+
+    void setByteField(BaseVM vm, DvmObject<?> dvmObject, DvmField dvmField, byte value);
+    void setByteField(BaseVM vm, DvmObject<?> dvmObject, String signature, byte value);
+
+    void setCharField(BaseVM vm, DvmObject<?> dvmObject, DvmField dvmField, char value);
+    void setCharField(BaseVM vm, DvmObject<?> dvmObject, String signature, char value);
+
+    void setShortField(BaseVM vm, DvmObject<?> dvmObject, DvmField dvmField, short value);
+    void setShortField(BaseVM vm, DvmObject<?> dvmObject, String signature, short value);
+
+    void setStaticByteField(BaseVM vm, DvmClass dvmClass, DvmField dvmField, byte value);
+    void setStaticByteField(BaseVM vm, DvmClass dvmClass, String signature, byte value);
+
+    void setStaticCharField(BaseVM vm, DvmClass dvmClass, DvmField dvmField, char value);
+    void setStaticCharField(BaseVM vm, DvmClass dvmClass, String signature, char value);
+
+    void setStaticShortField(BaseVM vm, DvmClass dvmClass, DvmField dvmField, short value);
+    void setStaticShortField(BaseVM vm, DvmClass dvmClass, String signature, short value);
+
+    byte callByteMethod(BaseVM vm, DvmObject<?> dvmObject, DvmMethod dvmMethod, VarArg varArg);
+    byte callByteMethod(BaseVM vm, DvmObject<?> dvmObject, String signature, VarArg varArg);
+
+    char callCharMethod(BaseVM vm, DvmObject<?> dvmObject, DvmMethod dvmMethod, VarArg varArg);
+    char callCharMethod(BaseVM vm, DvmObject<?> dvmObject, String signature, VarArg varArg);
+
+    short callShortMethod(BaseVM vm, DvmObject<?> dvmObject, DvmMethod dvmMethod, VarArg varArg);
+    short callShortMethod(BaseVM vm, DvmObject<?> dvmObject, String signature, VarArg varArg);
+
+    float callFloatMethod(BaseVM vm, DvmObject<?> dvmObject, DvmMethod dvmMethod, VarArg varArg);
+    float callFloatMethod(BaseVM vm, DvmObject<?> dvmObject, String signature, VarArg varArg);
+
+    byte callStaticByteMethod(BaseVM vm, DvmClass dvmClass, DvmMethod dvmMethod, VarArg varArg);
+    byte callStaticByteMethod(BaseVM vm, DvmClass dvmClass, String signature, VarArg varArg);
+
+    char callStaticCharMethod(BaseVM vm, DvmClass dvmClass, DvmMethod dvmMethod, VarArg varArg);
+    char callStaticCharMethod(BaseVM vm, DvmClass dvmClass, String signature, VarArg varArg);
+
+    short callStaticShortMethod(BaseVM vm, DvmClass dvmClass, DvmMethod dvmMethod, VarArg varArg);
+    short callStaticShortMethod(BaseVM vm, DvmClass dvmClass, String signature, VarArg varArg);
 }

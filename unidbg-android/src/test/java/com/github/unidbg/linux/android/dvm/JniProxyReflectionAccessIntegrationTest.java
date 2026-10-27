@@ -62,7 +62,7 @@ public class JniProxyReflectionAccessIntegrationTest {
                 @Override
                 protected Jni createJni(ProxyClassLoader loader, ProxyDvmObjectVisitor objectVisitor, Jni fallbackJni) {
                     Jni delegate = super.createJni(loader, objectVisitor, fallbackJni);
-                    return (Jni) Proxy.newProxyInstance(Jni.class.getClassLoader(), new Class<?>[] {Jni.class},
+                    return (Jni) Proxy.newProxyInstance(Jni.class.getClassLoader(), new Class<?>[] {HostJni.class},
                             (proxy, method, args) -> {
                                 try {
                                     return method.invoke(delegate, args);

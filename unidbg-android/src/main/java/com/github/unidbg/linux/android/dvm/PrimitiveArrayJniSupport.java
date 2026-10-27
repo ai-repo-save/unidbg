@@ -1,25 +1,19 @@
 package com.github.unidbg.linux.android.dvm;
 
 import com.github.unidbg.Emulator;
-import com.github.unidbg.arm.Arm64Svc;
-import com.github.unidbg.arm.ArmSvc;
 import com.github.unidbg.arm.context.RegisterContext;
-import com.github.unidbg.linux.android.dvm.array.BooleanArray;
-import com.github.unidbg.linux.android.dvm.array.CharArray;
-import com.github.unidbg.linux.android.dvm.array.LongArray;
-import com.github.unidbg.linux.android.dvm.array.PrimitiveArray;
+import com.github.unidbg.linux.android.dvm.array.*;
 import com.github.unidbg.linux.android.dvm.jni.ProxyDvmObject;
 import com.sun.jna.Pointer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.function.LongSupplier;
 
 final class PrimitiveArrayJniSupport {
     private static final Logger log = LoggerFactory.getLogger(PrimitiveArrayJniSupport.class);
 
     static Pointer create(Emulator<?> emulator, BaseVM vm, char type) {
-        return register(emulator, () -> {
+        return JniInvocationSupport.register(emulator, vm, () -> {
             int size = emulator.getContext().getIntArg(1);
             log.debug("event=jni_primitive_array_create_started type={} length={} lr={}", type, size, emulator.getContext().getLRPointer());
             if (size < 0) {
@@ -30,6 +24,11 @@ final class PrimitiveArrayJniSupport {
             DvmObject<?> array;
             switch (type) {
                 case 'Z': array = new BooleanArray(vm, new boolean[size]); break;
+                case 'B': array = new ByteArray(vm, new byte[size]); break;
+                case 'S': array = new ShortArray(vm, new short[size]); break;
+                case 'I': array = new IntArray(vm, new int[size]); break;
+                case 'F': array = new FloatArray(vm, new float[size]); break;
+                case 'D': array = new DoubleArray(vm, new double[size]); break;
                 case 'C': array = new CharArray(vm, new char[size]); break;
                 case 'J': array = new LongArray(vm, new long[size]); break;
                 default: throw new IllegalArgumentException("JNI primitive array type: " + type);
@@ -41,7 +40,7 @@ final class PrimitiveArrayJniSupport {
     }
 
     static Pointer elements(Emulator<?> emulator, BaseVM vm, char type) {
-        return register(emulator, () -> {
+        return JniInvocationSupport.register(emulator, vm, () -> {
             RegisterContext context = emulator.getContext();
             int handle = context.getIntArg(1);
             log.debug("event=jni_primitive_array_elements type={} array={} lr={}", type, handle, context.getLRPointer());
@@ -50,7 +49,7 @@ final class PrimitiveArrayJniSupport {
     }
 
     static Pointer release(Emulator<?> emulator, BaseVM vm, char type) {
-        return register(emulator, () -> {
+        return JniInvocationSupport.register(emulator, vm, () -> {
             RegisterContext context = emulator.getContext();
             int handle = context.getIntArg(1), mode = context.getIntArg(3);
             Pointer pointer = context.getPointerArg(2);
@@ -63,21 +62,16 @@ final class PrimitiveArrayJniSupport {
 
     private static PrimitiveArray<?> array(BaseVM vm, int handle, char type) {
         switch (type) {
-            case 'Z': return (BooleanArray) vm.getObject(handle);
-            case 'C': return (CharArray) vm.getObject(handle);
-            case 'J': return (LongArray) vm.getObject(handle);
+            case 'Z': return (BooleanArray) vm.resolveJniObject(handle);
+            case 'B': return (ByteArray) vm.resolveJniObject(handle);
+            case 'S': return (ShortArray) vm.resolveJniObject(handle);
+            case 'I': return (IntArray) vm.resolveJniObject(handle);
+            case 'F': return (FloatArray) vm.resolveJniObject(handle);
+            case 'D': return (DoubleArray) vm.resolveJniObject(handle);
+            case 'C': return (CharArray) vm.resolveJniObject(handle);
+            case 'J': return (LongArray) vm.resolveJniObject(handle);
             default: throw new IllegalArgumentException("JNI primitive array type: " + type);
         }
-    }
-
-    private static Pointer register(Emulator<?> emulator, LongSupplier operation) {
-        return emulator.getSvcMemory().registerSvc(emulator.is64Bit() ? new Arm64Svc() {
-            @Override
-            public long handle(Emulator<?> current) { return operation.getAsLong(); }
-        } : new ArmSvc() {
-            @Override
-            public long handle(Emulator<?> current) { return operation.getAsLong(); }
-        });
     }
 
     private PrimitiveArrayJniSupport() {}

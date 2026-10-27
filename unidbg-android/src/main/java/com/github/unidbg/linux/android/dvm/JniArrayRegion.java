@@ -15,7 +15,7 @@ final class JniArrayRegion {
 
     static long read(BaseVM vm, Emulator<?> emulator, Type type) {
         RegisterContext context = emulator.getContext();
-        DvmObject<?> array = vm.getObject(context.getIntArg(1));
+        DvmObject<?> array = vm.resolveJniObject(context.getIntArg(1));
         Object value = array.getValue();
         int start = context.getIntArg(2);
         int length = context.getIntArg(3);
@@ -73,7 +73,7 @@ final class JniArrayRegion {
 
     static long write(BaseVM vm, Emulator<?> emulator, Type type) {
         RegisterContext context = emulator.getContext();
-        DvmObject<?> array = vm.getObject(context.getIntArg(1));
+        DvmObject<?> array = vm.resolveJniObject(context.getIntArg(1));
         Object value = array.getValue();
         int start = context.getIntArg(2), length = context.getIntArg(3);
         Pointer buffer = context.getPointerArg(4);
@@ -85,6 +85,7 @@ final class JniArrayRegion {
                     "start=" + start + ", length=" + length + ", arrayLength=" + size)));
             return 0;
         }
+        if (length == 0) return 0;
         switch (type) {
             case Boolean:
                 boolean[] booleans = (boolean[]) value;
@@ -97,6 +98,25 @@ final class JniArrayRegion {
             case Long:
                 long[] longs = (long[]) value;
                 for (int i = 0; i < length; i++) longs[start + i] = buffer.getLong(i * 8L);
+                break;
+            case Byte:
+                System.arraycopy(buffer.getByteArray(0, length), 0, (byte[]) value, start, length);
+                break;
+            case Short:
+                short[] shorts = (short[]) value;
+                for (int i = 0; i < length; i++) shorts[start + i] = buffer.getShort(i * 2L);
+                break;
+            case Int:
+                int[] ints = (int[]) value;
+                for (int i = 0; i < length; i++) ints[start + i] = buffer.getInt(i * 4L);
+                break;
+            case Float:
+                float[] floats = (float[]) value;
+                for (int i = 0; i < length; i++) floats[start + i] = Float.intBitsToFloat(buffer.getInt(i * 4L));
+                break;
+            case Double:
+                double[] doubles = (double[]) value;
+                for (int i = 0; i < length; i++) doubles[start + i] = Double.longBitsToDouble(buffer.getLong(i * 8L));
                 break;
             default:
                 throw new IllegalArgumentException("JNI array region type: " + type);

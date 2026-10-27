@@ -56,14 +56,8 @@ public class JniProxyExceptionIntegrationTest {
                     int[] instanceCalls = {35,38,41,44,47,50,53,56,58,62};
                     for (int index = 0; index < names.length; index++) {
                         int method = method(emulator, table, width, env, type, data, 33, names[index], "()" + returns[index]);
-                        // ARM64 has no Char JNI table implementation; exercise the same live-VM binding directly.
-                        if (wide && returns[index].equals("C")) {
-                            DvmMethod binding = object.getObjectType().getMethod(method);
-                            binding.callCharMethodV(object, new VaList((BaseVM) vm, binding) { });
-                        } else {
-                            // Double is direct, other existing entries V; no arguments are consumed.
-                            invoke(emulator, table, width, instanceCalls[index], env, receiver, method, data.share(160));
-                        }
+                        // Double is direct; other entries use V. Primitive results are undefined while pending.
+                        invoke(emulator, table, width, instanceCalls[index], env, receiver, method, data.share(160));
                         pending(emulator, vm, table, width, env);
                     }
                     String[] statics = {"staticObject","staticBoolean","staticInt","staticLong","staticVoid"};

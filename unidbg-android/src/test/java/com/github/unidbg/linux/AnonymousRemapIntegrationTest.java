@@ -43,6 +43,15 @@ public class AnonymousRemapIntegrationTest {
                     UnidbgPointer errno = UnidbgPointer.pointer(emulator, libc.findSymbolByName("__errno").call(emulator).longValue());
                     assertEquals(22, errno.getInt(0));
                     assertArrayEquals(expected, emulator.getBackend().mem_read(address, mappedSize));
+                    for (int invalidFlags : new int[] {0x40000001, 2}) {
+                        UnidbgPointer destination = UnidbgPointer.pointer(emulator, address + mappedSize + page);
+                        assertEquals(-1, libc.findSymbolByName("mremap").call(emulator,
+                                UnidbgPointer.pointer(emulator, address), mappedSize, mappedSize,
+                                invalidFlags, destination).intValue());
+                        errno = UnidbgPointer.pointer(emulator, libc.findSymbolByName("__errno").call(emulator).longValue());
+                        assertEquals(22, errno.getInt(0));
+                        assertArrayEquals(expected, emulator.getBackend().mem_read(address, mappedSize));
+                    }
                     long shrunk = address(wide, libc.findSymbolByName("mremap").call(emulator, UnidbgPointer.pointer(emulator, address), mappedSize, page + 1, 1));
                     assertEquals(0, shrunk % page);
                     address = shrunk;

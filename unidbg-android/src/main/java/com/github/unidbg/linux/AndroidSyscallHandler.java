@@ -54,10 +54,12 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 
 public abstract class AndroidSyscallHandler extends UnixSyscallHandler<AndroidFileIO> implements SyscallHandler<AndroidFileIO> {
 
     private static final Logger log = LoggerFactory.getLogger(AndroidSyscallHandler.class);
+    private static final AtomicLong REMAPS = new AtomicLong();
 
     @Override
     protected final int syscallError(Emulator<?> emulator, int errno) {
@@ -79,58 +81,81 @@ public abstract class AndroidSyscallHandler extends UnixSyscallHandler<AndroidFi
 
     protected final long remapAnonymous(Emulator<?> emulator, long oldAddress, int oldSize,
                                        int newSize, int flags, long newAddress) {
+        long operation = REMAPS.incrementAndGet();
+        log.debug("event=memory_remap_started emulator={} remap={} old_address=0x{} old_size={} new_size={} flags={} new_address=0x{}",
+                System.identityHashCode(emulator), operation, Long.toHexString(oldAddress), oldSize, newSize, flags, Long.toHexString(newAddress));
         int page = emulator.getPageAlign();
         if (oldSize <= 0 || newSize <= 0 || oldAddress % page != 0 ||
                 ((flags & MREMAP_FIXED) != 0 && newAddress % page != 0)) {
+            log.debug("event=memory_remap_rejected remap={} reason=invalid_arguments errno={}", operation, UnixEmulator.EINVAL);
             return -UnixEmulator.EINVAL;
         }
-        if ((flags & MREMAP_MAYMOVE) == 0 || (flags & ~(MREMAP_MAYMOVE | MREMAP_FIXED)) != 0) {
-            throw new UnsupportedOperationException("mremap flags=" + flags);
+        if ((flags & ~(MREMAP_MAYMOVE | MREMAP_FIXED)) != 0 ||
+                ((flags & MREMAP_FIXED) != 0 && (flags & MREMAP_MAYMOVE) == 0)) {
+            log.debug("event=memory_remap_rejected remap={} reason=invalid_flags errno={}", operation, UnixEmulator.EINVAL);
+            return -UnixEmulator.EINVAL;
+        }
+        if ((flags & MREMAP_MAYMOVE) == 0) {
+            log.debug("event=memory_remap_rejected remap={} reason=in_place_resize capability=unsupported", operation);
+            throw new UnsupportedOperationException("In-place mremap without MAYMOVE is not implemented");
         }
         long oldLength = com.github.unidbg.arm.ARM.alignSize(oldSize, page);
         long newLength = com.github.unidbg.arm.ARM.alignSize(newSize, page);
-        if (newLength > Integer.MAX_VALUE) return -UnixEmulator.ENOMEM;
+        if (newLength > Integer.MAX_VALUE) {
+            log.debug("event=memory_remap_rejected remap={} reason=mapping_capacity errno={}", operation, UnixEmulator.ENOMEM);
+            return -UnixEmulator.ENOMEM;
+        }
         long oldEnd = oldAddress + oldLength;
         long newEnd = newAddress + newLength;
         if ((flags & MREMAP_FIXED) != 0 && oldAddress < newEnd && newAddress < oldEnd) {
+            log.debug("event=memory_remap_rejected remap={} reason=overlapping_ranges errno={}", operation, UnixEmulator.EINVAL);
             return -UnixEmulator.EINVAL;
         }
         Memory memory = emulator.getMemory();
         MemoryMap source = null;
         for (MemoryMap map : memory.getMemoryMap()) {
             if (oldAddress >= map.base + map.size || map.base >= oldEnd) continue;
-            if (map.backing != null || ((map.flags & AndroidElfLoader.MAP_ANONYMOUS) == 0 && (map.flags & 0xf) != 0)) {
-                log.debug("event=memory_remap_unsupported reason=file_backing address=0x{} length={}",
-                        Long.toHexString(oldAddress), oldSize);
-                throw new UnsupportedOperationException("File-backed mremap requires preserving its mapping lease");
+            if (map.backing != null || (map.flags & AndroidElfLoader.MAP_ANONYMOUS) == 0 ||
+                    (map.flags & 0xf) != AndroidElfLoader.MAP_PRIVATE) {
+                log.debug("event=memory_remap_rejected remap={} reason=unsupported_source source_flags={} file_backing={}",
+                        operation, map.flags, map.backing != null);
+                throw new UnsupportedOperationException("mremap requires an explicitly private anonymous source");
             }
             if (oldAddress >= map.base && oldEnd <= map.base + map.size) source = map;
         }
-        if (source == null) return -UnixEmulator.EFAULT;
-        int type = source.flags & 0xf;
-        if (type == 0) type = AndroidElfLoader.MAP_PRIVATE;
-        int mappingFlags = AndroidElfLoader.MAP_ANONYMOUS | type;
+        if (source == null) {
+            log.debug("event=memory_remap_rejected remap={} reason=source_range errno={}", operation, UnixEmulator.EFAULT);
+            return -UnixEmulator.EFAULT;
+        }
+        int mappingFlags = AndroidElfLoader.MAP_ANONYMOUS | AndroidElfLoader.MAP_PRIVATE;
         if ((flags & MREMAP_FIXED) != 0) mappingFlags |= AndroidElfLoader.MAP_FIXED;
         byte[] bytes = emulator.getBackend().mem_read(oldAddress, Math.min(oldLength, newLength));
         long address = memory.mmap2((flags & MREMAP_FIXED) != 0 ? newAddress : 0,
                 newSize, source.prot, mappingFlags, -1, 0);
-        if (address < 0) return address;
+        if (address < 0) {
+            log.debug("event=memory_remap_failed remap={} phase=allocate errno={}", operation, -address);
+            return address;
+        }
         try {
             emulator.getBackend().mem_write(address, bytes);
         } catch (RuntimeException | Error failure) {
             try {
-                memory.munmap(address, newSize);
+                int rollback = memory.munmap(address, newSize);
+                if (rollback < 0) failure.addSuppressed(new IllegalStateException("mremap rollback failed: " + rollback));
             } catch (RuntimeException | Error cleanupFailure) {
                 failure.addSuppressed(cleanupFailure);
             }
+            log.error("event=memory_remap_failed remap={} phase=copy new_address=0x{}", operation, Long.toHexString(address), failure);
             throw failure;
         }
         int removed = memory.munmap(oldAddress, oldSize);
         if (removed < 0) {
             int rollback = memory.munmap(address, newSize);
             if (rollback < 0) throw new IllegalStateException("mremap rollback failed: " + rollback + ", original=" + removed);
+            log.debug("event=memory_remap_failed remap={} phase=unmap_old errno={}", operation, -removed);
             return removed;
         }
+        log.debug("event=memory_remap_completed remap={} new_address=0x{}", operation, Long.toHexString(address));
         return address;
     }
 

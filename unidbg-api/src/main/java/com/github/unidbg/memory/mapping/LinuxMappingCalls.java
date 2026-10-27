@@ -65,6 +65,16 @@ final class LinuxMappingCalls {
         }
     }
 
+    static void truncate(int fd, long length) throws HostMappingException {
+        try {
+            if (LibCUtil.ftruncate(fd, length) < 0) {
+                throw failure("ftruncate", "fd=" + fd + ", length=" + length);
+            }
+        } catch (com.sun.jna.LastErrorException error) {
+            throw new HostMappingException("ftruncate", error.getErrorCode(), "fd=" + fd + ", length=" + length);
+        }
+    }
+
     static HostMappingException failure(String operation, String context) {
         return new HostMappingException(operation, Native.getLastError(), context);
     }

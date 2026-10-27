@@ -27,6 +27,7 @@ import java.util.stream.Stream;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThrows;
 
 @RunWith(Parameterized.class)
 public class NativeFileMappingIntegrationTest {
@@ -94,6 +95,22 @@ public class NativeFileMappingIntegrationTest {
                 byte[] tailPage = new byte[PAGE];
                 Arrays.fill(tailPage, 0, 19, (byte) 0x19);
                 assertArrayEquals(tailPage, backend.mem_read(0x44000000L, PAGE));
+                try (LinuxMappingSource secondOpen = LinuxMappingSource.open(retained, true);
+                     LinuxMappingSource replacementSource = LinuxMappingSource.open(opened, true)) {
+                    assertThrows(UnsupportedOperationException.class, () -> secondOpen.truncate(PAGE));
+                    assertArrayEquals(expected, Files.readAllBytes(retained));
+                    secondOpen.truncate(2L * PAGE + 7);
+                    expected = Arrays.copyOf(expected, 2 * PAGE + 7);
+                    assertArrayEquals(new byte[12], backend.mem_read(0x44000000L + 7, 12));
+                    assertArrayEquals(expected, Files.readAllBytes(retained));
+                    secondOpen.truncate(2L * PAGE + 19);
+                    expected = Arrays.copyOf(expected, 2 * PAGE + 19);
+                    assertArrayEquals(expected, Files.readAllBytes(retained));
+                    assertEquals(27, file.getFilePointer());
+                    replacementSource.truncate(0);
+                    replacement = new byte[0];
+                    assertArrayEquals(replacement, Files.readAllBytes(opened));
+                }
                 store(backend, 0x44000000L + 100, 0x55);
                 tail.sync(0, PAGE, MappedFileRegion.MS_SYNC);
                 assertArrayEquals(expected, Files.readAllBytes(retained));
@@ -126,6 +143,10 @@ public class NativeFileMappingIntegrationTest {
             assertArrayEquals(expected, Files.readAllBytes(retained));
         }
         assertEquals(0, descriptors(retained));
+        try (LinuxMappingSource released = LinuxMappingSource.open(retained, true)) {
+            released.truncate(0);
+        }
+        assertArrayEquals(new byte[0], Files.readAllBytes(retained));
     }
 
     private void store(Backend backend, long address, int value) {

@@ -16,11 +16,17 @@ final class LinuxMappedFileRegion implements MappedFileRegion {
     private final long id = REGIONS.incrementAndGet();
     private final Pointer address;
     private final long length;
+    private final long fileOffset;
+    private final LinuxFileMappingRegistry.Key identity;
     private boolean closed;
 
-    LinuxMappedFileRegion(Pointer address, long length, long source, long offset, boolean shared) {
+    LinuxMappedFileRegion(Pointer address, long length, long source, long offset, boolean shared,
+                          LinuxFileMappingRegistry.Key identity) {
         this.address = address;
         this.length = length;
+        this.fileOffset = offset;
+        this.identity = identity;
+        LinuxFileMappingRegistry.register(identity, this);
         log.debug("event=file_region_mapped source={} region={} offset={} length={} shared={} host_address={}",
                 source, id, offset, length, shared, address);
     }
@@ -44,7 +50,7 @@ final class LinuxMappedFileRegion implements MappedFileRegion {
         if (LinuxMappingCalls.LIBC.msync(address.share(offset), new size_t(count), flags) < 0) {
             HostMappingException failure = LinuxMappingCalls.failure("msync", "region=" + id);
             log.debug("event=file_region_sync_failed region={} offset={} length={} flags={} errno={}",
-                    id, offset, count, flags, failure.getErrno());
+                    id, offset, count, flags, failure.getErrno(), failure);
             throw failure;
         }
         log.debug("event=file_region_synced region={} offset={} length={} flags={}", id, offset, count, flags);
@@ -55,13 +61,20 @@ final class LinuxMappedFileRegion implements MappedFileRegion {
         if (closed) {
             return;
         }
-        if (LinuxMappingCalls.LIBC.munmap(address, new size_t(length)) < 0) {
-            HostMappingException failure = LinuxMappingCalls.failure("munmap", "region=" + id);
-            log.debug("event=file_region_unmap_failed region={} errno={}", id, failure.getErrno());
-            throw failure;
+        synchronized (LinuxFileMappingRegistry.LOCK) {
+            if (LinuxMappingCalls.LIBC.munmap(address, new size_t(length)) < 0) {
+                HostMappingException failure = LinuxMappingCalls.failure("munmap", "region=" + id);
+                log.debug("event=file_region_unmap_failed region={} errno={}", id, failure.getErrno(), failure);
+                throw failure;
+            }
+            LinuxFileMappingRegistry.unregister(identity, this);
+            closed = true;
+            log.debug("event=file_region_unmapped region={}", id);
         }
-        closed = true;
-        log.debug("event=file_region_unmapped region={}", id);
+    }
+
+    long lastFilePage() {
+        return (fileOffset + length - 1) / LinuxMappingCalls.PAGE_SIZE;
     }
 
     private void requireOpen() {

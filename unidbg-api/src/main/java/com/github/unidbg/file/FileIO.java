@@ -6,6 +6,7 @@ import com.github.unidbg.memory.mapping.MappingSource;
 import com.sun.jna.Pointer;
 
 import java.io.IOException;
+import java.util.function.IntUnaryOperator;
 
 public interface FileIO {
 
@@ -14,6 +15,12 @@ public interface FileIO {
     int SEEK_END = 2;
 
     void close();
+
+    /** Completion runs once with the raw close result on the backend owner and must not yield. */
+    default int close(Emulator<?> emulator, IntUnaryOperator completion) {
+        close();
+        return completion.applyAsInt(0);
+    }
 
     int write(byte[] data);
 

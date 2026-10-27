@@ -332,14 +332,13 @@ public abstract class UnixSyscallHandler<T extends NewFileIO> implements Syscall
     protected final int close(Emulator<?> emulator, int fd) {
         FileIO file = fdMap.remove(fd);
         if (file != null) {
-            file.close();
             if (verbose) {
                 System.out.printf("File closed '%s' from %s%n", file, emulator.getContext().getLRPointer());
             }
             if (fileListener != null) {
                 fileListener.onClose(emulator, file);
             }
-            return 0;
+            return file.close(emulator, raw -> raw);
         } else {
             return syscallError(emulator, UnixEmulator.EBADF);
         }

@@ -456,7 +456,7 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
         if (log.isDebugEnabled()) {
             log.debug("msync addr={}, len={}, flags=0x{}", addr, len, Integer.toHexString(flags));
         }
-        return 0;
+        return emulator.getMemory().msync(UnidbgPointer.nativeValue(addr), len, flags);
     }
 
     private long fdatasync(Emulator<AndroidFileIO> emulator) {
@@ -1151,11 +1151,11 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
         long timeInMillis = System.currentTimeMillis();
         long start = backend.reg_read(Arm64Const.UC_ARM64_REG_X0).longValue();
         int length = backend.reg_read(Arm64Const.UC_ARM64_REG_X1).intValue();
-        emulator.getMemory().munmap(start, length);
+        int result = emulator.getMemory().munmap(start, length);
         if (log.isDebugEnabled()) {
-            log.debug("munmap start=0x{}, length={}, offset={}", Long.toHexString(start), length, System.currentTimeMillis() - timeInMillis);
+            log.debug("munmap start=0x{}, length={}, offset={}, result={}", Long.toHexString(start), length, System.currentTimeMillis() - timeInMillis, result);
         }
-        return 0;
+        return result < 0 ? result : 0;
     }
 
     private long mremap(Emulator<?> emulator) {
@@ -1168,27 +1168,8 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
         if (log.isDebugEnabled()) {
             log.debug("mremap old_address={}, old_size={}, new_size={}, flags={}, new_address={}", old_address, old_size, new_size, flags, new_address);
         }
-        if (old_size == 0) {
-            throw new BackendException("old_size is zero");
-        }
-        boolean fixed = (flags & MREMAP_FIXED) != 0;
-        if ((flags & MREMAP_MAYMOVE) == 0) {
-            throw new BackendException("flags=" + flags);
-        }
-
-        Memory memory = emulator.getMemory();
-        byte[] data = old_address.getByteArray(0, old_size);
-        int prot = memory.munmap(old_address.toUIntPeer(), old_size);
-        final long address;
-        if (fixed) {
-            address = memory.mmap2(new_address.toUIntPeer(), new_size, prot, AndroidElfLoader.MAP_ANONYMOUS | AndroidElfLoader.MAP_FIXED, 0, 0);
-        } else {
-            address = memory.mmap2(0, new_size, prot, AndroidElfLoader.MAP_ANONYMOUS, 0, 0);
-        }
-        UnidbgPointer pointer = UnidbgPointer.pointer(emulator, address);
-        assert pointer != null;
-        pointer.write(0, data, 0, data.length);
-        return pointer.toUIntPeer();
+        return remapAnonymous(emulator, UnidbgPointer.nativeValue(old_address), old_size, new_size,
+                flags, UnidbgPointer.nativeValue(new_address));
     }
 
     private static final int PR_SET_NAME = 15;
@@ -1345,9 +1326,10 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
         int prot = backend.reg_read(Arm64Const.UC_ARM64_REG_X2).intValue();
         int flags = backend.reg_read(Arm64Const.UC_ARM64_REG_X3).intValue();
         int fd = backend.reg_read(Arm64Const.UC_ARM64_REG_X4).intValue();
-        int offset = backend.reg_read(Arm64Const.UC_ARM64_REG_X5).intValue();
-        if (offset % emulator.getPageAlign() != 0) {
-            throw new IllegalArgumentException("offset=0x" + Long.toHexString(offset));
+        long offset = backend.reg_read(Arm64Const.UC_ARM64_REG_X5).longValue();
+        if (offset < 0 || offset % emulator.getPageAlign() != 0 ||
+                ((flags & 0xf) != AndroidElfLoader.MAP_SHARED && (flags & 0xf) != AndroidElfLoader.MAP_PRIVATE)) {
+            return -UnixEmulator.EINVAL;
         }
 
         boolean warning = length > 0x10000000;

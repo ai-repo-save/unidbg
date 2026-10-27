@@ -344,6 +344,9 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
                 case 186:
                     backend.reg_write(ArmConst.UC_ARM_REG_R0, sigaltstack(emulator));
                     return;
+                case 144:
+                    backend.reg_write(ArmConst.UC_ARM_REG_R0, msync(emulator));
+                    return;
                 case 192:
                     backend.reg_write(ArmConst.UC_ARM_REG_R0, mmap2(backend, emulator));
                     return;
@@ -667,27 +670,8 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
         if (log.isDebugEnabled()) {
             log.debug("mremap old_address={}, old_size={}, new_size={}, flags={}, new_address={}", old_address, old_size, new_size, flags, new_address);
         }
-        if (old_size == 0) {
-            throw new BackendException("old_size is zero");
-        }
-        boolean fixed = (flags & MREMAP_FIXED) != 0;
-        if ((flags & MREMAP_MAYMOVE) == 0) {
-            throw new BackendException("flags=" + flags);
-        }
-
-        Memory memory = emulator.getMemory();
-        byte[] data = old_address.getByteArray(0, old_size);
-        int prot = memory.munmap(old_address.toUIntPeer(), old_size);
-        final long address;
-        if (fixed) {
-            address = memory.mmap2(new_address.toUIntPeer(), new_size, prot, AndroidElfLoader.MAP_ANONYMOUS | AndroidElfLoader.MAP_FIXED, 0, 0);
-        } else {
-            address = memory.mmap2(0, new_size, prot, AndroidElfLoader.MAP_ANONYMOUS, 0, 0);
-        }
-        UnidbgPointer pointer = UnidbgPointer.pointer(emulator, address);
-        assert pointer != null;
-        pointer.write(0, data, 0, data.length);
-        return (int) pointer.toUIntPeer();
+        return (int) remapAnonymous(emulator, UnidbgPointer.nativeValue(old_address), old_size, new_size,
+                flags, UnidbgPointer.nativeValue(new_address));
     }
 
     protected int ptrace(Emulator<?> emulator) {
@@ -1628,11 +1612,11 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
         if (start % emulator.getPageAlign() != 0) {
             return -UnixEmulator.EINVAL;
         }
-        emulator.getMemory().munmap(start, length);
+        int result = emulator.getMemory().munmap(start, length);
         if (log.isDebugEnabled()) {
-            log.debug("munmap start=0x{}, length={}, offset={}, from={}", Long.toHexString(start), length, System.currentTimeMillis() - timeInMillis, UnidbgPointer.register(emulator, ArmConst.UC_ARM_REG_LR));
+            log.debug("munmap start=0x{}, length={}, offset={}, from={}, result={}", Long.toHexString(start), length, System.currentTimeMillis() - timeInMillis, UnidbgPointer.register(emulator, ArmConst.UC_ARM_REG_LR), result);
         }
-        return 0;
+        return result < 0 ? result : 0;
     }
 
     private static final int PR_GET_DUMPABLE = 3;
@@ -1783,6 +1767,14 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
         return emulator.getMemory().mprotect(alignedAddress, (int) alignedLength, prot);
     }
 
+    private int msync(Emulator<?> emulator) {
+        RegisterContext context = emulator.getContext();
+        long address = Integer.toUnsignedLong(context.getIntArg(0));
+        int length = context.getIntArg(1);
+        int flags = context.getIntArg(2);
+        return emulator.getMemory().msync(address, length, flags);
+    }
+
     private static final int MMAP2_SHIFT = 12;
 
     private int mmap2(Backend backend, Emulator<?> emulator) {
@@ -1791,7 +1783,10 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
         int prot = backend.reg_read(ArmConst.UC_ARM_REG_R2).intValue();
         int flags = backend.reg_read(ArmConst.UC_ARM_REG_R3).intValue();
         int fd = backend.reg_read(ArmConst.UC_ARM_REG_R4).intValue();
-        int offset = backend.reg_read(ArmConst.UC_ARM_REG_R5).intValue() << MMAP2_SHIFT;
+        long offset = Integer.toUnsignedLong(backend.reg_read(ArmConst.UC_ARM_REG_R5).intValue()) << MMAP2_SHIFT;
+        if ((flags & 0xf) != AndroidElfLoader.MAP_SHARED && (flags & 0xf) != AndroidElfLoader.MAP_PRIVATE) {
+            return -UnixEmulator.EINVAL;
+        }
 
         boolean warning = length >= 0x10000000;
         if (log.isDebugEnabled() || warning) {

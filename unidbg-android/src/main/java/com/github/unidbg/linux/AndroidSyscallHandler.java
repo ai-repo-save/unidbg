@@ -23,6 +23,8 @@ import com.github.unidbg.linux.thread.FutexWaiter;
 import com.github.unidbg.linux.thread.MarshmallowThread;
 import com.github.unidbg.linux.thread.NanoSleepWaiter;
 import com.github.unidbg.pointer.UnidbgPointer;
+import com.github.unidbg.memory.Memory;
+import com.github.unidbg.memory.MemoryMap;
 import com.github.unidbg.signal.SigSet;
 import com.github.unidbg.signal.SignalOps;
 import com.github.unidbg.signal.UnixSigSet;
@@ -73,6 +75,63 @@ public abstract class AndroidSyscallHandler extends UnixSyscallHandler<AndroidFi
         } catch (LinuxErrnoException failure) {
             return FileResult.failed(failure.getErrno());
         }
+    }
+
+    protected final long remapAnonymous(Emulator<?> emulator, long oldAddress, int oldSize,
+                                       int newSize, int flags, long newAddress) {
+        int page = emulator.getPageAlign();
+        if (oldSize <= 0 || newSize <= 0 || oldAddress % page != 0 ||
+                ((flags & MREMAP_FIXED) != 0 && newAddress % page != 0)) {
+            return -UnixEmulator.EINVAL;
+        }
+        if ((flags & MREMAP_MAYMOVE) == 0 || (flags & ~(MREMAP_MAYMOVE | MREMAP_FIXED)) != 0) {
+            throw new UnsupportedOperationException("mremap flags=" + flags);
+        }
+        long oldLength = com.github.unidbg.arm.ARM.alignSize(oldSize, page);
+        long newLength = com.github.unidbg.arm.ARM.alignSize(newSize, page);
+        if (newLength > Integer.MAX_VALUE) return -UnixEmulator.ENOMEM;
+        long oldEnd = oldAddress + oldLength;
+        long newEnd = newAddress + newLength;
+        if ((flags & MREMAP_FIXED) != 0 && oldAddress < newEnd && newAddress < oldEnd) {
+            return -UnixEmulator.EINVAL;
+        }
+        Memory memory = emulator.getMemory();
+        MemoryMap source = null;
+        for (MemoryMap map : memory.getMemoryMap()) {
+            if (oldAddress >= map.base + map.size || map.base >= oldEnd) continue;
+            if (map.backing != null || ((map.flags & AndroidElfLoader.MAP_ANONYMOUS) == 0 && (map.flags & 0xf) != 0)) {
+                log.debug("event=memory_remap_unsupported reason=file_backing address=0x{} length={}",
+                        Long.toHexString(oldAddress), oldSize);
+                throw new UnsupportedOperationException("File-backed mremap requires preserving its mapping lease");
+            }
+            if (oldAddress >= map.base && oldEnd <= map.base + map.size) source = map;
+        }
+        if (source == null) return -UnixEmulator.EFAULT;
+        int type = source.flags & 0xf;
+        if (type == 0) type = AndroidElfLoader.MAP_PRIVATE;
+        int mappingFlags = AndroidElfLoader.MAP_ANONYMOUS | type;
+        if ((flags & MREMAP_FIXED) != 0) mappingFlags |= AndroidElfLoader.MAP_FIXED;
+        byte[] bytes = emulator.getBackend().mem_read(oldAddress, Math.min(oldLength, newLength));
+        long address = memory.mmap2((flags & MREMAP_FIXED) != 0 ? newAddress : 0,
+                newSize, source.prot, mappingFlags, -1, 0);
+        if (address < 0) return address;
+        try {
+            emulator.getBackend().mem_write(address, bytes);
+        } catch (RuntimeException | Error failure) {
+            try {
+                memory.munmap(address, newSize);
+            } catch (RuntimeException | Error cleanupFailure) {
+                failure.addSuppressed(cleanupFailure);
+            }
+            throw failure;
+        }
+        int removed = memory.munmap(oldAddress, oldSize);
+        if (removed < 0) {
+            int rollback = memory.munmap(address, newSize);
+            if (rollback < 0) throw new IllegalStateException("mremap rollback failed: " + rollback + ", original=" + removed);
+            return removed;
+        }
+        return address;
     }
 
     static final int MREMAP_MAYMOVE = 1;

@@ -59,6 +59,8 @@
                         <exclude>**/NativeSeqpacketLifecycleIntegrationTest.java</exclude>
                         <exclude>**/GuestMonitorRuntimeIntegrationTest.java</exclude>
                         <exclude>**/NativeFileMappingIntegrationTest.java</exclude>
+                        <exclude>**/JniReferenceOwnerIntegrationTest.java</exclude>
+                        <exclude>**/JniPrimitiveLeaseIntegrationTest.java</exclude>
                     </excludes>
                 </configuration>
             </plugin>

@@ -199,9 +199,13 @@ public class UniThreadDispatcher implements ThreadDispatcher {
                 if (!frame.isContextSaved()) {
                     throw new IllegalStateException("Original guest frame has no saved cleanup context");
                 }
+                Long targetStack = stackPoints.get(frame);
+                if (targetStack == null) {
+                    frame.restoreContext(emulator);
+                    targetStack = com.github.unidbg.pointer.UnidbgPointer.nativeValue(emulator.getStackPointer());
+                }
+                emulator.getMemory().setStackPoint(targetStack);
                 frame.restoreContext(emulator);
-                emulator.getMemory().setStackPoint(stackPoints.getOrDefault(frame,
-                        com.github.unidbg.pointer.UnidbgPointer.nativeValue(emulator.getStackPointer())));
             }
             emulator.set(Task.TASK_KEY, owner);
             runningTask = frame;
@@ -287,11 +291,11 @@ public class UniThreadDispatcher implements ThreadDispatcher {
         NativeCallFrame frame = frames.removeLast();
         frame.destroy(emulator);
         stackPoints.remove(frame.entry);
+        emulator.getMemory().setStackPoint(frame.parentStackPoint);
         activeTask(owner).restoreContext(emulator);
         if (frames.isEmpty()) {
             nativeFrames.remove(owner);
         }
-        emulator.getMemory().setStackPoint(frame.parentStackPoint);
         log.debug("event=native_reentry_completed tid={} result={}", owner.getId(), result, failure);
         frame.completion.complete(result, failure);
     }

@@ -419,18 +419,13 @@ public abstract class AbstractEmulator<T extends NewFileIO> implements Emulator<
             throw new IOException("Already closed.");
         }
 
+        threadDispatcher.shutdown(5, java.util.concurrent.TimeUnit.SECONDS);
         Throwable failure = null;
-        try {
-            threadDispatcher.shutdown(5, java.util.concurrent.TimeUnit.SECONDS);
-        } catch (RuntimeException | Error error) {
-            if (!threadDispatcher.isClosed()) throw error;
-            failure = error;
-        }
         if (debugger != null) {
             try {
                 debugger.close();
             } catch (RuntimeException | Error error) {
-                failure = collectCloseFailure(failure, error);
+                failure = error;
             } finally {
                 debugger = null;
             }
@@ -461,9 +456,6 @@ public abstract class AbstractEmulator<T extends NewFileIO> implements Emulator<
             return next;
         }
         if (primary != next) {
-            for (Throwable suppressed : primary.getSuppressed()) {
-                if (suppressed == next) return primary;
-            }
             primary.addSuppressed(next);
         }
         return primary;

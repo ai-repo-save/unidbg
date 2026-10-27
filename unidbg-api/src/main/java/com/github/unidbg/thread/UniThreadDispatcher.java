@@ -173,19 +173,13 @@ public class UniThreadDispatcher implements ThreadDispatcher {
 
     private static Throwable collectFailure(Throwable primary, Throwable next) {
         if (primary == null) return next;
-        if (primary != next) {
-            for (Throwable suppressed : primary.getSuppressed()) {
-                if (suppressed == next) return primary;
-            }
-            primary.addSuppressed(next);
-        }
+        if (primary != next) primary.addSuppressed(next);
         return primary;
     }
 
     private static void throwFailure(Throwable failure) {
         if (failure instanceof Error) throw (Error) failure;
-        if (failure instanceof RuntimeException) throw (RuntimeException) failure;
-        if (failure != null) throw new IllegalStateException("Dispatcher cleanup failed", failure);
+        if (failure != null) throw (RuntimeException) failure;
     }
 
     @Override
@@ -321,15 +315,11 @@ public class UniThreadDispatcher implements ThreadDispatcher {
             throw new IllegalArgumentException("Shutdown requires a positive budget and an idle backend");
         }
         long deadline = System.nanoTime() + unit.toNanos(timeout);
-        Throwable cleanupFailure = null;
         for (DispatcherEventSource source : eventSources) {
-            try {
-                source.beginClose();
-            } catch (RuntimeException | Error error) {
-                cleanupFailure = collectFailure(cleanupFailure, error);
-            }
+            source.beginClose();
         }
         promotePendingThreads();
+        Throwable cleanupFailure = null;
         for (Task task : new ArrayList<>(taskList)) {
             try {
                 destroyTask(task);
@@ -340,13 +330,7 @@ public class UniThreadDispatcher implements ThreadDispatcher {
             }
         }
         while (true) {
-            for (DispatcherEventSource source : eventSources) {
-                try {
-                    source.dispatchPending();
-                } catch (RuntimeException | Error error) {
-                    cleanupFailure = collectFailure(cleanupFailure, error);
-                }
-            }
+            dispatchEvents();
             boolean complete = true;
             for (DispatcherEventSource source : eventSources) {
                 complete &= source.isClosed();
@@ -371,11 +355,6 @@ public class UniThreadDispatcher implements ThreadDispatcher {
             }
             Thread.yield();
         }
-    }
-
-    @Override
-    public boolean isClosed() {
-        return closed;
     }
 
     @Override

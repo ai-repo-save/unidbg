@@ -31,7 +31,6 @@ final class JniThreadRegistry implements DispatcherEventSource, ThreadLifecycleL
     private int mainTid;
     private boolean initialized;
     private boolean closing;
-    private Throwable cleanupFailure;
 
     JniThreadRegistry(AndroidEmulator emulator, JniThreadResources resources) {
         this.emulator = emulator;
@@ -154,12 +153,9 @@ final class JniThreadRegistry implements DispatcherEventSource, ThreadLifecycleL
 
     private void clearState(JniThreadState state) {
         if (state.attached()) {
-            try {
-                resources.clearThreadReferences(state);
-            } finally {
-                state.detached();
-                log.debug("event=jni_thread_detached tid={}", state.tid());
-            }
+            resources.clearThreadReferences(state);
+            state.detached();
+            log.debug("event=jni_thread_detached tid={}", state.tid());
         }
     }
 
@@ -182,31 +178,12 @@ final class JniThreadRegistry implements DispatcherEventSource, ThreadLifecycleL
         for (Iterator<Map.Entry<JniThreadState, CompletableFuture<Void>>> iterator = retiring.entrySet().iterator(); iterator.hasNext();) {
             Map.Entry<JniThreadState, CompletableFuture<Void>> entry = iterator.next();
             if (entry.getValue().isDone()) {
-                // HostJavaRuntime publishes this barrier only after Thread.isAlive() is false
-                // and owns reporting the termination failure through closeFailure().
-                JniThreadState state = entry.getKey();
-                try {
-                    clearState(state);
-                } catch (RuntimeException | Error failure) {
-                    cleanupFailure = collectFailure(cleanupFailure, failure);
-                    log.error("event=jni_thread_reference_cleanup_failed tid={}", state.tid(), failure);
-                } finally {
-                    states.remove(state.tid(), state);
-                    iterator.remove();
-                }
+                entry.getValue().join();
+                clearState(entry.getKey());
+                states.remove(entry.getKey().tid());
+                iterator.remove();
             }
         }
-    }
-
-    private static Throwable collectFailure(Throwable primary, Throwable next) {
-        if (primary == null) return next;
-        if (primary != next) {
-            for (Throwable suppressed : primary.getSuppressed()) {
-                if (suppressed == next) return primary;
-            }
-            primary.addSuppressed(next);
-        }
-        return primary;
     }
 
     @Override
@@ -225,7 +202,7 @@ final class JniThreadRegistry implements DispatcherEventSource, ThreadLifecycleL
 
     @Override
     public Throwable closeFailure() {
-        return cleanupFailure;
+        return null;
     }
 
     void close() {

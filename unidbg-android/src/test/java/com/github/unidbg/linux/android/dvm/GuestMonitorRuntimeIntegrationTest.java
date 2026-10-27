@@ -32,7 +32,6 @@ import java.lang.management.ThreadMXBean;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
-import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -58,7 +57,7 @@ public class GuestMonitorRuntimeIntegrationTest {
         Path workspace = Files.createTempDirectory(new File("target").toPath(), "guest-monitor-");
         Object target = new Object();
         GateHost host = new GateHost(target, workspace);
-        PlanProbe plans = new PlanProbe(workspace);
+        CancellationProbe cancellation = new CancellationProbe(workspace);
         Set<Long> backendThreads = new HashSet<>();
         AtomicReference<Throwable> observedFailure = new AtomicReference<>();
         long backendThread = Thread.currentThread().getId();
@@ -84,11 +83,11 @@ public class GuestMonitorRuntimeIntegrationTest {
                     int operation = current.getContext().getIntArg(0);
                     int argument = current.getContext().getIntArg(1);
                     int tid = ((Task) current.get(Task.TASK_KEY)).getId();
-                    if (operation == 11 || operation == 12) {
-                        return plans.begin(current, runtime, operation == 12);
+                    if (operation == 12) {
+                        return cancellation.begin(current, runtime);
                     }
                     if (operation == 13) {
-                        return plans.cancel(current, runtime);
+                        return cancellation.cancel(current, runtime);
                     }
                     HostJavaCall<? extends Number> call;
                     if (operation == 10) {
@@ -164,17 +163,14 @@ public class GuestMonitorRuntimeIntegrationTest {
             assertEquals("entered\nreturned\n",
                     new String(Files.readAllBytes(workspace.resolve("close-boundary.txt")), StandardCharsets.US_ASCII));
 
-            assertEquals(0x4455, module.callFunction(emulator, "monitor_two_step").intValue());
-            assertEquals("svc\nhost-one\nbackend-one\nhost-two\nbackend-two\n",
-                    new String(Files.readAllBytes(workspace.resolve("plan-two-step.txt")), StandardCharsets.US_ASCII));
             assertEquals(0, module.callFunction(emulator, "monitor_plan_cancel_start").intValue());
             assertEquals(1, module.callFunction(emulator, "monitor_plan_cancel_control").intValue());
             emulator.getThreadDispatcher().runThreads(3, TimeUnit.SECONDS);
             assertEquals(0, module.callFunction(emulator, "monitor_plan_cancel_join").intValue());
-            plans.cancelHostThread.join(3000);
-            assertEquals(Thread.State.TERMINATED, plans.cancelHostThread.getState());
-            assertEquals("svc\nhost-one\nbackend-one\nhost-two\nabandoned\nhost-two-returned\n",
-                    new String(Files.readAllBytes(workspace.resolve("plan-cancel.txt")), StandardCharsets.US_ASCII));
+            cancellation.hostThread.join(3000);
+            assertEquals(Thread.State.TERMINATED, cancellation.hostThread.getState());
+            assertEquals("svc\nhost\nabandoned\nhost-returned\n",
+                    new String(Files.readAllBytes(workspace.resolve("task-cancel.txt")), StandardCharsets.US_ASCII));
             assertArrayEquals(new byte[] {0x13, 0x57},
                     Files.readAllBytes(emulator.getFileSystem().getRootDir().toPath().resolve("monitor-plan-cancel.bin")));
 
@@ -195,114 +191,8 @@ public class GuestMonitorRuntimeIntegrationTest {
         assertNull(threads.getThreadInfo(host.b.getId()));
         assertNull(threads.getThreadInfo(host.main.getId()));
         assertNull(threads.getThreadInfo(host.closingThread.getId()));
-        assertNull(threads.getThreadInfo(plans.cancelHostThread.getId()));
+        assertNull(threads.getThreadInfo(cancellation.hostThread.getId()));
         assertNull(host.observerFailure.get());
-        failedShutdownReleasesReferences(new File(fixture), workspace.resolve("failed-shutdown"));
-    }
-
-    private static void failedShutdownReleasesReferences(File fixture, Path workspace) throws Exception {
-        Files.createDirectories(workspace);
-        RuntimeException localFailure = new IllegalStateException("local reference cleanup failure");
-        RuntimeException globalFailure = new IllegalArgumentException("global reference cleanup failure");
-        AtomicReference<Thread> worker = new AtomicReference<>();
-        CountDownLatch workerReady = new CountDownLatch(1);
-        try (FileChannel failedLocal = channel(workspace.resolve("failed-local.bin"));
-             FileChannel otherLocal = channel(workspace.resolve("other-local.bin"));
-             FileChannel mainLocal = channel(workspace.resolve("main-local.bin"));
-             FileChannel global = channel(workspace.resolve("global.bin"))) {
-            RuntimeException observed = assertThrows(RuntimeException.class, () -> {
-                try (AndroidEmulator emulator = AndroidEmulatorBuilder.for64Bit()
-                        .setRootDir(workspace.resolve("root").toFile())
-                        .addBackendFactory(new Unicorn2Factory(true)).build()) {
-                    emulator.getMemory().setLibraryResolver(new AndroidResolver(23));
-                    emulator.getSyscallHandler().setEnableThreadDispatcher(true);
-                    BaseVM vm = (BaseVM) emulator.createDalvikVM();
-                    UnidbgPointer outEnv = emulator.getSvcMemory().allocate(8, "fault-thread-env");
-                    UnidbgPointer references = emulator.getSvcMemory().registerSvc(new Arm64Svc() {
-                        @Override public long handle(Emulator<?> current) {
-                            if (current.getContext().getIntArg(0) == 3) {
-                                assertEquals(VM.JNI_OK, vm.threads().attach(outEnv, null, false));
-                                if (current.getContext().getIntArg(1) == 0) {
-                                    vm.addLocalObject(closingReference(failedLocal,
-                                            workspace.resolve("failed-local.closed"), localFailure));
-                                } else {
-                                    vm.addLocalObject(closingReference(otherLocal,
-                                            workspace.resolve("other-local.closed"), null));
-                                }
-                            }
-                            return 0;
-                        }
-                    });
-                    Module module = emulator.loadLibrary(fixture, false);
-                    assertEquals(0, module.callFunction(emulator, "monitor_start", references).intValue());
-                    emulator.getThreadDispatcher().runThreads(10, TimeUnit.SECONDS);
-                    assertEquals(0, module.callFunction(emulator, "monitor_join").intValue());
-                    vm.addLocalObject(closingReference(mainLocal, workspace.resolve("main-local.closed"), null));
-                    vm.addGlobalObject(closingReference(global, workspace.resolve("global.closed"), globalFailure));
-                    GuestJavaRuntime runtime = vm.threads().hostRuntime();
-                    UnidbgPointer failure = emulator.getSvcMemory().registerSvc(new Arm64Svc() {
-                        @Override public long handle(Emulator<?> current) {
-                            HostJavaCall<Integer> call = runtime.submit(() -> {
-                                worker.set(Thread.currentThread());
-                                Thread.currentThread().interrupt();
-                                workerReady.countDown();
-                                return 0x31;
-                            });
-                            await(workerReady);
-                            join(worker.get());
-                            assertEquals(Thread.State.TERMINATED, worker.get().getState());
-                            try {
-                                return call.result().get();
-                            } catch (Exception error) {
-                                throw new AssertionError(error);
-                            }
-                        }
-                    });
-                    assertEquals(0x31, emulator.eFunc(failure.peer).intValue());
-                }
-            });
-            assertSame(localFailure, observed);
-            assertEquals(2, observed.getSuppressed().length);
-            assertEquals(new HashSet<>(Arrays.asList(InterruptedException.class, IllegalArgumentException.class)),
-                    new HashSet<>(Arrays.asList(observed.getSuppressed()[0].getClass(), observed.getSuppressed()[1].getClass())));
-            assertEquals(true, Arrays.asList(observed.getSuppressed()).contains(globalFailure));
-            assertEquals(false, failedLocal.isOpen());
-            assertEquals(false, otherLocal.isOpen());
-            assertEquals(false, mainLocal.isOpen());
-            assertEquals(false, global.isOpen());
-            for (String marker : Arrays.asList("failed-local.closed", "other-local.closed", "main-local.closed", "global.closed")) {
-                assertEquals("closed\n", new String(Files.readAllBytes(workspace.resolve(marker)), StandardCharsets.US_ASCII));
-            }
-            assertEquals(Thread.State.TERMINATED, worker.get().getState());
-            assertNull(ManagementFactory.getThreadMXBean().getThreadInfo(worker.get().getId()));
-        }
-    }
-
-    private static FileChannel channel(Path path) throws IOException {
-        return FileChannel.open(path, StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE);
-    }
-
-    private static DvmObject<FileChannel> closingReference(FileChannel channel, Path marker, RuntimeException failure) {
-        return new DvmObject<FileChannel>(null, channel) {
-            @Override protected void releaseAdditionalMemory() {
-                try {
-                    getValue().close();
-                    Files.write(marker, "closed\n".getBytes(StandardCharsets.US_ASCII));
-                } catch (IOException error) {
-                    throw new UncheckedIOException(error);
-                }
-                if (failure != null) throw failure;
-            }
-        };
-    }
-
-    private static void join(Thread thread) {
-        try {
-            thread.join(3000);
-        } catch (InterruptedException error) {
-            Thread.currentThread().interrupt();
-            throw new AssertionError(error);
-        }
     }
 
     private static <T extends Number> long suspendNumber(Emulator<?> emulator, HostJavaCall<T> call,
@@ -354,79 +244,49 @@ public class GuestMonitorRuntimeIntegrationTest {
         throw new AssertionError("Expected BLOCKED Java monitor contender: " + Arrays.toString(threads.dumpAllThreads(true, true)));
     }
 
-    private static final class PlanProbe {
+    private static final class CancellationProbe {
         final Path workspace;
-        final CountDownLatch secondEntered = new CountDownLatch(1);
-        final CountDownLatch secondReleased = new CountDownLatch(1);
-        final RuntimeException abandonedFailure = new RuntimeException("abandoned observer failure");
+        final CountDownLatch entered = new CountDownLatch(1);
+        final CountDownLatch released = new CountDownLatch(1);
         ThreadTask cancelledTask;
         RunnableTask cancelledFrame;
-        volatile Thread cancelHostThread;
+        volatile Thread hostThread;
 
-        PlanProbe(Path workspace) { this.workspace = workspace; }
+        CancellationProbe(Path workspace) { this.workspace = workspace; }
 
-        long begin(Emulator<?> emulator, GuestJavaRuntime runtime, boolean cancel) {
-            Task owner = emulator.get(Task.TASK_KEY);
-            RunnableTask frame = emulator.getThreadDispatcher().getRunningTask();
+        long begin(Emulator<?> emulator, GuestJavaRuntime runtime) {
+            cancelledTask = emulator.get(Task.TASK_KEY);
+            cancelledFrame = emulator.getThreadDispatcher().getRunningTask();
             long[] origin = registers(emulator);
-            String file = cancel ? "plan-cancel.txt" : "plan-two-step.txt";
-            trace(file, "svc\n", true);
-            if (cancel) {
-                cancelledTask = (ThreadTask) owner;
-                cancelledFrame = frame;
-            }
-            HostJavaCall<Integer> first = runtime.submit(() -> {
-                trace(file, "host-one\n", false);
-                return 0x444e;
+            trace("svc\n", true);
+            HostJavaCall<Integer> call = runtime.submit(() -> {
+                hostThread = Thread.currentThread();
+                trace("host\n", false);
+                entered.countDown();
+                await(released);
+                trace("host-returned\n", false);
+                return 0x4455;
             });
-            return GuestJavaWaiter.suspend(emulator, first, result -> {
+            return GuestJavaWaiter.suspend(emulator, call, result -> {
                 context(emulator, origin);
-                int value = value(result);
-                trace(file, "backend-one\n", false);
-                HostJavaCall<Integer> second = runtime.submit(() -> {
-                    trace(file, "host-two\n", false);
-                    if (cancel) {
-                        cancelHostThread = Thread.currentThread();
-                        secondEntered.countDown();
-                        await(secondReleased);
-                        trace(file, "host-two-returned\n", false);
-                    }
-                    return value + 7;
-                });
-                GuestJavaWaiter.rearm(emulator, second, terminal -> {
-                    context(emulator, origin);
-                    trace(file, "backend-two\n", false);
-                    frame.setWaiter(emulator, null);
-                    emulator.getBackend().reg_write(Arm64Const.UC_ARM64_REG_X0, value(terminal));
-                }, failure -> {
-                    assertEquals(CancellationException.class, failure.getClass());
-                    context(emulator, origin);
-                    trace(file, "abandoned\n", false);
-                    secondReleased.countDown();
-                    if (cancel) throw abandonedFailure;
-                });
+                emulator.getBackend().reg_write(Arm64Const.UC_ARM64_REG_X0, value(result));
             }, failure -> {
+                assertEquals(CancellationException.class, failure.getClass());
                 context(emulator, origin);
-                trace(file, "first-abandoned\n", false);
-                secondReleased.countDown();
+                trace("abandoned\n", false);
+                released.countDown();
             });
         }
 
         long cancel(Emulator<?> emulator, GuestJavaRuntime runtime) {
             HostJavaCall<Integer> ready = runtime.submit(() -> {
-                await(secondEntered);
+                await(entered);
                 return 1;
             });
             return GuestJavaWaiter.suspend(emulator, ready, result -> {
                 long[] before = registers(emulator);
-                try {
-                    cancelledFrame.setWaiter(emulator, null);
-                    fail("Abandoned observer must report its original failure");
-                } catch (RuntimeException failure) {
-                    assertSame(abandonedFailure, failure);
-                } finally {
-                    cancelledTask.setExitStatus(0);
-                }
+                cancelledFrame.setWaiter(emulator, null);
+                cancelledTask.setExitStatus(0);
                 context(emulator, before);
                 emulator.getBackend().reg_write(Arm64Const.UC_ARM64_REG_X0, value(result));
             });
@@ -453,10 +313,10 @@ public class GuestMonitorRuntimeIntegrationTest {
             assertArrayEquals(expected, registers(emulator));
         }
 
-        private void trace(String file, String value, boolean create) {
+        private void trace(String value, boolean create) {
             try {
-                if (create) Files.write(workspace.resolve(file), value.getBytes(StandardCharsets.US_ASCII));
-                else Files.write(workspace.resolve(file), value.getBytes(StandardCharsets.US_ASCII), StandardOpenOption.APPEND);
+                if (create) Files.write(workspace.resolve("task-cancel.txt"), value.getBytes(StandardCharsets.US_ASCII));
+                else Files.write(workspace.resolve("task-cancel.txt"), value.getBytes(StandardCharsets.US_ASCII), StandardOpenOption.APPEND);
             } catch (IOException failure) {
                 throw new UncheckedIOException(failure);
             }

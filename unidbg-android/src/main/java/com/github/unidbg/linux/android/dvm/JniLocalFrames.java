@@ -8,7 +8,7 @@ import java.util.ArrayList;
 import java.util.Deque;
 import java.util.Objects;
 
-/** The local-reference stack of one guest Java thread, independent of host ThreadLocal. */
+/** Backend-owned local frames of one guest Java thread, independent of host ThreadLocal. */
 final class JniLocalFrames {
     private static final Logger log = LoggerFactory.getLogger(JniLocalFrames.class);
     private final JniReferences references;
@@ -17,23 +17,27 @@ final class JniLocalFrames {
 
     JniLocalFrames(JniReferences references, int tid) {
         this.references = Objects.requireNonNull(references, "references");
+        references.requireOwner();
         this.tid = tid;
         frames.push(new ArrayList<>(16));
     }
 
     int tid() {
+        references.requireOwner();
         return tid;
     }
 
     /** Allocation failure propagates to the JNI shim, which installs pending OOME. */
-    synchronized int push(int capacity) {
+    int push(int capacity) {
+        references.requireOwner();
         if (capacity < 0) throw new IllegalArgumentException("Negative JNI local frame capacity: " + capacity);
         frames.push(new ArrayList<>(capacity));
         log.debug("event=jni_local_frame_pushed guest_tid={} capacity={} depth={}", tid, capacity, frames.size());
         return VM.JNI_OK;
     }
 
-    synchronized int ensureCapacity(int capacity) {
+    int ensureCapacity(int capacity) {
+        references.requireOwner();
         if (capacity < 0) throw new IllegalArgumentException("Negative JNI local capacity: " + capacity);
         ArrayList<Integer> frame = frames.element();
         long required = (long) frame.size() + capacity;
@@ -43,7 +47,8 @@ final class JniLocalFrames {
         return VM.JNI_OK;
     }
 
-    synchronized int newLocal(DvmObject<?> object) {
+    int newLocal(DvmObject<?> object) {
+        references.requireOwner();
         if (object == null) return VM.JNI_NULL;
         int handle = references.newLocal(object, this);
         try {
@@ -59,11 +64,13 @@ final class JniLocalFrames {
         }
     }
 
-    synchronized DvmObject<?> lookup(int handle) {
+    DvmObject<?> lookup(int handle) {
+        references.requireOwner();
         return references.lookup(handle, this);
     }
 
-    synchronized void deleteLocal(int handle) {
+    void deleteLocal(int handle) {
+        references.requireOwner();
         if (handle == VM.JNI_NULL) return;
         for (ArrayList<Integer> frame : frames) {
             if (frame.remove(Integer.valueOf(handle))) {
@@ -74,7 +81,8 @@ final class JniLocalFrames {
         throw new IllegalArgumentException("JNI local reference is outside this frame stack: " + handle);
     }
 
-    synchronized int pop(int escapedHandle) {
+    int pop(int escapedHandle) {
+        references.requireOwner();
         if (frames.size() == 1) throw new IllegalStateException("Cannot pop the JNI thread root frame");
         DvmObject<?> escaped = lookup(escapedHandle);
         try (JniReferenceRoot root = escaped == null ? null : references.retain(escaped)) {
@@ -87,7 +95,8 @@ final class JniLocalFrames {
         }
     }
 
-    synchronized void clear() {
+    void clear() {
+        references.requireOwner();
         ArrayList<Integer> removed = new ArrayList<>();
         for (ArrayList<Integer> frame : frames) removed.addAll(frame);
         frames.clear();

@@ -13,7 +13,7 @@ import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
-/** VM-wide opaque handles; local visibility is owned by a specific thread's frame stack. */
+/** Backend-thread-owned handles; guest local visibility is scoped to a thread's frame stack. */
 final class JniReferences implements AutoCloseable {
     private static final Logger log = LoggerFactory.getLogger(JniReferences.class);
 
@@ -41,6 +41,7 @@ final class JniReferences implements AutoCloseable {
         }
     }
 
+    private final Thread backendThread = Thread.currentThread();
     private final Map<Integer, Reference> handles = new HashMap<>();
     private final Map<Object, Root> roots = new IdentityHashMap<>();
     private final Function<DvmObject<?>, Object> identity;
@@ -53,7 +54,7 @@ final class JniReferences implements AutoCloseable {
         this(object -> object, object -> (DvmObject<?>) object, DvmObject::onDeleteRef);
     }
 
-    /** Host identity callbacks must not execute application Java or access guest memory. */
+    /** Callbacks run on the backend owner: identity bookkeeping or owned-resource disposal, never application Java. */
     JniReferences(Function<DvmObject<?>, Object> identity,
                   Function<Object, DvmObject<?>> materialize, Consumer<DvmObject<?>> dispose) {
         this.identity = Objects.requireNonNull(identity, "identity");
@@ -62,31 +63,24 @@ final class JniReferences implements AutoCloseable {
     }
 
     JniReferenceRoot retain(DvmObject<?> object) {
+        requireOpen();
         Objects.requireNonNull(object, "object");
         Object key = Objects.requireNonNull(identity.apply(object), "object identity");
-        synchronized (this) {
-            requireOpen();
-            Root root = roots.get(key);
-            JniReferenceRoot retained = new JniReferenceRoot(this, key, root == null ? object : root.object);
-            if (root == null) {
-                roots.put(key, new Root(object));
-            } else {
-                root.count++;
-            }
-            return retained;
+        Root root = roots.get(key);
+        JniReferenceRoot retained = new JniReferenceRoot(this, key, root == null ? object : root.object);
+        if (root == null) {
+            roots.put(key, new Root(object));
+        } else {
+            root.count++;
         }
+        return retained;
     }
 
     void releaseRoot(Object key, DvmObject<?> object) {
-        boolean last = false;
-        synchronized (this) {
-            Root root = roots.get(key);
-            if (root != null && root.object == object && --root.count == 0) {
-                roots.remove(key);
-                last = true;
-            }
-        }
-        if (last) {
+        requireOwner();
+        Root root = roots.get(key);
+        if (root != null && root.object == object && --root.count == 0) {
+            roots.remove(key);
             log.debug("event=jni_reference_object_unrooted reference_owner_id={}", System.identityHashCode(this));
             dispose.accept(object);
         }
@@ -101,17 +95,15 @@ final class JniReferences implements AutoCloseable {
     }
 
     private int newStrong(DvmObject<?> object, int kind, JniLocalFrames owner) {
+        requireOpen();
         if (object == null) return VM.JNI_NULL;
         JniReferenceRoot root = retain(object);
         try {
-            synchronized (this) {
-                requireOpen();
-                int handle = allocateHandle();
-                handles.put(handle, new Reference(kind, owner, root, null));
-                log.debug("event=jni_reference_created reference_owner_id={} handle={} kind={} guest_tid={}",
-                        System.identityHashCode(this), handle, kind, owner == null ? null : owner.tid());
-                return handle;
-            }
+            int handle = allocateHandle();
+            handles.put(handle, new Reference(kind, owner, root, null));
+            log.debug("event=jni_reference_created reference_owner_id={} handle={} kind={} guest_tid={}",
+                    System.identityHashCode(this), handle, kind, owner == null ? null : owner.tid());
+            return handle;
         } catch (RuntimeException | Error failure) {
             try {
                 root.close();
@@ -123,35 +115,34 @@ final class JniReferences implements AutoCloseable {
     }
 
     int newWeakGlobal(DvmObject<?> object) {
+        requireOpen();
         if (object == null) return VM.JNI_NULL;
         Object key = Objects.requireNonNull(identity.apply(object), "object identity");
-        synchronized (this) {
-            requireOpen();
-            int handle = allocateHandle();
-            handles.put(handle, new Reference(VM.JNIWeakGlobalRefType, null, null, new WeakReference<>(key)));
-            log.debug("event=jni_weak_reference_created reference_owner_id={} handle={}", System.identityHashCode(this), handle);
-            return handle;
-        }
+        int handle = allocateHandle();
+        handles.put(handle, new Reference(VM.JNIWeakGlobalRefType, null, null, new WeakReference<>(key)));
+        log.debug("event=jni_weak_reference_created reference_owner_id={} handle={}", System.identityHashCode(this), handle);
+        return handle;
     }
 
     DvmObject<?> lookup(int handle, JniLocalFrames owner) {
+        requireOpen();
         if (handle == VM.JNI_NULL) return null;
         Reference reference = visible(handle, owner);
         if (reference.strong != null) return reference.strong.object();
         Object key = reference.weak.get();
         if (key == null) return null;
-        synchronized (this) {
-            Root rooted = roots.get(key);
-            if (rooted != null) return rooted.object;
-        }
+        Root rooted = roots.get(key);
+        if (rooted != null) return rooted.object;
         return Objects.requireNonNull(materialize.apply(key), "materialized object");
     }
 
     int referenceType(int handle, JniLocalFrames owner) {
+        requireOpen();
         return handle == VM.JNI_NULL ? VM.JNIInvalidRefType : visible(handle, owner).kind;
     }
 
     boolean isSameObject(int first, int second, JniLocalFrames owner) {
+        requireOpen();
         return referentIdentity(first, owner) == referentIdentity(second, owner);
     }
 
@@ -161,7 +152,7 @@ final class JniReferences implements AutoCloseable {
         return reference.strong == null ? reference.weak.get() : identity.apply(reference.strong.object());
     }
 
-    private synchronized Reference visible(int handle, JniLocalFrames owner) {
+    private Reference visible(int handle, JniLocalFrames owner) {
         requireOpen();
         Reference reference = handles.get(handle);
         if (reference == null) throw new IllegalArgumentException("Unknown JNI reference: " + handle);
@@ -183,13 +174,11 @@ final class JniReferences implements AutoCloseable {
     }
 
     private void delete(int handle, int kind, JniLocalFrames owner) {
+        requireOpen();
         if (handle == VM.JNI_NULL) return;
-        Reference reference;
-        synchronized (this) {
-            reference = visible(handle, owner);
-            if (reference.kind != kind) throw new IllegalArgumentException("JNI reference has another kind: " + handle);
-            handles.remove(handle);
-        }
+        Reference reference = visible(handle, owner);
+        if (reference.kind != kind) throw new IllegalArgumentException("JNI reference has another kind: " + handle);
+        handles.remove(handle);
         if (reference.strong != null) reference.strong.close();
         log.debug("event=jni_reference_deleted reference_owner_id={} handle={} kind={}",
                 System.identityHashCode(this), handle, kind);
@@ -200,20 +189,25 @@ final class JniReferences implements AutoCloseable {
         return nextHandle++;
     }
 
+    void requireOwner() {
+        if (Thread.currentThread() != backendThread)
+            throw new IllegalStateException("JNI references require the backend owner thread");
+    }
+
     private void requireOpen() {
+        requireOwner();
         if (closed) throw new IllegalStateException("JNI references are closed");
     }
 
     @Override
     public void close() {
+        requireOwner();
+        if (closed) return;
         List<DvmObject<?>> objects = new ArrayList<>();
-        synchronized (this) {
-            if (closed) return;
-            closed = true;
-            for (Root root : roots.values()) objects.add(root.object);
-            handles.clear();
-            roots.clear();
-        }
+        closed = true;
+        for (Root root : roots.values()) objects.add(root.object);
+        handles.clear();
+        roots.clear();
         Throwable failure = null;
         for (DvmObject<?> object : objects) {
             try {

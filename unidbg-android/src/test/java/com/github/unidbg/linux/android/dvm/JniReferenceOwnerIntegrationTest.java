@@ -7,6 +7,7 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.concurrent.FutureTask;
 
 import static org.junit.Assert.*;
 
@@ -60,6 +61,37 @@ public class JniReferenceOwnerIntegrationTest {
             assertEquals(false, channel.isOpen());
         } finally {
             Files.delete(path);
+        }
+    }
+
+    @Test
+    public void hostCallbacksCannotAccessBackendReferenceOwners() throws Exception {
+        try (JniReferences references = new JniReferences()) {
+            JniLocalFrames locals = new JniLocalFrames(references, 104);
+            DvmObject<?> object = new DvmObject<>(null, new Object());
+            int local = locals.newLocal(object);
+            int weak = references.newWeakGlobal(object);
+            try (JniReferenceRoot root = references.retain(object)) {
+                FutureTask<Void> callback = new FutureTask<>(() -> {
+                    assertThrows(IllegalStateException.class, () -> references.newGlobal(object));
+                    assertThrows(IllegalStateException.class, () -> references.lookup(weak, locals));
+                    assertThrows(IllegalStateException.class, references::close);
+                    assertThrows(IllegalStateException.class, () -> locals.newLocal(object));
+                    assertThrows(IllegalStateException.class, locals::clear);
+                    assertThrows(IllegalStateException.class, root::object);
+                    assertThrows(IllegalStateException.class, root::close);
+                    return null;
+                });
+                Thread host = new Thread(callback, "jni-owner-contract-test");
+                host.start();
+                host.join();
+                callback.get();
+                assertSame(object, locals.lookup(local));
+                assertEquals(3, references.referenceType(weak, locals));
+                references.deleteWeakGlobal(weak);
+                locals.clear();
+                assertSame(object, root.object());
+            }
         }
     }
 

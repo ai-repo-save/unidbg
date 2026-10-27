@@ -32,15 +32,18 @@ public class Stdout extends SimpleFileIO {
         stdio = true;
     }
 
-    private boolean outputInitialized;
+    private Stdout(Stdout original) {
+        super(original);
+        err = original.err;
+        out = original.out;
+        callback = original.callback;
+    }
 
     @Override
     public int write(byte[] data) {
         try {
-            if (!outputInitialized) {
-                getMappingSource().truncate(0);
-                outputInitialized = true;
-            }
+            if (!isWritable()) return -com.github.unidbg.unix.UnixEmulator.EBADF;
+            startOutput();
             boolean enablePrint = true;
             if (callback != null) {
                 enablePrint = callback.notifyOut(data, err);
@@ -59,11 +62,12 @@ public class Stdout extends SimpleFileIO {
     }
 
     @Override
+    public FileIO reopen(int flags) {
+        throw new UnsupportedOperationException("Reopening a console capture is not a regular-file open");
+    }
+
+    @Override
     public FileIO dup2() {
-        Stdout dup = new Stdout(0, file, path, err, callback);
-        dup.debugStream = debugStream;
-        dup.op = op;
-        dup.oflags = oflags;
-        return dup;
+        return new Stdout(this);
     }
 }

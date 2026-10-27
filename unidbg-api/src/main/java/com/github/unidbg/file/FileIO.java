@@ -34,6 +34,9 @@ public interface FileIO {
 
     FileIO dup2();
 
+    /** Opens a new description of this held resource without resolving its old pathname. */
+    FileIO reopen(int flags);
+
     int connect(Pointer addr, int addrlen);
 
     int bind(Pointer addr, int addrlen);

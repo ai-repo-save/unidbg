@@ -1,6 +1,8 @@
 package com.github.unidbg.linux.file;
 
 import com.github.unidbg.Emulator;
+import com.github.unidbg.file.FileIO;
+import com.github.unidbg.unix.UnixEmulator;
 import com.github.unidbg.file.linux.LinuxFileSystem;
 import com.github.unidbg.linux.android.LogCatHandler;
 import com.github.unidbg.linux.android.LogCatLevel;
@@ -25,6 +27,7 @@ public class LogCatFileIO extends SimpleFileIO {
         super(oflags, file, path);
         this.emulator = emulator;
         this.type = path.substring(LOG_PATH_PREFIX.length());
+        byteArrayOutputStream = new ByteArrayOutputStream();
 
         if (log.isDebugEnabled()) {
             setDebugStream(System.out);
@@ -38,10 +41,26 @@ public class LogCatFileIO extends SimpleFileIO {
         getMappingSource().truncate(0);
     }
 
-    private final ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+    private final ByteArrayOutputStream byteArrayOutputStream;
+
+    private LogCatFileIO(LogCatFileIO original) {
+        super(original);
+        emulator = original.emulator;
+        type = original.type;
+        byteArrayOutputStream = original.byteArrayOutputStream;
+    }
+
+    @Override
+    public FileIO dup2() { return new LogCatFileIO(this); }
+
+    @Override
+    public FileIO reopen(int flags) {
+        throw new UnsupportedOperationException("Reopening a log capture is not a regular-file open");
+    }
 
     @Override
     public int write(byte[] data) {
+        if (!isWritable()) return -UnixEmulator.EBADF;
         try {
             byteArrayOutputStream.write(data);
 

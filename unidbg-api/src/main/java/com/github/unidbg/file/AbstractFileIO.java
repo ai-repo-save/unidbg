@@ -39,11 +39,8 @@ public abstract class AbstractFileIO implements NewFileIO {
             case F_GETFD:
                 return op;
             case F_SETFD:
-                if (FD_CLOEXEC == arg) {
-                    op |= FD_CLOEXEC;
-                    return 0;
-                }
-                break;
+                op = (int)arg & FD_CLOEXEC;
+                return 0;
             case F_GETFL:
                 return oflags;
             case F_SETFL:
@@ -188,6 +185,11 @@ public abstract class AbstractFileIO implements NewFileIO {
     @Override
     public FileIO dup2() {
         throw new AbstractMethodError(getClass().getName());
+    }
+
+    @Override
+    public FileIO reopen(int flags) {
+        throw new UnsupportedOperationException("Reopening a held resource is not implemented by " + getClass().getName());
     }
 
     @Override

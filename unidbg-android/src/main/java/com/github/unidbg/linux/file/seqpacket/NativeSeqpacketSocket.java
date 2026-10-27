@@ -151,7 +151,12 @@ final class NativeSeqpacketSocket extends BaseAndroidFileIO {
     public int fcntl(Emulator<?> emulator, int command, long argument) {
         if (command == LinuxSocketCalls.F_GETFL || command == LinuxSocketCalls.F_SETFL) {
             int result = LinuxSocketCalls.LIBC.fcntl(fd, command, (int) argument);
-            return result < 0 ? error(Native.getLastError()) : result;
+            int errno = result < 0 ? Native.getLastError() : 0;
+            if (command == LinuxSocketCalls.F_SETFL) {
+                log.debug("event=native_socket_flags_set pair={} host_fd={} flags={} result={} errno={}",
+                        pair, fd, argument, result, errno);
+            }
+            return result < 0 ? error(errno) : result;
         }
         if (command == 1) { // F_GETFD describes the guest descriptor, not the private host fd.
             return op;
@@ -166,7 +171,10 @@ final class NativeSeqpacketSocket extends BaseAndroidFileIO {
     @Override
     public int shutdown(int how) {
         int result = LinuxSocketCalls.LIBC.shutdown(fd, how);
-        return result < 0 ? error(Native.getLastError()) : result;
+        int errno = result < 0 ? Native.getLastError() : 0;
+        log.debug("event=native_socket_shutdown pair={} host_fd={} direction={} result={} errno={}",
+                pair, fd, how, result, errno);
+        return result < 0 ? error(errno) : result;
     }
 
     @Override

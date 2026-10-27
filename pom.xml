@@ -65,7 +65,6 @@
                         <exclude>**/JniReferenceOwnerIntegrationTest.java</exclude>
                         <exclude>**/JniPrimitiveLeaseIntegrationTest.java</exclude>
                         <exclude>**/JniArgumentAbiIntegrationTest.java</exclude>
-                        <exclude>**/JniCallPlanIntegrationTest.java</exclude>
                         <exclude>**/JniNonvirtualConstructionIntegrationTest.java</exclude>
                     </excludes>
                 </configuration>

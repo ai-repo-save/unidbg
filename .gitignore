@@ -56,3 +56,25 @@
 
 !/unidbg-android/src/main/java/com/github/unidbg/linux/file/seqpacket/
 !/unidbg-android/src/main/java/com/github/unidbg/linux/file/seqpacket/*.java
+
+!/unidbg-api/src/main/java/com/github/unidbg/arm/backend/HostMemoryBackend.java
+!/unidbg-api/src/main/java/com/github/unidbg/memory/mapping/
+!/unidbg-api/src/main/java/com/github/unidbg/memory/mapping/*.java
+!/unidbg-api/src/main/java/com/github/unidbg/thread/NativeCallFrame.java
+!/unidbg-api/src/main/java/com/github/unidbg/thread/NativeCallCompletion.java
+!/unidbg-api/src/main/java/com/github/unidbg/thread/DispatcherEventSource.java
+!/unidbg-api/src/main/java/com/github/unidbg/thread/ThreadLifecycleListener.java
+!/unidbg-android/src/main/java/com/github/unidbg/linux/android/dvm/JniThreadState.java
+!/unidbg-android/src/main/java/com/github/unidbg/linux/android/dvm/JniThreadRegistry.java
+!/unidbg-android/src/main/java/com/github/unidbg/linux/android/dvm/JniThreadResources.java
+!/unidbg-android/src/main/java/com/github/unidbg/linux/android/dvm/GuestJavaWaiter.java
+!/unidbg-android/src/main/java/com/github/unidbg/linux/android/dvm/host/
+!/unidbg-android/src/main/java/com/github/unidbg/linux/android/dvm/host/*.java
+!/unidbg-android/src/main/native/
+!/unidbg-android/src/main/native/jvm-monitor/
+!/unidbg-android/src/main/native/jvm-monitor/CMakeLists.txt
+!/unidbg-android/src/main/native/jvm-monitor/jvm-monitor.c
+!/unidbg-android/src/test/native/android/guest-monitor-runtime.c
+!/unidbg-android/src/test/java/com/github/unidbg/linux/android/dvm/GuestMonitorRuntimeIntegrationTest.java
+!/unidbg-android/src/test/java/com/github/unidbg/linux/NativeFileMappingIntegrationTest.java
+!/docs/native-jvm-monitors.md

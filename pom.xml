@@ -57,6 +57,8 @@
                 <configuration>
                     <excludes>
                         <exclude>**/NativeSeqpacketLifecycleIntegrationTest.java</exclude>
+                        <exclude>**/GuestMonitorRuntimeIntegrationTest.java</exclude>
+                        <exclude>**/NativeFileMappingIntegrationTest.java</exclude>
                     </excludes>
                 </configuration>
             </plugin>

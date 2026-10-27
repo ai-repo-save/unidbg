@@ -56,6 +56,12 @@
 
 !/unidbg-android/src/main/java/com/github/unidbg/linux/file/seqpacket/
 !/unidbg-android/src/main/java/com/github/unidbg/linux/file/seqpacket/*.java
+!/unidbg-android/src/main/java/com/github/unidbg/linux/file/socket/
+!/unidbg-android/src/main/java/com/github/unidbg/linux/file/socket/*.java
+!/unidbg-android/src/main/java/com/github/unidbg/linux/file/tcp/
+!/unidbg-android/src/main/java/com/github/unidbg/linux/file/tcp/*.java
+!/unidbg-android/src/test/java/com/github/unidbg/linux/NativeTcpLoopbackIntegrationTest.java
+!/unidbg-android/src/test/native/android/native-tcp.c
 
 !/unidbg-api/src/main/java/com/github/unidbg/arm/backend/HostMemoryBackend.java
 !/unidbg-api/src/main/java/com/github/unidbg/memory/mapping/

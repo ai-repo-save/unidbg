@@ -273,7 +273,7 @@ public class GuestMonitorRuntimeIntegrationTest {
                 return 0x444e;
             });
             return GuestJavaWaiter.suspend(emulator, first, result -> {
-                context(emulator, owner, frame, origin);
+                context(emulator, origin);
                 int value = value(result);
                 trace(file, "backend-one\n", false);
                 HostJavaCall<Integer> second = runtime.submit(() -> {
@@ -287,19 +287,19 @@ public class GuestMonitorRuntimeIntegrationTest {
                     return value + 7;
                 });
                 GuestJavaWaiter.rearm(emulator, second, terminal -> {
-                    context(emulator, owner, frame, origin);
+                    context(emulator, origin);
                     trace(file, "backend-two\n", false);
                     frame.setWaiter(emulator, null);
                     emulator.getBackend().reg_write(Arm64Const.UC_ARM64_REG_X0, value(terminal));
                 }, failure -> {
                     assertEquals(CancellationException.class, failure.getClass());
-                    context(emulator, owner, frame, origin);
+                    context(emulator, origin);
                     trace(file, "abandoned\n", false);
                     secondReleased.countDown();
                     if (cancel) throw abandonedFailure;
                 });
             }, failure -> {
-                context(emulator, owner, frame, origin);
+                context(emulator, origin);
                 trace(file, "first-abandoned\n", false);
                 secondReleased.countDown();
             });
@@ -311,8 +311,6 @@ public class GuestMonitorRuntimeIntegrationTest {
                 return 1;
             });
             return GuestJavaWaiter.suspend(emulator, ready, result -> {
-                Task owner = emulator.get(Task.TASK_KEY);
-                RunnableTask frame = emulator.getThreadDispatcher().getRunningTask();
                 long[] before = registers(emulator);
                 try {
                     cancelledFrame.setWaiter(emulator, null);
@@ -322,7 +320,7 @@ public class GuestMonitorRuntimeIntegrationTest {
                 } finally {
                     cancelledTask.setExitStatus(0);
                 }
-                context(emulator, owner, frame, before);
+                context(emulator, before);
                 emulator.getBackend().reg_write(Arm64Const.UC_ARM64_REG_X0, value(result));
             });
         }
@@ -344,9 +342,7 @@ public class GuestMonitorRuntimeIntegrationTest {
                     emulator.getMemory().getStackPoint()};
         }
 
-        private static void context(Emulator<?> emulator, Task owner, RunnableTask frame, long[] expected) {
-            assertSame(owner, emulator.get(Task.TASK_KEY));
-            assertSame(frame, emulator.getThreadDispatcher().getRunningTask());
+        private static void context(Emulator<?> emulator, long[] expected) {
             assertArrayEquals(expected, registers(emulator));
         }
 

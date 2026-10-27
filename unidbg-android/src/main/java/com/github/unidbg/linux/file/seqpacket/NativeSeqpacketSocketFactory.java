@@ -39,6 +39,17 @@ public final class NativeSeqpacketSocketFactory {
         };
     }
 
+    /** Duplicates the kernel endpoint while assigning waits to this factory and the target emulator. */
+    public AndroidFileIO duplicateFrom(AndroidFileIO source, Emulator<?> target) {
+        if (!target.is64Bit()) {
+            throw new UnsupportedOperationException("Native SEQPACKET requires the ARM64 guest ABI");
+        }
+        if (!(source instanceof NativeSeqpacketSocket)) {
+            throw new IllegalArgumentException("Source is not a native SEQPACKET socket");
+        }
+        return ((NativeSeqpacketSocket) source).duplicateTo(target, this);
+    }
+
     long register(SocketOperation operation) {
         pending.add(operation);
         return ++nextOperation;

@@ -45,9 +45,14 @@ final class NativeSeqpacketSocket extends BaseAndroidFileIO {
 
     @Override
     public FileIO dup2() {
+        return duplicateTo(emulator, owner);
+    }
+
+    NativeSeqpacketSocket duplicateTo(Emulator<?> target, NativeSeqpacketSocketFactory targetOwner) {
         int duplicate = LinuxSocketCalls.duplicate(fd);
-        log.debug("event=native_socket_duplicated pair={} host_fd={} duplicate_fd={}", pair, fd, duplicate);
-        return new NativeSeqpacketSocket(emulator, owner, pair, duplicate);
+        log.debug("event=native_socket_duplicated pair={} host_fd={} duplicate_fd={} source_emulator={} target_emulator={}",
+                pair, fd, duplicate, System.identityHashCode(emulator), System.identityHashCode(target));
+        return new NativeSeqpacketSocket(target, targetOwner, pair, duplicate);
     }
 
     private int error(int errno) {

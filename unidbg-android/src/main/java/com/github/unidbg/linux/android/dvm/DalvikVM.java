@@ -1380,6 +1380,8 @@ public class DalvikVM extends BaseVM implements VM {
 
         Pointer _AttachCurrentThread = JniThreadJniSupport.invocation(emulator, DalvikVM.this, "AttachCurrentThread");
 
+        Pointer _DetachCurrentThread = JniThreadJniSupport.invocation(emulator, DalvikVM.this, "DetachCurrentThread");
+
         Pointer _GetEnv = JniThreadJniSupport.invocation(emulator, DalvikVM.this, "GetEnv");
 
         UnidbgPointer _JNIInvokeInterface = svcMemory.allocate(emulator.getPointerSize() * 8, "_JNIInvokeInterface");
@@ -1387,6 +1389,7 @@ public class DalvikVM extends BaseVM implements VM {
             _JNIInvokeInterface.setInt(i, i);
         }
         _JNIInvokeInterface.setPointer(emulator.getPointerSize() * 4L, _AttachCurrentThread);
+        _JNIInvokeInterface.setPointer(emulator.getPointerSize() * 5L, _DetachCurrentThread);
         _JNIInvokeInterface.setPointer(emulator.getPointerSize() * 6L, _GetEnv);
 
         _JavaVM.setPointer(0, _JNIInvokeInterface);

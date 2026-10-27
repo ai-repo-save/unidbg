@@ -7,9 +7,10 @@ import com.github.unidbg.debugger.BreakPointCallback;
 import unicorn.UnicornConst;
 import unicorn.UnicornException;
 
+import java.nio.ByteBuffer;
 import java.util.Map;
 
-class Unicorn2Backend extends AbstractBackend implements Backend {
+class Unicorn2Backend extends AbstractBackend implements Backend, HostMemoryBackend {
 
     private final Emulator<?> emulator;
     private final boolean is64Bit;
@@ -104,6 +105,15 @@ class Unicorn2Backend extends AbstractBackend implements Backend {
             unicorn.mem_map(address, size, perms);
         } catch (UnicornException e) {
             throw new BackendException("mem_map address=0x" + Long.toHexString(address) + ", size=" + size + ", perms=0x" + Integer.toHexString(perms), e);
+        }
+    }
+
+    @Override
+    public void mem_map_host(long address, ByteBuffer buffer, int perms) throws BackendException {
+        try {
+            unicorn.mem_map_ptr(address, buffer, perms);
+        } catch (UnicornException e) {
+            throw new BackendException("mem_map_host address=0x" + Long.toHexString(address), e);
         }
     }
 

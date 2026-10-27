@@ -135,6 +135,19 @@ JNIEXPORT void JNICALL Java_com_github_unidbg_arm_backend_unicorn_Unicorn_mem_1m
   }
 }
 
+JNIEXPORT void JNICALL Java_com_github_unidbg_arm_backend_unicorn_Unicorn_mem_1map_1ptr
+  (JNIEnv *env, jclass cls, jlong handle, jlong address, jobject buffer, jint perms) {
+  t_unicorn unicorn = (t_unicorn) handle;
+  jlong size = (*env)->GetDirectBufferCapacity(env, buffer);
+  void *host = (*env)->GetDirectBufferAddress(env, buffer);
+  if (size <= 0 || host == NULL) {
+    throwException(env, UC_ERR_ARG);
+    return;
+  }
+  throwException(env, uc_mem_map_ptr(unicorn->uc, (uint64_t)address, (uint64_t)size,
+                                   (uint32_t)perms, host));
+}
+
 /*
  * Class:     com_github_unidbg_arm_backend_unicorn_Unicorn
  * Method:    reg_read

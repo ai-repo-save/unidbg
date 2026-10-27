@@ -95,6 +95,9 @@ JNIEXPORT void JNICALL Java_com_github_unidbg_arm_backend_unicorn_Unicorn_mem_1w
 JNIEXPORT void JNICALL Java_com_github_unidbg_arm_backend_unicorn_Unicorn_mem_1map
   (JNIEnv *, jclass, jlong, jlong, jlong, jint);
 
+JNIEXPORT void JNICALL Java_com_github_unidbg_arm_backend_unicorn_Unicorn_mem_1map_1ptr
+  (JNIEnv *, jclass, jlong, jlong, jobject, jint);
+
 /*
  * Class:     com_github_unidbg_arm_backend_unicorn_Unicorn
  * Method:    mem_protect

@@ -4,6 +4,7 @@ import com.github.unidbg.thread.ThreadContextSwitchException;
 import unicorn.UnicornConst;
 import unicorn.UnicornException;
 
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Hashtable;
@@ -237,6 +238,15 @@ public class Unicorn {
     }
 
     private static native void mem_map(long handle, long address, long size, int perms) throws UnicornException;
+
+    public void mem_map_ptr(long address, ByteBuffer buffer, int perms) throws UnicornException {
+        if (!buffer.isDirect() || buffer.isReadOnly()) {
+            throw new IllegalArgumentException("Host memory mapping requires a writable direct buffer");
+        }
+        mem_map_ptr(nativeHandle, address, buffer, perms);
+    }
+
+    private static native void mem_map_ptr(long handle, long address, ByteBuffer buffer, int perms) throws UnicornException;
 
     /**
      * Change permissions on a range of memory.

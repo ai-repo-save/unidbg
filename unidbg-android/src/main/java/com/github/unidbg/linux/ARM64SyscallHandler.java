@@ -27,6 +27,7 @@ import com.github.unidbg.linux.file.PipedSocketIO;
 import com.github.unidbg.linux.file.SocketIO;
 import com.github.unidbg.linux.file.TcpSocket;
 import com.github.unidbg.linux.file.UdpSocket;
+import com.github.unidbg.linux.file.seqpacket.NativeSeqpacketSocketFactory;
 import com.github.unidbg.linux.struct.RLimit64;
 import com.github.unidbg.linux.struct.Stat64;
 import com.github.unidbg.linux.thread.MarshmallowThread;
@@ -57,6 +58,13 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
     private static final Logger log = LoggerFactory.getLogger(ARM64SyscallHandler.class);
 
     private final SvcMemory svcMemory;
+    private final NativeSeqpacketSocketFactory seqpacketSockets = new NativeSeqpacketSocketFactory();
+
+    @Override
+    public void destroy() {
+        seqpacketSockets.destroy();
+        super.destroy();
+    }
 
     public ARM64SyscallHandler(SvcMemory svcMemory) {
         super();
@@ -190,6 +198,9 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
                     return;
                 case 63:
                     backend.reg_write(Arm64Const.UC_ARM64_REG_X0, read(backend, emulator));
+                    return;
+                case 23:
+                    backend.reg_write(Arm64Const.UC_ARM64_REG_X0, dup(emulator));
                     return;
                 case 24:
                     backend.reg_write(Arm64Const.UC_ARM64_REG_X0, dup3(emulator));
@@ -996,8 +1007,23 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
         }
         if (domain == SocketIO.AF_LOCAL) {
             switch (type) {
-                case SocketIO.SOCK_STREAM:
                 case SocketIO.SOCK_SEQPACKET: {
+                    AndroidFileIO[] pair = seqpacketSockets.createPair(emulator);
+                    if (pair == null) {
+                        return -emulator.getMemory().getLastErrno();
+                    }
+                    if ((context.getIntArg(1) & 0x80000) != 0) {
+                        pair[0].fcntl(emulator, 2, 1);
+                        pair[1].fcntl(emulator, 2, 1);
+                    }
+                    int fd0 = addFileIO(pair[0]);
+                    int fd1 = addFileIO(pair[1]);
+                    sv.setInt(0, fd0);
+                    sv.setInt(4, fd1);
+                    log.debug("event=native_socketpair_mapped guest_fds={},{} socket={}", fd0, fd1, pair[0].getPath());
+                    return 0;
+                }
+                case SocketIO.SOCK_STREAM: {
                     int fd0 = getMinFd();
                     PipedSocketIO one = new PipedSocketIO(emulator);
                     fdMap.put(fd0, one);
@@ -1575,6 +1601,15 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
         return read(emulator, fd, buffer, count);
     }
 
+    private int dup(Emulator<?> emulator) {
+        int oldfd = emulator.getContext().getIntArg(0);
+        FileIO file = fdMap.get(oldfd);
+        if (file == null) {
+            return -UnixEmulator.EBADF;
+        }
+        return addFileIO((AndroidFileIO) file.dup2());
+    }
+
     private int dup3(Emulator<?> emulator) {
         RegisterContext context = emulator.getContext();
         int oldfd = context.getIntArg(0);
@@ -1586,18 +1621,23 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
 
         FileIO old = fdMap.get(oldfd);
         if (old == null) {
-            emulator.getMemory().setErrno(UnixEmulator.EBADF);
-            return -1;
+            return -UnixEmulator.EBADF;
         }
 
-        if (oldfd == newfd) {
-            return newfd;
+        if (oldfd == newfd || (flags & ~0x80000) != 0) {
+            return -UnixEmulator.EINVAL;
+        }
+        if (newfd < 0) {
+            return -UnixEmulator.EBADF;
         }
         AndroidFileIO _new = fdMap.remove(newfd);
         if (_new != null) {
             _new.close();
         }
         _new = (AndroidFileIO) old.dup2();
+        if ((flags & 0x80000) != 0) {
+            _new.fcntl(emulator, 2, 1);
+        }
         fdMap.put(newfd, _new);
         return newfd;
     }

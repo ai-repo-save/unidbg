@@ -24,7 +24,11 @@ public abstract class BaseTask implements RunnableTask {
 
     @Override
     public void setWaiter(Emulator<?> emulator, Waiter waiter) {
+        Waiter previous = this.waiter;
         this.waiter = waiter;
+        if (previous != null && previous != waiter) {
+            previous.onDestroy(emulator);
+        }
 
         if (waiter != null &&
                 log.isTraceEnabled()) {
@@ -106,6 +110,7 @@ public abstract class BaseTask implements RunnableTask {
 
     @Override
     public void destroy(Emulator<?> emulator) {
+        setWaiter(emulator, null);
         Backend backend = emulator.getBackend();
 
         if (stackSpaceAllocIndex != -1) {

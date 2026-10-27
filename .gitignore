@@ -53,3 +53,6 @@
 !/docs/native-ipc.md
 !/unidbg-android/src/test/native/android/native-ipc.c
 !/unidbg-android/src/test/java/com/github/unidbg/linux/NativeSeqpacketLifecycleIntegrationTest.java
+
+!/unidbg-android/src/main/java/com/github/unidbg/linux/file/seqpacket/
+!/unidbg-android/src/main/java/com/github/unidbg/linux/file/seqpacket/*.java

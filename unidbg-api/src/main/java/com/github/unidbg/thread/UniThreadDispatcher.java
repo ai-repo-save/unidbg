@@ -1,6 +1,7 @@
 package com.github.unidbg.thread;
 
 import com.github.unidbg.AbstractEmulator;
+import com.github.unidbg.arm.backend.Backend;
 import com.github.unidbg.signal.SigSet;
 import com.github.unidbg.signal.SignalOps;
 import com.github.unidbg.signal.SignalTask;
@@ -127,7 +128,17 @@ public class UniThreadDispatcher implements ThreadDispatcher {
         if (timeout <= 0 || unit == null) {
             throw new IllegalArgumentException("Invalid timeout.");
         }
-        run(timeout, unit);
+        Backend backend = emulator.getBackend();
+        long context = backend.context_alloc();
+        backend.context_save(context);
+        long stack = emulator.getMemory().getStackPoint();
+        try {
+            run(timeout, unit);
+        } finally {
+            emulator.getMemory().setStackPoint(stack);
+            backend.context_restore(context);
+            backend.context_free(context);
+        }
     }
 
     private Number run(long timeout, TimeUnit unit) {
@@ -137,7 +148,7 @@ public class UniThreadDispatcher implements ThreadDispatcher {
                 if (taskList.isEmpty()) {
                     promotePendingThreads();
                     if (taskList.isEmpty()) {
-                        log.debug("event=thread_dispatch_completed reason=empty");
+                        log.debug("event=thread_dispatch_completed emulator={} reason=empty", System.identityHashCode(emulator));
                         return null;
                     }
                 }
@@ -203,14 +214,6 @@ public class UniThreadDispatcher implements ThreadDispatcher {
                             destroyTask(task);
                             throw failure;
                         }
-                    } else {
-                        if (log.isTraceEnabled() && task.isContextSaved()) {
-                            task.restoreContext(emulator);
-                            log.trace("Skip dispatch task={}", task);
-                            emulator.getUnwinder().unwind();
-                        } else {
-                            log.debug("Skip dispatch task={}", task);
-                        }
                     }
                 }
 
@@ -218,20 +221,15 @@ public class UniThreadDispatcher implements ThreadDispatcher {
 
                 if (timeout > 0 && unit != null &&
                         System.currentTimeMillis() - start >= unit.toMillis(timeout)) {
-                    log.debug("event=thread_dispatch_budget_exhausted active={} pending={}", taskList.size(), threadTaskList.size());
+                    log.debug("event=thread_dispatch_budget_exhausted emulator={} active={}", System.identityHashCode(emulator), taskList.size());
                     return null;
                 }
                 if (taskList.isEmpty()) {
-                    log.debug("event=thread_dispatch_completed reason=empty");
+                    log.debug("event=thread_dispatch_completed emulator={} reason=empty", System.identityHashCode(emulator));
                     return null;
                 }
 
-                if (log.isDebugEnabled()) {
-                    try {
-                        TimeUnit.SECONDS.sleep(1);
-                    } catch (InterruptedException ignored) {
-                    }
-                }
+                Thread.yield();
             }
         } finally {
             this.runningTask = null;
@@ -241,7 +239,7 @@ public class UniThreadDispatcher implements ThreadDispatcher {
 
     private void promotePendingThreads() {
         if (!threadTaskList.isEmpty()) {
-            log.debug("event=thread_dispatch_pending_promoted count={}", threadTaskList.size());
+            log.debug("event=thread_dispatch_pending_promoted emulator={} count={}", System.identityHashCode(emulator), threadTaskList.size());
         }
         Collections.reverse(threadTaskList);
         for (ThreadTask thread : threadTaskList) {

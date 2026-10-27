@@ -10,4 +10,7 @@ public interface Waiter {
     void onContinueRun(Emulator<?> emulator);
 
     void onSignal(SignalTask task);
+
+    default void onDestroy(Emulator<?> emulator) {
+    }
 }

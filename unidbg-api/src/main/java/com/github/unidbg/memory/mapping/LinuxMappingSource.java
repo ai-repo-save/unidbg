@@ -59,8 +59,9 @@ public final class LinuxMappingSource implements MappingSource {
         if ((stat.mode & LinuxMappingCalls.S_IFMT) != LinuxMappingCalls.S_IFREG) {
             throw new UnsupportedOperationException("File mapping requires a regular file");
         }
-        if (offset + length > stat.size) {
-            throw new UnsupportedOperationException("File mapping beyond EOF requires guest fault handling");
+        if (offset >= stat.size || (offset + length - 1) / LinuxMappingCalls.PAGE_SIZE >
+                (stat.size - 1) / LinuxMappingCalls.PAGE_SIZE) {
+            throw new UnsupportedOperationException("File mapping of pages beyond EOF requires guest fault handling");
         }
         return new LinuxMappedFileRegion(LinuxMappingCalls.map(fd, offset, length, shared),
                 length, id, offset, shared);

@@ -52,10 +52,10 @@ public class NativeFileMappingIntegrationTest {
         Path directory = Files.createTempDirectory(output, is64Bit ? "arm64-" : "arm32-");
         Path opened = directory.resolve("opened.bin").toAbsolutePath();
         Path retained = directory.resolve("retained.bin").toAbsolutePath();
-        byte[] expected = new byte[3 * PAGE];
+        byte[] expected = new byte[2 * PAGE + 19];
         Arrays.fill(expected, 0, PAGE, (byte) 0x31);
         Arrays.fill(expected, PAGE, 2 * PAGE, (byte) 0x72);
-        Arrays.fill(expected, 2 * PAGE, 3 * PAGE, (byte) 0x19);
+        Arrays.fill(expected, 2 * PAGE, expected.length, (byte) 0x19);
         Files.write(opened, expected);
         try (LinuxMappingSource source = LinuxMappingSource.open(opened, true);
              RandomAccessFile file = new RandomAccessFile(opened.toFile(), "rw")) {
@@ -65,13 +65,16 @@ public class NativeFileMappingIntegrationTest {
             Arrays.fill(replacement, (byte) 0x22);
             Files.write(opened, replacement);
             List<String> originalMappings = mappings(retained);
-            try (MappedFileRegion shared = source.map(0, 2L * PAGE, true);
+            try (LinuxMappingSource readonly = LinuxMappingSource.open(retained, false);
+                 MappedFileRegion shared = source.map(0, 2L * PAGE, true);
                  MappedFileRegion alias = source.map(PAGE, PAGE, true);
-                 MappedFileRegion privateRegion = source.map(PAGE, PAGE, false);
+                 MappedFileRegion privateRegion = readonly.map(PAGE, PAGE, false);
+                 MappedFileRegion tail = source.map(2L * PAGE, PAGE, true);
                  AndroidEmulator emulator = (is64Bit ? AndroidEmulatorBuilder.for64Bit() :
                          AndroidEmulatorBuilder.for32Bit()).addBackendFactory(new Unicorn2Factory(false)).build()) {
                 assertEquals(27, file.getFilePointer());
                 source.close();
+                readonly.close();
                 Backend backend = emulator.getBackend();
                 HostMemoryBackend host = (HostMemoryBackend) backend;
                 long first = 0x40000000L;
@@ -83,10 +86,17 @@ public class NativeFileMappingIntegrationTest {
                 host.mem_map_host(first, sharedBuffer, RW);
                 host.mem_map_host(second, alias.buffer(), RW);
                 host.mem_map_host(isolated, privateRegion.buffer(), RW);
+                host.mem_map_host(0x44000000L, tail.buffer(), RW);
                 backend.mem_map(0x43000000L, PAGE, UnicornConst.UC_PROT_ALL);
                 // STRB W1,[X0] / STRB R1,[R0], with no dependence on a guest libc.
                 backend.mem_write(0x43000000L, is64Bit ? new byte[] {1, 0, 0, 0x39} :
                         new byte[] {0, 0x10, (byte) 0xc0, (byte) 0xe5});
+                byte[] tailPage = new byte[PAGE];
+                Arrays.fill(tailPage, 0, 19, (byte) 0x19);
+                assertArrayEquals(tailPage, backend.mem_read(0x44000000L, PAGE));
+                store(backend, 0x44000000L + 100, 0x55);
+                tail.sync(0, PAGE, MappedFileRegion.MS_SYNC);
+                assertArrayEquals(expected, Files.readAllBytes(retained));
                 store(backend, isolated + 7, 0xc7);
                 privateRegion.sync(0, PAGE, MappedFileRegion.MS_SYNC);
                 assertArrayEquals(expected, Files.readAllBytes(retained));

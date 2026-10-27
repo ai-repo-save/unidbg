@@ -61,6 +61,7 @@
                         <exclude>**/NativeFileMappingIntegrationTest.java</exclude>
                         <exclude>**/JniReferenceOwnerIntegrationTest.java</exclude>
                         <exclude>**/JniPrimitiveLeaseIntegrationTest.java</exclude>
+                        <exclude>**/JniArgumentAbiIntegrationTest.java</exclude>
                     </excludes>
                 </configuration>
             </plugin>

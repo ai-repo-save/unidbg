@@ -26,15 +26,20 @@ All truncation of a bound file must use `MappingSource.truncate`. The mapping re
 
 Growth is supported. Shrinking is supported when every live region still ends on a page containing file data, including shrinking within the final mapped page. A shrink that would leave a whole mapped page beyond EOF raises `UnsupportedOperationException` before changing the host file. This protects the host process; it does not implement Linux guest SIGBUS semantics. Region leases cover their complete host views until release, including views retained by surviving guest slices.
 
-Executable host-backed file mappings and `mprotect` upgrades to executable permissions remain explicitly unsupported pending alias-aware JIT invalidation. Host-backed file `mremap` requires preservation of backing identity rather than anonymous copying. The existing int-sized mapping length interface remains in effect; file offsets are byte offsets represented as `long` values, with ARM32 mmap2 page offsets widened before shifting.
+Executable host-backed file mappings and `mprotect` upgrades to executable permissions remain explicitly unsupported pending alias-aware JIT invalidation. Host-backed file `mremap` is currently unsupported; it requires preservation of backing identity rather than anonymous copying. The existing int-sized mapping length interface remains in effect; file offsets are byte offsets represented as `long` values, with ARM32 mmap2 page offsets widened before shifting.
 
 ## Explicit integration validation
 
 `NativeFileMappingIntegrationTest` is opt-in and parameterized by ARM32/ARM64. It executes guest stores and Linux SVC calls, then independently reads files and host `/proc` resources. It covers shared aliases, file I/O coherence, private isolation, read-only guest descriptors, partial EOF pages, offsets above 4 GiB, mapping splits, synchronization, discard, descriptor closure, pathname replacement, safe resizing and shutdown release. The unsupported-truncation assertion checks the implementation boundary and host-file preservation, not Linux SIGBUS conformance.
 
-Use Linux x86_64 and JDK 21. Build the matching Unicorn2 JNI resource under `backend/unicorn2/target/generated-resources/natives/linux_64/` before running the test; an older packaged JNI library lacks the direct-buffer entry point. Build artifacts remain under `target` rather than replacing tracked native binaries.
+Use Linux x86_64 and JDK 21. Prepare the matching generated native resources through `scripts/release.py --build-only`, supplying the unchanged Unicorn 2.1.4 commit `8028ec436f2d9376525352dd38ed9ed6b9f6be10` and the collector's dependency classpath file. Preparation records an unpublished build identity and stages Unicorn2 under `backend/unicorn2/target/generated-resources/natives/linux_64/`. An older packaged JNI library lacks the direct-buffer entry point. Run the explicit test afterward without cleaning the generated resources.
 
 ```sh
+uv run --script scripts/release.py --build-only \
+  --java-home /usr/lib/jvm/java-21-openjdk-amd64 \
+  --unicorn-source /absolute/unchanged-unicorn-source \
+  --consumer-classpath-file /absolute/collector-runtime-dependencies.txt \
+  --offline
 ./mvnw -pl unidbg-android -am -Dmaven.test.skip=false \
   -Dtest=NativeFileMappingIntegrationTest -DfailIfNoTests=false test
 ```

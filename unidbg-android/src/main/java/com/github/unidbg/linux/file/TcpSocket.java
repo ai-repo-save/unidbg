@@ -5,7 +5,6 @@ import com.github.unidbg.Emulator;
 import com.github.unidbg.arm.backend.Backend;
 import com.github.unidbg.file.FileIO;
 import com.github.unidbg.file.linux.AndroidFileIO;
-import com.github.unidbg.linux.LinuxErrnoException;
 import com.github.unidbg.unix.UnixEmulator;
 import com.github.unidbg.utils.Inspector;
 import com.sun.jna.Pointer;
@@ -23,6 +22,7 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
 import java.util.Arrays;
+import java.util.function.ToIntFunction;
 
 public class TcpSocket extends SocketIO implements FileIO {
 
@@ -133,22 +133,27 @@ public class TcpSocket extends SocketIO implements FileIO {
     }
 
     @Override
-    public AndroidFileIO accept(Pointer addr, Pointer addrlen) {
+    public int accept(Pointer addr, Pointer addrlen, int flags, ToIntFunction<AndroidFileIO> installer) {
+        if (flags != 0) throw new UnsupportedOperationException("Java socket accept flags=" + flags);
         Socket accepted = null;
+        TcpSocket io = null;
+        boolean installed = false;
         try {
-            Socket socket = serverSocket.accept();
-            accepted = socket;
-            TcpSocket io = new TcpSocket(emulator, socket);
-            io.inputStream = new BufferedInputStream(socket.getInputStream());
-            io.outputStream = socket.getOutputStream();
-            if (addr != null) {
-                io.getpeername(addr, addrlen);
+            accepted = serverSocket.accept();
+            io = new TcpSocket(emulator, accepted);
+            io.inputStream = new BufferedInputStream(accepted.getInputStream());
+            io.outputStream = accepted.getOutputStream();
+            if (addr != null) io.getpeername(addr, addrlen);
+            int descriptor = installer.applyAsInt(io);
+            installed = descriptor >= 0;
+            return descriptor;
+        } catch (IOException failure) {
+            throw new IllegalStateException("Java socket accept does not expose native errno", failure);
+        } finally {
+            if (!installed) {
+                if (io != null) io.close();
+                else IOUtils.close(accepted);
             }
-            return io;
-        } catch (IOException e) {
-            IOUtils.close(accepted);
-            log.debug("accept failed", e);
-            throw new LinuxErrnoException(UnixEmulator.EAGAIN, e);
         }
     }
 

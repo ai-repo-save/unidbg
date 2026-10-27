@@ -25,7 +25,6 @@ import com.github.unidbg.linux.file.LocalAndroidUdpSocket;
 import com.github.unidbg.linux.file.LocalSocketIO;
 import com.github.unidbg.linux.file.NetLinkSocket;
 import com.github.unidbg.linux.file.SocketIO;
-import com.github.unidbg.linux.file.TcpSocket;
 import com.github.unidbg.linux.file.UdpSocket;
 import com.github.unidbg.linux.struct.Stat32;
 import com.github.unidbg.linux.struct.SysInfo32;
@@ -320,8 +319,10 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
                     backend.reg_write(ArmConst.UC_ARM_REG_R0, mremap(emulator));
                     return;
                 case 168:
-                case 336:
                     backend.reg_write(ArmConst.UC_ARM_REG_R0, poll(backend, emulator));
+                    return;
+                case 336:
+                    backend.reg_write(ArmConst.UC_ARM_REG_R0, ppoll(emulator));
                     return;
                 case 172:
                     backend.reg_write(ArmConst.UC_ARM_REG_R0, prctl(backend, emulator));
@@ -1045,23 +1046,7 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
     }
 
     private int dup(Emulator<?> emulator) {
-        Backend backend = emulator.getBackend();
-        int oldfd = backend.reg_read(ArmConst.UC_ARM_REG_R0).intValue();
-
-        FileIO io = fdMap.get(oldfd);
-        if (io == null) {
-            return -UnixEmulator.EBADF;
-        }
-        if (log.isDebugEnabled()) {
-            log.debug("dup oldfd={}, io={}", oldfd, io);
-        }
-        AndroidFileIO _new = (AndroidFileIO) io.dup2();
-        if (_new == null) {
-            throw new UnsupportedOperationException();
-        }
-        int newfd = getMinFd();
-        fdMap.put(newfd, _new);
-        return newfd;
+        return duplicate(emulator, emulator.getContext().getIntArg(0));
     }
 
     private int stat64(Emulator<AndroidFileIO> emulator) {
@@ -1095,86 +1080,15 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
     }
 
     private int newselect(Backend backend, Emulator<?> emulator) {
-        int nfds = backend.reg_read(ArmConst.UC_ARM_REG_R0).intValue();
-        Pointer readfds = UnidbgPointer.register(emulator, ArmConst.UC_ARM_REG_R1);
-        Pointer writefds = UnidbgPointer.register(emulator, ArmConst.UC_ARM_REG_R2);
-        Pointer exceptfds = UnidbgPointer.register(emulator, ArmConst.UC_ARM_REG_R3);
-        Pointer timeout = UnidbgPointer.register(emulator, ArmConst.UC_ARM_REG_R4);
-        int size = (nfds - 1) / 8 + 1;
-        if (log.isDebugEnabled()) {
-            log.debug("newselect nfds={}, readfds={}, writefds={}, exceptfds={}, timeout={}", nfds, readfds, writefds, exceptfds, timeout);
-            if (readfds != null) {
-                byte[] data = readfds.getByteArray(0, size);
-                Inspector.inspect(data, "readfds");
-            }
-            if (writefds != null) {
-                byte[] data = writefds.getByteArray(0, size);
-                Inspector.inspect(data, "writefds");
-            }
-        }
-        if (exceptfds != null) {
-            return -UnixEmulator.ENOMEM;
-        }
-        if (writefds != null) {
-            int count = select(nfds, writefds, readfds, false);
-            if (count > 0) {
-                return count;
-            }
-        }
-        if (readfds != null) {
-            int count = select(nfds, readfds, writefds, true);
-            if (count == 0) {
-                try {
-                    TimeUnit.SECONDS.sleep(1);
-                } catch (InterruptedException e) {
-                    throw new IllegalStateException(e);
-                }
-            }
-            return count;
-        }
-        throw new AbstractMethodError("newselect nfds=" + nfds + ", readfds=null, writefds=" + writefds + ", exceptfds=null, timeout=" + timeout);
+        Arm32RegisterContext context = emulator.getContext();
+        return selectDescriptors(emulator, context.getR0Int(), context.getR1Pointer(), context.getR2Pointer(),
+                context.getR3Pointer(), context.getR4Pointer(), true, null);
     }
 
     protected int pselect6(Emulator<?> emulator) {
         Arm32RegisterContext context = emulator.getContext();
-        int nfds = context.getIntArg(0);
-        Pointer readfds = context.getPointerArg(1);
-        Pointer writefds = context.getPointerArg(2);
-        Pointer exceptfds = context.getPointerArg(3);
-        Pointer timeout = context.getR4Pointer();
-        int size = (nfds - 1) / 8 + 1;
-        if (log.isDebugEnabled()) {
-            log.debug("pselect6 nfds={}, readfds={}, writefds={}, exceptfds={}, timeout={}, LR={}", nfds, readfds, writefds, exceptfds, timeout, context.getLRPointer());
-            if (readfds != null) {
-                byte[] data = readfds.getByteArray(0, size);
-                Inspector.inspect(data, "readfds");
-            }
-            if (writefds != null) {
-                byte[] data = writefds.getByteArray(0, size);
-                Inspector.inspect(data, "writefds");
-            }
-        }
-        if (exceptfds != null) {
-            return -UnixEmulator.ENOMEM;
-        }
-        if (writefds != null) {
-            int count = select(nfds, writefds, readfds, false);
-            if (count > 0) {
-                return count;
-            }
-        }
-        if (readfds != null) {
-            int count = select(nfds, readfds, writefds, true);
-            if (count == 0) {
-                try {
-                    TimeUnit.SECONDS.sleep(1);
-                } catch (InterruptedException e) {
-                    throw new IllegalStateException(e);
-                }
-            }
-            return count;
-        }
-        throw new AbstractMethodError("pselect6 nfds=" + nfds + ", readfds=null, writefds=" + writefds + ", exceptfds=null, timeout=" + timeout + ", LR=" + context.getLRPointer());
+        return selectDescriptors(emulator, context.getR0Int(), context.getR1Pointer(), context.getR2Pointer(),
+                context.getR3Pointer(), context.getR4Pointer(), false, context.getR5Pointer());
     }
 
     private int getpeername(Backend backend, Emulator<?> emulator) {
@@ -1193,35 +1107,11 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
         return io.getpeername(addr, addrlen);
     }
 
-    private static final short POLLIN = 0x0001;
-    private static final short POLLOUT = 0x0004;
-
     private int poll(Backend backend, Emulator<?> emulator) {
-        Pointer fds = UnidbgPointer.register(emulator, ArmConst.UC_ARM_REG_R0);
-        int nfds = backend.reg_read(ArmConst.UC_ARM_REG_R1).intValue();
-        int timeout = backend.reg_read(ArmConst.UC_ARM_REG_R2).intValue();
-        int count = 0;
-        for (int i = 0; i < nfds; i++) {
-            Pointer pollfd = fds.share(i * 8L);
-            int fd = pollfd.getInt(0);
-            short events = pollfd.getShort(4); // requested events
-            if (log.isDebugEnabled()) {
-                log.debug("poll fds={}, nfds={}, timeout={}, fd={}, events={}", fds, nfds, timeout, fd, events);
-            }
-            if (fd < 0) {
-                pollfd.setShort(6, (short) 0);
-            } else {
-                short revents = 0;
-                if ((events & POLLOUT) != 0) {
-                    revents = POLLOUT;
-                } else if ((events & POLLIN) != 0) {
-                    revents = POLLIN;
-                }
-                pollfd.setShort(6, revents); // returned events
-                count++;
-            }
-        }
-        return count;
+        Arm32RegisterContext context = emulator.getContext();
+        int timeout = context.getR2Int();
+        return pollDescriptors(emulator, context.getR0Pointer(), context.getR1Int(),
+                timeout < 0 ? -1 : TimeUnit.MILLISECONDS.toNanos(timeout));
     }
 
     private int mask = 0x12;
@@ -1399,18 +1289,7 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
         if (file == null) {
             return -UnixEmulator.EBADF;
         }
-        AndroidFileIO newIO;
-        try {
-            newIO = file.accept(addr, addrlen);
-        } catch (LinuxErrnoException failure) {
-            return -failure.getErrno();
-        }
-        if (newIO == null) {
-            throw new IllegalStateException("accept returned null without an errno");
-        }
-        int fd = getMinFd();
-        fdMap.put(fd, newIO);
-        return fd;
+        return file.accept(addr, addrlen, flags, this::addFileIO);
     }
 
     private int listen(Emulator<AndroidFileIO> emulator) {
@@ -1496,10 +1375,16 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
 
     private int socket(Backend backend, Emulator<?> emulator) {
         int domain = backend.reg_read(ArmConst.UC_ARM_REG_R0).intValue();
-        int type = backend.reg_read(ArmConst.UC_ARM_REG_R1).intValue() & 0x7ffff;
+        int originalType = backend.reg_read(ArmConst.UC_ARM_REG_R1).intValue();
+        int type = originalType & 0x7ffff;
         int protocol = backend.reg_read(ArmConst.UC_ARM_REG_R2).intValue();
         if (log.isDebugEnabled()) {
             log.debug("socket domain={}, type={}, protocol={}", domain, type, protocol);
+        }
+
+        if ((domain == SocketIO.AF_INET || domain == SocketIO.AF_INET6) &&
+                (originalType & ~(0x80000 | 0x800)) == SocketIO.SOCK_STREAM) {
+            return tcpSocket(emulator, domain, originalType, protocol);
         }
 
         if (protocol == SocketIO.IPPROTO_ICMP) {
@@ -1527,9 +1412,7 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
             case SocketIO.AF_INET6:
                 switch (type) {
                     case SocketIO.SOCK_STREAM:
-                        fd = getMinFd();
-                        fdMap.put(fd, new TcpSocket(emulator));
-                        return fd;
+                        return tcpSocket(emulator, domain, originalType, protocol);
                     case SocketIO.SOCK_DGRAM:
                         fd = getMinFd();
                         fdMap.put(fd, new UdpSocket(emulator));
@@ -2012,53 +1895,13 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
     }
 
     private int dup2(Backend backend, Emulator<?> emulator) {
-        int oldfd = backend.reg_read(ArmConst.UC_ARM_REG_R0).intValue();
-        int newfd = backend.reg_read(ArmConst.UC_ARM_REG_R1).intValue();
-        if (log.isDebugEnabled()) {
-            log.debug("dup2 oldfd={}, newfd={}", oldfd, newfd);
-        }
-
-        FileIO old = fdMap.get(oldfd);
-        if (old == null) {
-            return -UnixEmulator.EBADF;
-        }
-
-        if (oldfd == newfd) {
-            return newfd;
-        }
-        AndroidFileIO _new = fdMap.remove(newfd);
-        if (_new != null) {
-            _new.close();
-        }
-        _new = (AndroidFileIO) old.dup2();
-        fdMap.put(newfd, _new);
-        return newfd;
+        return duplicateTo(emulator, backend.reg_read(ArmConst.UC_ARM_REG_R0).intValue(),
+                backend.reg_read(ArmConst.UC_ARM_REG_R1).intValue(), 0, false);
     }
 
     private int dup3(Emulator<?> emulator) {
         RegisterContext context = emulator.getContext();
-        int oldfd = context.getIntArg(0);
-        int newfd = context.getIntArg(1);
-        int flags = context.getIntArg(2);
-        if (log.isDebugEnabled()) {
-            log.debug("dup3 oldfd={}, newfd={}, flags=0x{}", oldfd, newfd, Integer.toHexString(flags));
-        }
-
-        FileIO old = fdMap.get(oldfd);
-        if (old == null) {
-            return -UnixEmulator.EBADF;
-        }
-
-        if (oldfd == newfd) {
-            return newfd;
-        }
-        AndroidFileIO _new = fdMap.remove(newfd);
-        if (_new != null) {
-            _new.close();
-        }
-        _new = (AndroidFileIO) old.dup2();
-        fdMap.put(newfd, _new);
-        return newfd;
+        return duplicateTo(emulator, context.getIntArg(0), context.getIntArg(1), context.getIntArg(2), true);
     }
 
     @Override

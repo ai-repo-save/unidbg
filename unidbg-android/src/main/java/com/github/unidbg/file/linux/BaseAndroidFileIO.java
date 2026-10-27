@@ -4,6 +4,7 @@ import com.github.unidbg.Emulator;
 import com.github.unidbg.file.BaseFileIO;
 import com.github.unidbg.linux.struct.StatFS;
 import com.sun.jna.Pointer;
+import java.util.function.ToIntFunction;
 
 public abstract class BaseAndroidFileIO extends BaseFileIO implements AndroidFileIO {
 
@@ -22,7 +23,7 @@ public abstract class BaseAndroidFileIO extends BaseFileIO implements AndroidFil
     }
 
     @Override
-    public AndroidFileIO accept(Pointer addr, Pointer addrlen) {
+    public int accept(Pointer addr, Pointer addrlen, int flags, ToIntFunction<AndroidFileIO> installer) {
         throw new UnsupportedOperationException(getClass().getName());
     }
 

@@ -4,6 +4,7 @@ import com.github.unidbg.AbstractEmulator;
 import com.github.unidbg.Emulator;
 import com.github.unidbg.arm.backend.BackendException;
 import com.github.unidbg.arm.context.RegisterContext;
+import com.github.unidbg.arm.context.Arm32RegisterContext;
 import com.github.unidbg.file.FileResult;
 import com.github.unidbg.file.linux.AndroidFileIO;
 import com.github.unidbg.file.linux.IOConstants;
@@ -11,6 +12,8 @@ import com.github.unidbg.linux.file.DirectoryFileIO;
 import com.github.unidbg.linux.file.EventFD;
 import com.github.unidbg.linux.file.PipedReadFileIO;
 import com.github.unidbg.linux.file.PipedWriteFileIO;
+import com.github.unidbg.linux.file.socket.ReadinessOperation;
+import com.github.unidbg.linux.file.tcp.NativeTcpSocketFactory;
 import com.github.unidbg.linux.signal.SigAction;
 import com.github.unidbg.linux.signal.SignalFunction;
 import com.github.unidbg.linux.signal.SignalTask;
@@ -60,6 +63,127 @@ public abstract class AndroidSyscallHandler extends UnixSyscallHandler<AndroidFi
 
     private static final Logger log = LoggerFactory.getLogger(AndroidSyscallHandler.class);
     private static final AtomicLong REMAPS = new AtomicLong();
+    private final NativeTcpSocketFactory tcpSockets = new NativeTcpSocketFactory();
+
+    @Override
+    public void destroy() {
+        tcpSockets.destroy();
+        super.destroy();
+    }
+
+    protected final int tcpSocket(Emulator<?> emulator, int domain, int type, int protocol) {
+        try {
+            return addFileIO(tcpSockets.create(emulator, domain, type, protocol));
+        } catch (LinuxErrnoException failure) {
+            return -failure.getErrno();
+        }
+    }
+
+    protected final int duplicate(Emulator<?> emulator, int oldfd) {
+        AndroidFileIO old = fdMap.get(oldfd);
+        if (old == null) {
+            return -UnixEmulator.EBADF;
+        }
+        try {
+            return addFileIO((AndroidFileIO) old.dup2());
+        } catch (LinuxErrnoException failure) {
+            return -failure.getErrno();
+        }
+    }
+
+    protected final int duplicateTo(Emulator<?> emulator, int oldfd, int newfd, int flags, boolean dup3) {
+        if (dup3 && (oldfd == newfd || (flags & ~0x80000) != 0)) {
+            return -UnixEmulator.EINVAL;
+        }
+        AndroidFileIO old = fdMap.get(oldfd);
+        if (old == null || newfd < 0) {
+            return -UnixEmulator.EBADF;
+        }
+        if (oldfd == newfd) {
+            return newfd;
+        }
+        AndroidFileIO replacement;
+        try {
+            replacement = (AndroidFileIO) old.dup2();
+        } catch (LinuxErrnoException failure) {
+            return -failure.getErrno();
+        }
+        boolean installed = false;
+        try {
+            if ((flags & 0x80000) != 0) {
+                int result = replacement.fcntl(emulator, 2, 1);
+                if (result < 0) {
+                    return result;
+                }
+            }
+            AndroidFileIO previous = fdMap.put(newfd, replacement);
+            installed = true;
+            if (previous != null) {
+                previous.close();
+            }
+            log.debug("event=descriptor_duplicated emulator={} old_fd={} new_fd={} flags={}",
+                    System.identityHashCode(emulator), oldfd, newfd, flags);
+            return newfd;
+        } catch (LinuxErrnoException failure) {
+            return -failure.getErrno();
+        } finally {
+            if (!installed) {
+                replacement.close();
+            }
+        }
+    }
+
+    protected final int shutdown(Emulator<?> emulator) {
+        RegisterContext context = emulator.getContext();
+        int fd = context.getIntArg(0);
+        AndroidFileIO file = fdMap.get(fd);
+        return file == null ? -UnixEmulator.EBADF : file.shutdown(context.getIntArg(1));
+    }
+
+    protected final int pollDescriptors(Emulator<?> emulator, Pointer fds, int count, long timeout) {
+        return ReadinessOperation.poll(emulator, fdMap::get, fds, count, timeout, null);
+    }
+
+    protected final int ppoll(Emulator<?> emulator) {
+        RegisterContext context = emulator.getContext();
+        Pointer timeout = context.getPointerArg(2);
+        int maskSize = emulator.is64Bit() ? context.getIntArg(4) : ((Arm32RegisterContext) context).getR4Int();
+        int maskError = readinessMask(context.getPointerArg(3), maskSize);
+        if (maskError != 0) {
+            return maskError;
+        }
+        try {
+            return ReadinessOperation.poll(emulator, fdMap::get, context.getPointerArg(0), context.getIntArg(1),
+                    ReadinessOperation.duration(emulator, timeout, false), timeout);
+        } catch (LinuxErrnoException failure) {
+            return -failure.getErrno();
+        }
+    }
+
+    protected final int selectDescriptors(Emulator<?> emulator, int count, Pointer reads, Pointer writes,
+                                          Pointer exceptions, Pointer timeout, boolean timeval, Pointer signalArgument) {
+        if (signalArgument != null) {
+            long address = emulator.is64Bit() ? signalArgument.getLong(0) : Integer.toUnsignedLong(signalArgument.getInt(0));
+            long size = emulator.is64Bit() ? signalArgument.getLong(8) : Integer.toUnsignedLong(signalArgument.getInt(4));
+            int maskError = readinessMask(UnidbgPointer.pointer(emulator, address), size);
+            if (maskError != 0) {
+                return maskError;
+            }
+        }
+        return ReadinessOperation.select(emulator, fdMap::get, count, reads, writes, exceptions, timeout, timeval);
+    }
+
+    private int readinessMask(Pointer mask, long size) {
+        if (mask == null) {
+            return 0;
+        }
+        if (size != 8) {
+            return -UnixEmulator.EINVAL;
+        }
+        log.debug("event=native_readiness_rejected reason=temporary_signal_mask capability=unsupported mask=0x{}",
+                Long.toHexString(mask.getLong(0)));
+        throw new UnsupportedOperationException("Atomic temporary signal masks in ppoll/pselect are not implemented");
+    }
 
     @Override
     protected final int syscallError(Emulator<?> emulator, int errno) {
@@ -648,30 +772,6 @@ public abstract class AndroidSyscallHandler extends UnixSyscallHandler<AndroidFi
             log.info("mkdir pathname={}, mode={}", pathname, mode);
             return -UnixEmulator.EACCES;
         }
-    }
-
-    final int select(int nfds, Pointer checkfds, Pointer clearfds, boolean checkRead) {
-        int count = 0;
-        for (int i = 0; i < nfds; i++) {
-            int mask = checkfds.getInt(i / 32);
-            if (((mask >> i) & 1) == 1) {
-                AndroidFileIO io = fdMap.get(i);
-                if (!checkRead || io.canRead()) {
-                    count++;
-                } else {
-                    mask &= ~(1 << i);
-                    checkfds.setInt(i / 32, mask);
-                }
-            }
-        }
-        if (count > 0) {
-            if (clearfds != null) {
-                for (int i = 0; i < nfds; i++) {
-                    clearfds.setInt(i / 32, 0);
-                }
-            }
-        }
-        return count;
     }
 
     protected int sigaltstack(Emulator<?> emulator) {

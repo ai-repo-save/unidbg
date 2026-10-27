@@ -4,6 +4,7 @@ import com.github.unidbg.Emulator;
 import com.github.unidbg.file.NewFileIO;
 import com.github.unidbg.linux.struct.StatFS;
 import com.sun.jna.Pointer;
+import java.util.function.ToIntFunction;
 
 /**
  * Scalar operations return Linux kernel syscall results, including negative errno values.
@@ -19,8 +20,8 @@ public interface AndroidFileIO extends NewFileIO {
 
     int getdents64(Pointer dirp, int size);
 
-    /** @throws com.github.unidbg.linux.LinuxErrnoException when accept fails with a Linux errno */
-    AndroidFileIO accept(Pointer addr, Pointer addrlen);
+    /** Installer runs on the restored backend owner; returns a guest fd or raw negative errno. */
+    int accept(Pointer addr, Pointer addrlen, int flags, ToIntFunction<AndroidFileIO> installer);
 
     int statfs(StatFS statFS);
 }

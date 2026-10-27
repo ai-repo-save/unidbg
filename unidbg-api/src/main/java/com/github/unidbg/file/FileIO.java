@@ -51,6 +51,9 @@ public interface FileIO {
 
     long mmap2(Emulator<?> emulator, long addr, int aligned, int prot, long offset, int length) throws IOException;
 
+    /** Returns readiness revents without blocking the emulator owner thread. */
+    short poll(short events);
+
     boolean isReadable();
 
     boolean isWritable();

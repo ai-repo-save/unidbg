@@ -139,6 +139,11 @@ public abstract class AbstractFileIO implements NewFileIO {
     }
 
     @Override
+    public short poll(short events) {
+        throw new UnsupportedOperationException("Readiness is not implemented by " + getClass().getName());
+    }
+
+    @Override
     public boolean isReadable() {
         int access = oflags & 3;
         return access == 0 || access == 2;

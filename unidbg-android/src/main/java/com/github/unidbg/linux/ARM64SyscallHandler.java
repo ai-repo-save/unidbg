@@ -25,7 +25,6 @@ import com.github.unidbg.linux.file.LocalSocketIO;
 import com.github.unidbg.linux.file.NetLinkSocket;
 import com.github.unidbg.linux.file.PipedSocketIO;
 import com.github.unidbg.linux.file.SocketIO;
-import com.github.unidbg.linux.file.TcpSocket;
 import com.github.unidbg.linux.file.UdpSocket;
 import com.github.unidbg.linux.file.seqpacket.NativeSeqpacketSocketFactory;
 import com.github.unidbg.linux.struct.RLimit64;
@@ -48,7 +47,6 @@ import unicorn.Arm64Const;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 
 /**
  * <a href="http://androidxref.com/6.0.0_r5/xref/external/kernel-headers/original/uapi/asm-generic/unistd.h">unistd</a>
@@ -389,6 +387,9 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
                     return;
                 case 209:
                     backend.reg_write(Arm64Const.UC_ARM64_REG_X0, getsockopt(emulator));
+                    return;
+                case 210:
+                    backend.reg_write(Arm64Const.UC_ARM64_REG_X0, shutdown(emulator));
                     return;
                 case 228:
                     backend.reg_write(Arm64Const.UC_ARM64_REG_X0, mlock(emulator));
@@ -743,39 +744,6 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
         return io.getpeername(addr, addrlen);
     }
 
-    private static final short POLLIN = 0x0001;
-    private static final short POLLOUT = 0x0004;
-
-    private int ppoll(Emulator<?> emulator) {
-        RegisterContext context = emulator.getContext();
-        Pointer fds = context.getPointerArg(0);
-        int nfds = context.getIntArg(1);
-        Pointer tmo_p = context.getPointerArg(2);
-        Pointer sigmask = context.getPointerArg(3);
-        int count = 0;
-        for (int i = 0; i < nfds; i++) {
-            Pointer pollfd = fds.share(i * 8L);
-            int fd = pollfd.getInt(0);
-            short events = pollfd.getShort(4); // requested events
-            if (log.isDebugEnabled()) {
-                log.debug("ppoll fds={}, nfds={}, tmo_p={}, sigmask={}, fd={}, events={}", fds, nfds, tmo_p, sigmask, fd, events);
-            }
-            if (fd < 0) {
-                pollfd.setShort(6, (short) 0);
-            } else {
-                short revents = 0;
-                if ((events & POLLOUT) != 0) {
-                    revents = POLLOUT;
-                } else if ((events & POLLIN) != 0) {
-                    revents = POLLIN;
-                }
-                pollfd.setShort(6, revents); // returned events
-                count++;
-            }
-        }
-        return count;
-    }
-
     private int sigprocmask(Emulator<?> emulator) {
         RegisterContext context = emulator.getContext();
         int how = context.getIntArg(0);
@@ -809,44 +777,8 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
 
     private int pselect6(Emulator<?> emulator) {
         RegisterContext context = emulator.getContext();
-        int nfds = context.getIntArg(0);
-        Pointer readfds = context.getPointerArg(1);
-        Pointer writefds = context.getPointerArg(2);
-        Pointer exceptfds = context.getPointerArg(3);
-        Pointer timeout = context.getPointerArg(4);
-        int size = (nfds - 1) / 8 + 1;
-        if (log.isDebugEnabled()) {
-            log.debug("pselect6 nfds={}, readfds={}, writefds={}, exceptfds={}, timeout={}, LR={}", nfds, readfds, writefds, exceptfds, timeout, context.getLRPointer());
-            if (readfds != null) {
-                byte[] data = readfds.getByteArray(0, size);
-                Inspector.inspect(data, "readfds");
-            }
-            if (writefds != null) {
-                byte[] data = writefds.getByteArray(0, size);
-                Inspector.inspect(data, "writefds");
-            }
-        }
-        if (exceptfds != null) {
-            return -UnixEmulator.ENOMEM;
-        }
-        if (writefds != null) {
-            int count = select(nfds, writefds, readfds, false);
-            if (count > 0) {
-                return count;
-            }
-        }
-        if (readfds != null) {
-            int count = select(nfds, readfds, writefds, true);
-            if (count == 0) {
-                try {
-                    TimeUnit.SECONDS.sleep(1);
-                } catch (InterruptedException e) {
-                    throw new IllegalStateException(e);
-                }
-            }
-            return count;
-        }
-        throw new AbstractMethodError("pselect6 nfds=" + nfds + ", readfds=null, writefds=" + writefds + ", exceptfds=null, timeout=" + timeout + ", LR=" + context.getLRPointer());
+        return selectDescriptors(emulator, context.getIntArg(0), context.getPointerArg(1), context.getPointerArg(2),
+                context.getPointerArg(3), context.getPointerArg(4), false, context.getPointerArg(5));
     }
 
     private int recvfrom(Emulator<?> emulator) {
@@ -920,18 +852,7 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
         if (file == null) {
             return -UnixEmulator.EBADF;
         }
-        AndroidFileIO newIO;
-        try {
-            newIO = file.accept(addr, addrlen);
-        } catch (LinuxErrnoException failure) {
-            return -failure.getErrno();
-        }
-        if (newIO == null) {
-            throw new IllegalStateException("accept returned null without an errno");
-        }
-        int fd = getMinFd();
-        fdMap.put(fd, newIO);
-        return fd;
+        return file.accept(addr, addrlen, flags, this::addFileIO);
     }
 
     private int getsockopt(Emulator<?> emulator) {
@@ -1041,9 +962,15 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
     private int socket(Emulator<?> emulator) {
         RegisterContext context = emulator.getContext();
         int domain = context.getIntArg(0);
-        int type = context.getIntArg(1) & 0x7ffff;
+        int originalType = context.getIntArg(1);
+        int type = originalType & 0x7ffff;
         int protocol = context.getIntArg(2);
         log.debug("socket domain={}, type={}, protocol={}", domain, type, protocol);
+
+        if ((domain == SocketIO.AF_INET || domain == SocketIO.AF_INET6) &&
+                (originalType & ~(0x80000 | 0x800)) == SocketIO.SOCK_STREAM) {
+            return tcpSocket(emulator, domain, originalType, protocol);
+        }
 
         if (protocol == SocketIO.IPPROTO_ICMP) {
             throw new UnsupportedOperationException();
@@ -1070,9 +997,7 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
             case SocketIO.AF_INET6:
                 switch (type) {
                     case SocketIO.SOCK_STREAM:
-                        fd = getMinFd();
-                        fdMap.put(fd, new TcpSocket(emulator));
-                        return fd;
+                        return tcpSocket(emulator, domain, originalType, protocol);
                     case SocketIO.SOCK_DGRAM:
                         fd = getMinFd();
                         fdMap.put(fd, new UdpSocket(emulator));
@@ -1545,44 +1470,12 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
     }
 
     private int dup(Emulator<?> emulator) {
-        int oldfd = emulator.getContext().getIntArg(0);
-        FileIO file = fdMap.get(oldfd);
-        if (file == null) {
-            return -UnixEmulator.EBADF;
-        }
-        return addFileIO((AndroidFileIO) file.dup2());
+        return duplicate(emulator, emulator.getContext().getIntArg(0));
     }
 
     private int dup3(Emulator<?> emulator) {
         RegisterContext context = emulator.getContext();
-        int oldfd = context.getIntArg(0);
-        int newfd = context.getIntArg(1);
-        int flags = context.getIntArg(2);
-        if (log.isDebugEnabled()) {
-            log.debug("dup3 oldfd={}, newfd={}, flags=0x{}", oldfd, newfd, Integer.toHexString(flags));
-        }
-
-        FileIO old = fdMap.get(oldfd);
-        if (old == null) {
-            return -UnixEmulator.EBADF;
-        }
-
-        if (oldfd == newfd || (flags & ~0x80000) != 0) {
-            return -UnixEmulator.EINVAL;
-        }
-        if (newfd < 0) {
-            return -UnixEmulator.EBADF;
-        }
-        AndroidFileIO _new = fdMap.remove(newfd);
-        if (_new != null) {
-            _new.close();
-        }
-        _new = (AndroidFileIO) old.dup2();
-        if ((flags & 0x80000) != 0) {
-            _new.fcntl(emulator, 2, 1);
-        }
-        fdMap.put(newfd, _new);
-        return newfd;
+        return duplicateTo(emulator, context.getIntArg(0), context.getIntArg(1), context.getIntArg(2), true);
     }
 
     @Override

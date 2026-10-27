@@ -1,5 +1,6 @@
 package com.github.unidbg.linux.file.seqpacket;
 
+import com.github.unidbg.linux.file.socket.LinuxSocketCalls;
 import com.github.unidbg.Emulator;
 import com.github.unidbg.arm.backend.Backend;
 import com.github.unidbg.file.FileIO;
@@ -175,6 +176,11 @@ final class NativeSeqpacketSocket extends BaseAndroidFileIO {
         log.debug("event=native_socket_shutdown pair={} host_fd={} direction={} result={} errno={}",
                 pair, fd, how, result, errno);
         return result < 0 ? error(errno) : result;
+    }
+
+    @Override
+    public short poll(short events) {
+        return LinuxSocketCalls.poll(fd, events);
     }
 
     @Override

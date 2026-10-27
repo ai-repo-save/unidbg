@@ -4,6 +4,7 @@
 # dependencies = []
 # ///
 
+import hashlib
 import io
 import json
 import logging
@@ -12,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 from contextlib import redirect_stderr
 from pathlib import Path
 from unittest.mock import patch
@@ -79,16 +81,22 @@ class ReleaseIntegrationTest(unittest.TestCase):
             root = Path(directory)
             source = root / "Witness.java"
             source.write_text(
-                "public final class Witness { public static int value() { return 17; } }\n"
+                "public final class Witness { public static void main(String[] args) throws Exception { "
+                'try (java.io.InputStream input = Witness.class.getResourceAsStream("/resource.bin")) { '
+                "input.transferTo(System.out); } } }\n"
             )
             classes = root / "classes"
             classes.mkdir()
+            if "JAVA_HOME" not in os.environ:
+                raise ValueError(
+                    "Compiled identity integration requires JAVA_HOME pointing to JDK 21"
+                )
             java_home = Path(os.environ["JAVA_HOME"])
             subprocess.run(
                 [
                     str(java_home / "bin/javac"),
                     "--release",
-                    "8",
+                    "21",
                     "-d",
                     str(classes),
                     str(source),
@@ -117,24 +125,119 @@ class ReleaseIntegrationTest(unittest.TestCase):
             resource = next(
                 item for item in identity["files"] if item["path"] == "resource.bin"
             )
-            self.assertEqual(resource["bytes"], 3)
-            self.assertEqual(
-                resource["sha256"],
-                "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+            observed = subprocess.check_output(
+                [str(java_home / "bin/java"), "-cp", str(classes), "Witness"]
             )
+            self.assertEqual(observed, (classes / "resource.bin").read_bytes())
+            self.assertEqual(resource["sha256"], hashlib.sha256(observed).hexdigest())
             artifact = release.path_identity(jar)
             self.assertEqual(artifact["kind"], "file")
             self.assertEqual(artifact["bytes"], jar.stat().st_size)
-            (classes / "resource.bin").write_bytes(b"changed")
-            changed = release.path_identity(classes)
-            self.assertEqual(
-                next(
-                    item["bytes"]
-                    for item in changed["files"]
-                    if item["path"] == "resource.bin"
-                ),
-                7,
+            loaded = subprocess.check_output(
+                [str(java_home / "bin/java"), "-cp", str(jar), "Witness"]
             )
+            self.assertEqual(loaded, (classes / "resource.bin").read_bytes())
+
+    def test_existing_gav_is_refused_without_file_changes(self):
+        (release.ROOT / "target").mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(
+            prefix="release-gav-test-", dir=release.ROOT / "target"
+        ) as directory:
+            root = Path(directory)
+            repository, cache = root / "repository", root / "cache"
+            expected = {}
+            for destination in (repository, cache):
+                artifact = destination / "fixture/group/module/1/module-1.jar"
+                artifact.parent.mkdir(parents=True)
+                artifact.write_bytes(b"published bytes")
+                expected[artifact] = artifact.read_bytes()
+            for destination in (repository, cache):
+                with self.assertRaises(ValueError):
+                    release.require_new_coordinates(
+                        "fixture.group",
+                        "1",
+                        [("module", [".pom", ".jar"])],
+                        (destination,),
+                    )
+            self.assertEqual({path: path.read_bytes() for path in expected}, expected)
+
+    def test_native_jar_bytes_match_generated_resource(self):
+        (release.ROOT / "target").mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(
+            prefix="release-native-test-", dir=release.ROOT / "target"
+        ) as directory:
+            root = Path(directory)
+            generated = root / "libbridge.so"
+            generated.write_bytes(b"generated native resource bytes")
+            resource = "natives/linux_64/libbridge.so"
+            jar = root / "module.jar"
+            expected = [
+                {
+                    "artifact_id": "module",
+                    "resource": resource,
+                    "sha256": release.digest(generated),
+                    "bytes": generated.stat().st_size,
+                }
+            ]
+            with zipfile.ZipFile(jar, "w") as archive:
+                archive.write(generated, resource)
+            release.verify_packaged_native({"module": jar}, expected)
+            with zipfile.ZipFile(jar) as archive:
+                self.assertEqual(archive.read(resource), generated.read_bytes())
+            with zipfile.ZipFile(jar, "w") as archive:
+                archive.writestr(resource, b"stale resource bytes")
+            with self.assertRaises(ValueError):
+                release.verify_packaged_native({"module": jar}, expected)
+
+    def test_changed_source_persists_after_and_diff(self):
+        (release.ROOT / "target").mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(
+            prefix="source-identity-test-", dir=release.ROOT / "target"
+        ) as directory:
+            root = Path(directory)
+            source = root / "source"
+            subprocess.run(
+                [
+                    "git",
+                    "clone",
+                    "--shared",
+                    "--sparse",
+                    str(release.ROOT),
+                    str(source),
+                ],
+                check=True,
+                stdout=subprocess.DEVNULL,
+            )
+            subprocess.run(
+                ["git", "-C", str(source), "sparse-checkout", "set", "scripts"],
+                check=True,
+            )
+            output = root / "evidence"
+            output.mkdir()
+            with patch.object(release, "ROOT", source):
+                before = release.source_identity()
+                changed = source / "scripts/release.py"
+                changed.write_bytes(
+                    changed.read_bytes() + b"\n# source-change witness\n"
+                )
+                with self.assertRaises(ValueError):
+                    release.verify_source_snapshot(before, output)
+                after = json.loads((output / "source-after.json").read_text())
+                self.assertEqual(after, release.source_identity())
+                differences = json.loads((output / "source-changes.json").read_text())
+                self.assertEqual(
+                    differences["files"],
+                    {
+                        "scripts/release.py": {
+                            "before": before["files"]["scripts/release.py"],
+                            "after": after["files"]["scripts/release.py"],
+                        }
+                    },
+                )
+                self.assertEqual(
+                    (output / "source-after.patch").read_text(),
+                    release.git("diff", "--binary", "HEAD") + "\n",
+                )
 
     def test_probe_failures_preserve_original_output(self):
         target = release.ROOT / "target"

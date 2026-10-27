@@ -17,6 +17,7 @@ import subprocess
 import sys
 import uuid
 import xml.etree.ElementTree as ET
+import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -123,6 +124,14 @@ def reactor():
     for module in [ROOT, *reactor_modules()]:
         model = ET.parse(module / "pom.xml").getroot()
         artifact = model.findtext("m:artifactId", namespaces=NS)
+        if module != ROOT:
+            parent = model.find("m:parent", NS)
+            if (
+                parent is None
+                or parent.findtext("m:groupId", namespaces=NS) != group
+                or parent.findtext("m:version", namespaces=NS) != version
+            ):
+                raise ValueError(f"Reactor parent coordinates differ: {module}")
         packaging = model.findtext("m:packaging", default="jar", namespaces=NS)
         extensions = [".pom"]
         if packaging == "jar":
@@ -169,6 +178,40 @@ def source_identity():
     }
 
 
+def verify_source_snapshot(before, output):
+    after = source_identity()
+    (output / "source-after.json").write_text(json.dumps(after, indent=2) + "\n")
+    if after != before:
+        names = set(before["files"]) | set(after["files"])
+        changed = {
+            name: {
+                "before": before["files"].get(name),
+                "after": after["files"].get(name),
+            }
+            for name in sorted(names)
+            if before["files"].get(name) != after["files"].get(name)
+        }
+        (output / "source-changes.json").write_text(
+            json.dumps(
+                {
+                    "files": changed,
+                    "commit_before": before["commit"],
+                    "commit_after": after["commit"],
+                    "status_before": before["status"],
+                    "status_after": after["status"],
+                },
+                indent=2,
+            )
+            + "\n"
+        )
+        (output / "source-after.patch").write_text(
+            git("diff", "--binary", "HEAD") + "\n"
+        )
+        raise ValueError(
+            "Source changed during the exclusive compilation/publication window"
+        )
+
+
 def native_build(args, env, output, commands):
     if platform.system() != "Linux" or platform.machine() != "x86_64":
         raise ValueError("Native preparation is defined for Linux x86_64")
@@ -187,60 +230,59 @@ def native_build(args, env, output, commands):
     monitor_resources = (
         ROOT / "unidbg-android/target/generated-resources/natives/linux_64"
     )
-    commands.extend(
+    native_commands = [
         [
-            [
-                "cmake",
-                "-S",
-                str(upstream),
-                "-B",
-                str(engine),
-                "-DCMAKE_BUILD_TYPE=Release",
-                "-DCMAKE_POSITION_INDEPENDENT_CODE=ON",
-                "-DUNICORN_ARCH=arm;aarch64",
-                "-DUNICORN_BUILD_TESTS=OFF",
-            ],
-            [
-                "cmake",
-                "--build",
-                str(engine),
-                "--target",
-                "unicorn_archive",
-                "--parallel",
-                str(args.jobs),
-            ],
-            [
-                "cmake",
-                "-S",
-                str(ROOT / "backend/unicorn2/src/main/native"),
-                "-B",
-                str(glue),
-                f"-DUNICORN_HOME={upstream}",
-                f"-DUNICORN_BUILD={engine}",
-            ],
-            ["cmake", "--build", str(glue), "--parallel", str(args.jobs)],
-            [
-                "cmake",
-                "-S",
-                str(ROOT / "unidbg-android/src/main/native/jvm-monitor"),
-                "-B",
-                str(monitor),
-                "-DCMAKE_BUILD_TYPE=Release",
-                f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={monitor_resources}",
-            ],
-            [
-                "cmake",
-                "--build",
-                str(monitor),
-                "--target",
-                "unidbg_jvm_monitor",
-                "--parallel",
-                str(args.jobs),
-            ],
-        ]
-    )
-    for command in commands[-6:]:
+            "cmake",
+            "-S",
+            str(upstream),
+            "-B",
+            str(engine),
+            "-DCMAKE_BUILD_TYPE=Release",
+            "-DCMAKE_POSITION_INDEPENDENT_CODE=ON",
+            "-DUNICORN_ARCH=arm;aarch64",
+            "-DUNICORN_BUILD_TESTS=OFF",
+        ],
+        [
+            "cmake",
+            "--build",
+            str(engine),
+            "--target",
+            "unicorn_archive",
+            "--parallel",
+            str(args.jobs),
+        ],
+        [
+            "cmake",
+            "-S",
+            str(ROOT / "backend/unicorn2/src/main/native"),
+            "-B",
+            str(glue),
+            f"-DUNICORN_HOME={upstream}",
+            f"-DUNICORN_BUILD={engine}",
+        ],
+        ["cmake", "--build", str(glue), "--parallel", str(args.jobs)],
+        [
+            "cmake",
+            "-S",
+            str(ROOT / "unidbg-android/src/main/native/jvm-monitor"),
+            "-B",
+            str(monitor),
+            "-DCMAKE_BUILD_TYPE=Release",
+            f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={monitor_resources}",
+        ],
+        [
+            "cmake",
+            "--build",
+            str(monitor),
+            "--target",
+            "unidbg_jvm_monitor",
+            "--parallel",
+            str(args.jobs),
+        ],
+    ]
+    for command in native_commands:
         run(command, env, output)
+        commands.append(command)
     destination = (
         ROOT
         / "backend/unicorn2/target/generated-resources/natives/linux_64/libunicorn.so"
@@ -279,7 +321,7 @@ def prepared_native_resources():
     return resources
 
 
-def build_only(args, run_id, raw_log):
+def build_only(args, run_id, raw_log, *, emit=True):
     if args.unicorn_source is None or args.consumer_classpath_file is None:
         raise ValueError(
             "--build-only requires --unicorn-source and --consumer-classpath-file"
@@ -302,6 +344,9 @@ def build_only(args, run_id, raw_log):
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         source = source_identity()
         (output / "source-before.json").write_text(json.dumps(source, indent=2) + "\n")
+        (output / "source-before.patch").write_text(
+            git("diff", "--binary", "HEAD") + "\n"
+        )
         java = run(
             [str(args.java_home / "bin/java"), "-XshowSettings:properties", "-version"],
             env,
@@ -353,14 +398,14 @@ def build_only(args, run_id, raw_log):
         dependencies.extend(consumer.read_text().strip().split(os.pathsep))
         cp = [item["path"] for item in components] + list(dict.fromkeys(dependencies))
         identities = [path_identity(path) for path in cp]
-        if source_identity() != source:
-            raise ValueError("Source changed during the exclusive compilation window")
+        verify_source_snapshot(source, output)
         manifest = {
             "schema_version": 1,
             "kind": "build",
             "published": False,
             "version": version,
             "run_id": run_id,
+            "evidence_directory": str(output),
             "source": source,
             "platform": {"system": platform.system(), "machine": platform.machine()},
             "java": java,
@@ -380,19 +425,57 @@ def build_only(args, run_id, raw_log):
             "build.prepared",
             extra={"context": {"identity": str(identity_file), "published": False}},
         )
-        print(
-            json.dumps(
-                {
-                    "identity_file": str(identity_file),
-                    "classpath_file": str(output / "classpath.txt"),
-                    "published": False,
-                }
+        if emit:
+            print(
+                json.dumps(
+                    {
+                        "identity_file": str(identity_file),
+                        "classpath_file": str(output / "classpath.txt"),
+                        "published": False,
+                    }
+                )
             )
-        )
+        return manifest
+
+
+def require_new_coordinates(group, version, artifacts, repositories):
+    for repository in repositories:
+        for artifact, extensions in artifacts:
+            root = repository / group.replace(".", "/") / artifact / version
+            if any(
+                (root / f"{artifact}-{version}{extension}").exists()
+                for extension in extensions
+            ):
+                raise ValueError(
+                    f"Refusing to overwrite existing Maven coordinate: {group}:{artifact}:{version} in {repository}"
+                )
+
+
+def verify_packaged_native(jars, resources):
+    identities = []
+    for resource in resources:
+        jar = jars[resource["artifact_id"]]
+        with zipfile.ZipFile(jar) as archive:
+            data = archive.read(resource["resource"])
+        if (
+            hashlib.sha256(data).hexdigest() != resource["sha256"]
+            or len(data) != resource["bytes"]
+        ):
+            raise ValueError(
+                f"Packaged native resource differs from the tested build: {jar}:{resource['resource']}"
+            )
+        identities.append({"jar": str(jar), **resource})
+    return identities
 
 
 def release(args, run_id, raw_log):
     require_clean_source()
+    group, version, artifacts = reactor()
+    repository = (args.repository or ROOT / "target" / f"release-{version}").resolve()
+    if not repository.is_relative_to(ROOT / "target") or repository == ROOT / "target":
+        raise ValueError("Release repository must be a subdirectory of project target/")
+    local_repository = args.maven_local_repository.resolve()
+    require_new_coordinates(group, version, artifacts, (repository, local_repository))
     baseline = git("rev-parse", "--verify", args.baseline + "^{commit}")
     subprocess.run(
         ["git", "merge-base", "--is-ancestor", baseline, "HEAD"],
@@ -408,35 +491,22 @@ def release(args, run_id, raw_log):
         "release_tree": git("rev-parse", "HEAD^{tree}"),
         "commit_url": f"https://github.com/ai-repo-save/unidbg/tree/{source_commit}",
     }
-    repository = args.repository.resolve()
-    if not repository.is_relative_to(ROOT / "target") or repository == ROOT / "target":
-        raise ValueError("Release repository must be a subdirectory of project target/")
     env = os.environ.copy()
     env["JAVA_HOME"] = str(args.java_home.resolve())
     env["PATH"] = str(args.java_home.resolve() / "bin") + os.pathsep + env["PATH"]
-    java = run(
-        [
-            str(args.java_home.resolve() / "bin/java"),
-            "-XshowSettings:properties",
-            "-version",
-        ],
-        env,
-        raw_log,
-        capture=True,
-    )
-    if "java.specification.version = 21\n" not in java:
-        raise ValueError("Release requires JDK 21")
-    local_repository = args.maven_local_repository.resolve()
+    build = build_only(args, run_id + "-prepare", raw_log, emit=False)
+    java = build["java"]
     maven = [str(ROOT / "mvnw"), "-B", f"-Dmaven.repo.local={local_repository}"]
+    if args.offline:
+        maven.append("-o")
     LOGGER.info(
         "release.started",
         extra={
             "context": {"source": source, "repository": str(repository), "java": java}
         },
     )
-    maven_version = run(maven + ["--version"], env, raw_log, capture=True)
-    commands = [clean_command(maven)]
-    run(commands[-1], env, raw_log)
+    maven_version = build["maven"]
+    commands = list(build["commands"])
     reports = []
     for test in TESTS:
         command = maven + [
@@ -471,6 +541,16 @@ def release(args, run_id, raw_log):
                 "path": report.relative_to(ROOT).as_posix(),
             }
         )
+    command = maven + ["-Dgpg.skip=true", "package"]
+    commands.append(command)
+    run(command, env, raw_log)
+    module_jars = {
+        artifact: ROOT / module / "target" / f"{artifact}-{version}.jar"
+        for artifact, module in COMPONENTS.items()
+    }
+    packaged_native = verify_packaged_native(module_jars, build["native_resources"])
+    verify_source_snapshot(build["source"], Path(build["evidence_directory"]))
+    require_new_coordinates(group, version, artifacts, (repository, local_repository))
     command = maven + [
         "-Dgpg.skip=true",
         "install",
@@ -479,8 +559,18 @@ def release(args, run_id, raw_log):
     ]
     commands.append(command)
     run(command, env, raw_log)
+    verify_source_snapshot(build["source"], Path(build["evidence_directory"]))
     require_clean_source()
-    group, version, artifacts = reactor()
+    for destination in (repository, local_repository):
+        jars = {
+            artifact: destination
+            / group.replace(".", "/")
+            / artifact
+            / version
+            / f"{artifact}-{version}.jar"
+            for artifact in COMPONENTS
+        }
+        verify_packaged_native(jars, build["native_resources"])
     gavs = []
     files = []
     for artifact, extensions in artifacts:
@@ -495,6 +585,37 @@ def release(args, run_id, raw_log):
             files.append(relative.as_posix())
     (repository / "LICENSE").write_bytes((ROOT / "LICENSE").read_bytes())
     files.append("LICENSE")
+    components = [
+        {
+            "group_id": group,
+            "artifact_id": artifact,
+            "version": version,
+            "path": str(
+                repository
+                / group.replace(".", "/")
+                / artifact
+                / version
+                / f"{artifact}-{version}.jar"
+            ),
+        }
+        for artifact in COMPONENTS
+    ]
+    old_paths = {item["path"] for item in build["components"]}
+    cp = [item["path"] for item in components] + [
+        path for path in build["classpath"] if path not in old_paths
+    ]
+    identity = {
+        **build,
+        "kind": "release",
+        "published": True,
+        "components": components,
+        "classpath": cp,
+        "classpath_identity": [path_identity(path) for path in cp],
+        "tests": reports,
+    }
+    identity_file = repository / "release-identity.json"
+    identity_file.write_text(json.dumps(identity, indent=2) + "\n")
+    files.append("release-identity.json")
     manifest = {
         "run_id": run_id,
         "source": source,
@@ -505,6 +626,8 @@ def release(args, run_id, raw_log):
         "coordinates": gavs,
         "maven_local_repository": str(local_repository),
         "files": files,
+        "native_packaging": packaged_native,
+        "artifact_identities": [file_identity(repository / path) for path in files],
     }
     manifest_path = repository / "release-manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
@@ -524,7 +647,7 @@ def release(args, run_id, raw_log):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Build, verify, install and release the committed unidbg fork locally."
+        description="Prepare an unpublished native-backed build by default; publish only with explicit --release approval."
     )
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument(
@@ -569,8 +692,7 @@ def main():
     parser.add_argument(
         "--repository",
         type=Path,
-        default=ROOT / "target/release-0.13.2",
-        help="Maven-layout repository under project target/ (created or reused)",
+        help="New Maven-layout coordinates under target/ (default: target/release-<POM version>)",
     )
     parser.add_argument(
         "--maven-local-repository",

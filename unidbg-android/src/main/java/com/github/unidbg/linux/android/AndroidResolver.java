@@ -8,7 +8,6 @@ import com.github.unidbg.file.FileSystem;
 import com.github.unidbg.file.IOResolver;
 import com.github.unidbg.file.linux.AndroidFileIO;
 import com.github.unidbg.hook.InlineHook;
-import com.github.unidbg.linux.file.ByteArrayFileIO;
 import com.github.unidbg.linux.file.DirectoryFileIO;
 import com.github.unidbg.linux.file.LogCatFileIO;
 import com.github.unidbg.linux.file.SimpleFileIO;
@@ -18,8 +17,10 @@ import com.github.unidbg.spi.LibraryFile;
 import com.github.unidbg.spi.SyscallHandler;
 import com.github.unidbg.unix.ThreadJoinVisitor;
 import com.github.unidbg.utils.ResourceUtils;
+import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.FilenameUtils;
-import org.apache.commons.io.IOUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
@@ -35,6 +36,8 @@ import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 
 public class AndroidResolver implements LibraryResolver, IOResolver<AndroidFileIO> {
+
+    private static final Logger log = LoggerFactory.getLogger(AndroidResolver.class);
 
     private final int sdk;
     private final List<String> needed;
@@ -115,13 +118,13 @@ public class AndroidResolver implements LibraryResolver, IOResolver<AndroidFileI
         String androidResource = FilenameUtils.normalize("/android/sdk" + sdk + "/" + path, true);
         URL url = getClass().getResource(androidResource);
         if (url != null) {
-            return FileResult.fallback(createFileIO(url, path, oflags));
+            return FileResult.fallback(createFileIO(url, fileSystem, path, oflags));
         }
 
         return null;
     }
 
-    private AndroidFileIO createFileIO(URL url, String pathname, int oflags) {
+    private AndroidFileIO createFileIO(URL url, FileSystem<AndroidFileIO> fileSystem, String pathname, int oflags) {
         File file = ResourceUtils.toFile(url);
         if (file != null) {
             return createFileIO(file, pathname, oflags);
@@ -155,8 +158,12 @@ public class AndroidResolver implements LibraryResolver, IOResolver<AndroidFileI
                         }
                         return new DirectoryFileIO(oflags, pathname, list.toArray(new DirectoryFileIO.DirectoryEntry[0]));
                     } else {
-                        byte[] data = IOUtils.toByteArray(inputStream);
-                        return new ByteArrayFileIO(oflags, pathname, data);
+                        File backing = new File(fileSystem.createWorkDir(), entry.getName());
+                        if (!backing.exists()) {
+                            FileUtils.copyInputStreamToFile(inputStream, backing);
+                            log.debug("event=classpath_resource_materialized resource={} file={}", url, backing);
+                        }
+                        return createFileIO(backing, pathname, oflags);
                     }
                 } else {
                     throw new IllegalStateException(connection.getClass().getName());

@@ -287,7 +287,7 @@ int tcp_send_blocking(int family, int port, const unsigned char *bytes, int size
     return result < 0 ? -error : result;
 }
 
-static int linger_fd, linger_mode, linger_notified;
+static int linger_fd, linger_notified;
 static void (*linger_callback)(void);
 int tcp_linger_results[3];
 
@@ -312,18 +312,15 @@ int tcp_linger_prepare(int family, int port) {
 }
 
 static void *linger_notify(void *unused) {
-    if (linger_mode) {
-        struct linger current = {-1, -1};
-        socklen_t size = sizeof(current);
-        tcp_linger_results[2] = getsockopt(linger_fd, SOL_SOCKET, SO_LINGER, &current, &size) ? -errno : current.l_onoff;
-    }
+    struct linger current = {-1, -1};
+    socklen_t size = sizeof(current);
+    tcp_linger_results[2] = getsockopt(linger_fd, SOL_SOCKET, SO_LINGER, &current, &size) ? -errno : current.l_onoff;
     linger_callback();
     linger_notified = 1;
     return NULL;
 }
 
 int tcp_linger_finish(int mode, void (*notify)(void)) {
-    linger_mode = mode;
     linger_notified = 0;
     linger_callback = notify;
     memset(tcp_linger_results, 0, sizeof(tcp_linger_results));

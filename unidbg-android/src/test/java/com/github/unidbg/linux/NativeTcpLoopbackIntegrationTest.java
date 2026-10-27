@@ -172,7 +172,7 @@ public class NativeTcpLoopbackIntegrationTest {
                     Future<byte[]> peerBytes = lingerPeer(host, server, transferred, drain);
                     Pointer notify = callback(emulator, drain::countDown);
                     assertEquals(0, module.callFunction(emulator, "tcp_linger_finish", mode, notify).intValue());
-                    assertArrayEquals(new int[] {0, 1, 0}, module.findSymbolByName("tcp_linger_results")
+                    assertArrayEquals(new int[] {0, 1, mode == 0 ? -9 : 0}, module.findSymbolByName("tcp_linger_results")
                             .createPointer(emulator).getIntArray(0, 3));
                     assertArrayEquals(lingerPayload(transferred), peerBytes.get(3, TimeUnit.SECONDS));
                 }

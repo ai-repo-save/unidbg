@@ -59,6 +59,7 @@
                         <exclude>**/NativeSeqpacketLifecycleIntegrationTest.java</exclude>
                         <exclude>**/GuestMonitorRuntimeIntegrationTest.java</exclude>
                         <exclude>**/NativeFileMappingIntegrationTest.java</exclude>
+                        <exclude>**/AnonymousRemapIntegrationTest.java</exclude>
                         <exclude>**/JniReferenceOwnerIntegrationTest.java</exclude>
                         <exclude>**/JniPrimitiveLeaseIntegrationTest.java</exclude>
                         <exclude>**/JniArgumentAbiIntegrationTest.java</exclude>

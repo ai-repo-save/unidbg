@@ -2,6 +2,7 @@ package com.github.unidbg.file;
 
 import com.github.unidbg.Emulator;
 import com.github.unidbg.arm.backend.Backend;
+import com.github.unidbg.memory.mapping.MappingSource;
 import com.github.unidbg.utils.Inspector;
 import com.sun.jna.Pointer;
 import org.slf4j.Logger;
@@ -125,7 +126,7 @@ public abstract class AbstractFileIO implements NewFileIO {
     }
 
     @Override
-    public final long mmap2(Emulator<?> emulator, long addr, int aligned, int prot, int offset, int length) throws IOException {
+    public final long mmap2(Emulator<?> emulator, long addr, int aligned, int prot, long offset, int length) throws IOException {
         Backend backend = emulator.getBackend();
         byte[] data = getMmapData(addr, offset, length);
         backend.mem_map(addr, aligned, prot);
@@ -133,8 +134,25 @@ public abstract class AbstractFileIO implements NewFileIO {
         return addr;
     }
 
-    protected byte[] getMmapData(long addr, int offset, int length) throws IOException {
+    protected byte[] getMmapData(long addr, long offset, int length) throws IOException {
         throw new AbstractMethodError(getClass().getName() + ", addr=0x" + Long.toHexString(addr) + ", offset=" + offset + ", length=" + length);
+    }
+
+    @Override
+    public boolean isReadable() {
+        int access = oflags & 3;
+        return access == 0 || access == 2;
+    }
+
+    @Override
+    public boolean isWritable() {
+        int access = oflags & 3;
+        return access == 1 || access == 2;
+    }
+
+    @Override
+    public MappingSource getMappingSource() {
+        return null;
     }
 
     @Override

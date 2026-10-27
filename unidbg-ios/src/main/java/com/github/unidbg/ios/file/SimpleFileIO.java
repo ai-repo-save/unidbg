@@ -124,11 +124,11 @@ public class SimpleFileIO extends BaseDarwinFileIO implements FileIO {
     }
 
     @Override
-    protected byte[] getMmapData(long addr, int offset, int length) throws IOException {
+    protected byte[] getMmapData(long addr, long offset, int length) throws IOException {
         RandomAccessFile randomAccessFile = checkOpenFile();
         randomAccessFile.seek(offset);
-        int remaining = (int) (randomAccessFile.length() - randomAccessFile.getFilePointer());
-        ByteArrayOutputStream baos = remaining <= 0 ? new ByteArrayOutputStream() : new ByteArrayOutputStream(Math.min(length, remaining));
+        long remaining = randomAccessFile.length() - randomAccessFile.getFilePointer();
+        ByteArrayOutputStream baos = remaining <= 0 ? new ByteArrayOutputStream() : new ByteArrayOutputStream(Math.toIntExact(Math.min(length, remaining)));
         byte[] buf = new byte[1024];
         do {
             int count = length - baos.size();

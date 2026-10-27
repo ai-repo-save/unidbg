@@ -9,21 +9,23 @@ import com.github.unidbg.file.NewFileIO;
 import com.github.unidbg.file.linux.BaseAndroidFileIO;
 import com.github.unidbg.file.linux.IOConstants;
 import com.github.unidbg.file.linux.StatStructure;
+import com.github.unidbg.linux.LinuxErrnoException;
+import com.github.unidbg.memory.mapping.HostMappingException;
+import com.github.unidbg.memory.mapping.LinuxMappingSource;
+import com.github.unidbg.memory.mapping.MappingSource;
+import com.github.unidbg.unix.UnixEmulator;
 import com.github.unidbg.unix.IO;
 import com.github.unidbg.utils.Inspector;
 import com.sun.jna.Pointer;
-import org.apache.commons.io.FileUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.BufferedOutputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.RandomAccessFile;
-import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 
 public class SimpleFileIO extends BaseAndroidFileIO implements NewFileIO {
@@ -32,22 +34,11 @@ public class SimpleFileIO extends BaseAndroidFileIO implements NewFileIO {
 
     protected final File file;
     protected final String path;
-    private RandomAccessFile _randomAccessFile;
+    private final RandomAccessFile _randomAccessFile;
+    private final MappingSource mappingSource;
 
-    private synchronized RandomAccessFile checkOpenFile() {
-        try {
-            if (_randomAccessFile == null) {
-                FileUtils.forceMkdir(file.getParentFile());
-                if (!file.exists() && !file.createNewFile()) {
-                    throw new IOException("createNewFile failed: " + file);
-                }
-                _randomAccessFile = new RandomAccessFile(file, "rws");
-                onFileOpened(_randomAccessFile);
-            }
-            return _randomAccessFile;
-        } catch (IOException e) {
-            throw new IllegalStateException(e);
-        }
+    private RandomAccessFile checkOpenFile() {
+        return _randomAccessFile;
     }
 
     public SimpleFileIO(int oflags, File file, String path) {
@@ -61,6 +52,26 @@ public class SimpleFileIO extends BaseAndroidFileIO implements NewFileIO {
         if (!file.exists()) {
             throw new IllegalArgumentException("file not exists: " + file);
         }
+        MappingSource source = null;
+        RandomAccessFile opened = null;
+        try {
+            source = LinuxMappingSource.open(file.toPath(), true);
+            opened = new RandomAccessFile(file, "rws");
+            mappingSource = source;
+            _randomAccessFile = opened;
+            onFileOpened(opened);
+        } catch (IOException error) {
+            IOUtils.close(opened);
+            IOUtils.close(source);
+            if (error instanceof HostMappingException) {
+                throw new LinuxErrnoException(((HostMappingException) error).getErrno(), error);
+            }
+            throw new IllegalStateException("Opening file resource: " + file, error);
+        } catch (RuntimeException | Error failure) {
+            IOUtils.close(opened);
+            IOUtils.close(source);
+            throw failure;
+        }
     }
 
     void onFileOpened(RandomAccessFile randomAccessFile) throws IOException {
@@ -69,6 +80,11 @@ public class SimpleFileIO extends BaseAndroidFileIO implements NewFileIO {
     @Override
     public void close() {
         IOUtils.close(_randomAccessFile);
+        try {
+            mappingSource.close();
+        } catch (IOException error) {
+            throw new IllegalStateException("Closing file mapping source: " + file, error);
+        }
 
         if (debugStream != null) {
             try {
@@ -127,21 +143,25 @@ public class SimpleFileIO extends BaseAndroidFileIO implements NewFileIO {
         stat.st_mode = st_mode;
         stat.st_uid = 0;
         stat.st_gid = 0;
-        stat.st_size = file.length();
+        try {
+            stat.st_size = _randomAccessFile.length();
+        } catch (IOException error) {
+            throw new IllegalStateException("Reading file size: " + path, error);
+        }
         stat.st_blksize = emulator.getPageAlign();
         stat.st_ino = 1;
-        stat.st_blocks = ((file.length() + emulator.getPageAlign() - 1) / emulator.getPageAlign());
+        stat.st_blocks = ((stat.st_size + emulator.getPageAlign() - 1) / emulator.getPageAlign());
         stat.setLastModification(file.lastModified());
         stat.pack();
         return 0;
     }
 
     @Override
-    protected byte[] getMmapData(long addr, int offset, int length) throws IOException {
+    protected byte[] getMmapData(long addr, long offset, int length) throws IOException {
         RandomAccessFile randomAccessFile = checkOpenFile();
         randomAccessFile.seek(offset);
-        int remaining = (int) (randomAccessFile.length() - randomAccessFile.getFilePointer());
-        ByteArrayOutputStream baos = remaining <= 0 ? new ByteArrayOutputStream() : new ByteArrayOutputStream(Math.min(length, remaining));
+        long remaining = randomAccessFile.length() - randomAccessFile.getFilePointer();
+        ByteArrayOutputStream baos = remaining <= 0 ? new ByteArrayOutputStream() : new ByteArrayOutputStream(Math.toIntExact(Math.min(length, remaining)));
         byte[] buf = new byte[1024];
         do {
             int count = length - baos.size();
@@ -161,6 +181,11 @@ public class SimpleFileIO extends BaseAndroidFileIO implements NewFileIO {
             baos.write(buf, 0, read);
         } while (true);
         return baos.toByteArray();
+    }
+
+    @Override
+    public MappingSource getMappingSource() {
+        return mappingSource;
     }
 
     @Override
@@ -231,11 +256,16 @@ public class SimpleFileIO extends BaseAndroidFileIO implements NewFileIO {
 
     @Override
     public int ftruncate(int length) {
-        try (FileChannel channel = new FileOutputStream(file, true).getChannel()) {
-            channel.truncate(length);
+        if (length < 0 || !isWritable()) {
+            return -UnixEmulator.EINVAL;
+        }
+        try {
+            mappingSource.truncate(length);
             return 0;
-        } catch (IOException e) {
-            throw new IllegalStateException("ftruncate failed: " + file, e);
+        } catch (HostMappingException error) {
+            return -error.getErrno();
+        } catch (IOException error) {
+            throw new IllegalStateException("ftruncate failed: " + file, error);
         }
     }
 

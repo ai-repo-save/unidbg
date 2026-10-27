@@ -35,7 +35,7 @@ public class LogCatFileIO extends SimpleFileIO {
     void onFileOpened(RandomAccessFile randomAccessFile) throws IOException {
         super.onFileOpened(randomAccessFile);
 
-        randomAccessFile.getChannel().truncate(0);
+        getMappingSource().truncate(0);
     }
 
     private final ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();

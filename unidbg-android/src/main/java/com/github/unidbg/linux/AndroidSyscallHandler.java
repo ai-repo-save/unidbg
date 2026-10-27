@@ -66,6 +66,15 @@ public abstract class AndroidSyscallHandler extends UnixSyscallHandler<AndroidFi
     protected final void clearErrnoOnSuccess(Emulator<?> emulator) {
     }
 
+    @Override
+    protected final FileResult<AndroidFileIO> resolve(Emulator<AndroidFileIO> emulator, String pathname, int oflags) {
+        try {
+            return super.resolve(emulator, pathname, oflags);
+        } catch (LinuxErrnoException failure) {
+            return FileResult.failed(failure.getErrno());
+        }
+    }
+
     static final int MREMAP_MAYMOVE = 1;
     static final int MREMAP_FIXED = 2;
 

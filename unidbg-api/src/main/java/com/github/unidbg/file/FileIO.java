@@ -2,6 +2,7 @@ package com.github.unidbg.file;
 
 import com.github.unidbg.Emulator;
 import com.github.unidbg.arm.backend.Backend;
+import com.github.unidbg.memory.mapping.MappingSource;
 import com.sun.jna.Pointer;
 
 import java.io.IOException;
@@ -48,7 +49,13 @@ public interface FileIO {
 
     int getsockname(Pointer addr, Pointer addrlen);
 
-    long mmap2(Emulator<?> emulator, long addr, int aligned, int prot, int offset, int length) throws IOException;
+    long mmap2(Emulator<?> emulator, long addr, int aligned, int prot, long offset, int length) throws IOException;
+
+    boolean isReadable();
+
+    boolean isWritable();
+
+    MappingSource getMappingSource();
 
     int llseek(long offset, Pointer result, int whence);
 

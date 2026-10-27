@@ -106,7 +106,7 @@ public class JarEntryFileIO extends BaseDarwinFileIO {
     }
 
     @Override
-    protected byte[] getMmapData(long addr, int offset, int length) {
+    protected byte[] getMmapData(long addr, long offset, int length) {
         try (JarFile jarFile = new JarFile(this.jarFile); InputStream inputStream = jarFile.getInputStream(entry)) {
             if (offset == 0 && length == entry.getSize()) {
                 return IOUtils.toByteArray(inputStream);

@@ -1,7 +1,7 @@
 package com.github.unidbg.linux.file;
 
-import com.alibaba.fastjson.util.IOUtils;
 import com.github.unidbg.file.FileIO;
+import com.github.unidbg.memory.mapping.HostMappingException;
 import com.github.unidbg.file.StdoutCallback;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -9,7 +9,6 @@ import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.io.IOException;
 import java.io.PrintStream;
-import java.io.RandomAccessFile;
 
 public class Stdout extends SimpleFileIO {
 
@@ -33,25 +32,14 @@ public class Stdout extends SimpleFileIO {
         stdio = true;
     }
 
-    @Override
-    public void close() {
-        super.close();
-
-        IOUtils.close(output);
-    }
-
-    private RandomAccessFile output;
+    private boolean outputInitialized;
 
     @Override
     public int write(byte[] data) {
         try {
-            if (output == null) {
-                output = new RandomAccessFile(file, "rw");
-                output.getChannel().truncate(0);
-            }
-
-            if (debugStream != null) {
-                debugStream.write(data);
+            if (!outputInitialized) {
+                getMappingSource().truncate(0);
+                outputInitialized = true;
             }
             boolean enablePrint = true;
             if (callback != null) {
@@ -62,36 +50,9 @@ public class Stdout extends SimpleFileIO {
                 out.flush();
             }
 
-            output.write(data);
-            return data.length;
-        } catch (IOException e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
-    @Override
-    public int lseek(int offset, int whence) {
-        try {
-            switch (whence) {
-                case FileIO.SEEK_SET:
-                    output.seek(offset);
-                    return (int) output.getFilePointer();
-                case FileIO.SEEK_CUR:
-                    output.seek(output.getFilePointer() + offset);
-                    return (int) output.getFilePointer();
-            }
-        } catch (IOException e) {
-            throw new IllegalStateException(e);
-        }
-
-        return super.lseek(offset, whence);
-    }
-
-    @Override
-    public int ftruncate(int length) {
-        try {
-            output.getChannel().truncate(length);
-            return 0;
+            return super.write(data);
+        } catch (HostMappingException error) {
+            return -error.getErrno();
         } catch (IOException e) {
             throw new IllegalStateException(e);
         }

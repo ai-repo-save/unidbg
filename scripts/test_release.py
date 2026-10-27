@@ -217,26 +217,58 @@ class ReleaseIntegrationTest(unittest.TestCase):
             with patch.object(release, "ROOT", source):
                 before = release.source_identity()
                 changed = source / "scripts/release.py"
+                before_hash = hashlib.sha256(changed.read_bytes()).hexdigest()
                 changed.write_bytes(
                     changed.read_bytes() + b"\n# source-change witness\n"
                 )
+                after_hash = hashlib.sha256(changed.read_bytes()).hexdigest()
                 with self.assertRaises(ValueError):
                     release.verify_source_snapshot(before, output)
                 after = json.loads((output / "source-after.json").read_text())
-                self.assertEqual(after, release.source_identity())
+                self.assertEqual(after["files"]["scripts/release.py"], after_hash)
+                self.assertEqual(
+                    after["commit"],
+                    subprocess.check_output(
+                        ["git", "-C", str(source), "rev-parse", "HEAD"], text=True
+                    ).strip(),
+                )
+                self.assertEqual(
+                    after["tree"],
+                    subprocess.check_output(
+                        ["git", "-C", str(source), "rev-parse", "HEAD^{tree}"],
+                        text=True,
+                    ).strip(),
+                )
+                self.assertEqual(
+                    after["status"],
+                    subprocess.check_output(
+                        [
+                            "git",
+                            "-C",
+                            str(source),
+                            "status",
+                            "--porcelain",
+                            "--untracked-files=all",
+                        ],
+                        text=True,
+                    ).strip(),
+                )
                 differences = json.loads((output / "source-changes.json").read_text())
                 self.assertEqual(
                     differences["files"],
                     {
                         "scripts/release.py": {
-                            "before": before["files"]["scripts/release.py"],
-                            "after": after["files"]["scripts/release.py"],
+                            "before": before_hash,
+                            "after": after_hash,
                         }
                     },
                 )
                 self.assertEqual(
                     (output / "source-after.patch").read_text(),
-                    release.git("diff", "--binary", "HEAD") + "\n",
+                    subprocess.check_output(
+                        ["git", "-C", str(source), "diff", "--binary", "HEAD"],
+                        text=True,
+                    ),
                 )
 
     def test_probe_failures_preserve_original_output(self):

@@ -324,7 +324,7 @@ def prepared_native_resources():
 def build_only(args, run_id, raw_log, *, emit=True):
     if args.unicorn_source is None or args.consumer_classpath_file is None:
         raise ValueError(
-            "--build-only requires --unicorn-source and --consumer-classpath-file"
+            "Native preparation requires --unicorn-source and --consumer-classpath-file"
         )
     output = (args.build_output or ROOT / "target/evaluation-build" / run_id).resolve()
     if not output.is_relative_to(ROOT / "target"):

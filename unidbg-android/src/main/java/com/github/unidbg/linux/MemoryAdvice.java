@@ -27,6 +27,11 @@ final class MemoryAdvice {
             log.debug("madvise rejected unaligned address=0x{}, length={}, advice={}", Long.toHexString(address), length, advice);
             return -UnixEmulator.EINVAL;
         }
+        if (advice == 12) {
+            // MADV_MERGEABLE returns EINVAL without CONFIG_KSM; this emulator does not implement KSM.
+            log.debug("madvise rejected unsupported KSM address=0x{}, length={}, advice={}", Long.toHexString(address), length, advice);
+            return -UnixEmulator.EINVAL;
+        }
         if (advice < 0 || advice > 4) {
             throw new UnsupportedOperationException("madvise advice=" + advice + ", address=0x" + Long.toHexString(address) + ", length=" + length);
         }

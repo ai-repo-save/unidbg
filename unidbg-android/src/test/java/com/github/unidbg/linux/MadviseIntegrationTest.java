@@ -42,6 +42,11 @@ public class MadviseIntegrationTest {
                     UnidbgPointer errno = UnidbgPointer.pointer(emulator, libc.findSymbolByName("__errno").call(emulator).longValue());
                     assertEquals(22, errno.getInt(0));
                     assertArrayEquals(expected, memory.getByteArray(0, expected.length));
+                    // Linux returns EINVAL for MADV_MERGEABLE when CONFIG_KSM is unavailable.
+                    errno.setInt(0, 0);
+                    assertEquals(-1, libc.findSymbolByName("madvise").call(emulator, memory, dirty.length, 12).intValue());
+                    assertEquals(22, errno.getInt(0));
+                    assertArrayEquals(expected, memory.getByteArray(0, expected.length));
                     // Advice about access patterns must not discard storage.
                     for (int advice : new int[] {0, 1, 2, 3}) {
                         assertEquals(0, libc.findSymbolByName("madvise").call(emulator, memory, dirty.length, advice).intValue());

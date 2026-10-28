@@ -360,6 +360,7 @@ public abstract class UnixSyscallHandler<T extends NewFileIO> implements Syscall
             }
             if (fileListener != null) {
                 fileListener.onOpenSuccess(emulator, pathname, resolveResult.io);
+                fileListener.onOpenResult(emulator, pathname, oflags, minFd, 0);
             }
             return minFd;
         }
@@ -373,6 +374,7 @@ public abstract class UnixSyscallHandler<T extends NewFileIO> implements Syscall
             }
             if (fileListener != null) {
                 fileListener.onOpenSuccess(emulator, pathname, driverIO);
+                fileListener.onOpenResult(emulator, pathname, oflags, minFd, 0);
             }
             return minFd;
         }
@@ -385,7 +387,11 @@ public abstract class UnixSyscallHandler<T extends NewFileIO> implements Syscall
         if (verbose) {
             System.out.printf("File opened '%s' with oflags=0x%x errno is %d from %s%n", pathname, oflags, errno, emulator.getContext().getLRPointer());
         }
-        return syscallError(emulator, errno);
+        int failure = syscallError(emulator, errno);
+        if (fileListener != null) {
+            fileListener.onOpenResult(emulator, pathname, oflags, failure, errno);
+        }
+        return failure;
     }
 
     protected abstract T createDriverFileIO(Emulator<?> emulator, int oflags, String pathname);

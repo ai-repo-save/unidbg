@@ -443,9 +443,12 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
         RegisterContext context = emulator.getContext();
         int fd = context.getIntArg(0);
         Pointer buffer = context.getPointerArg(1);
-        int count = context.getIntArg(2);
+        long count = context.getLongArg(2);
         long offset = context.getLongArg(3);
-        return pread(emulator, fd, buffer, count, offset);
+        // Linux include/linux/fs.h: MAX_RW_COUNT is INT_MAX & PAGE_MASK.
+        int maxRwCount = Integer.MAX_VALUE & -emulator.getPageAlign();
+        int readCount = Long.compareUnsigned(count, maxRwCount) > 0 ? maxRwCount : (int) count;
+        return pread(emulator, fd, buffer, readCount, offset);
     }
 
     private static final int RLIMIT_STACK = 3; /* max stack size */

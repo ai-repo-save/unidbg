@@ -33,6 +33,12 @@ public class NativePread64IntegrationTest {
             Files.createDirectories(directory);
             Path root = Files.createTempDirectory(directory, arm64 ? "arm64-" : "arm32-").toAbsolutePath();
             Path file = root.resolve("pread.bin");
+            Path smallFile = root.resolve("small.bin");
+            Files.write(smallFile, HEAD);
+            byte[] crossBlock = new byte[131089];
+            for (int i = 0; i < crossBlock.length; ++i) crossBlock[i] = (byte) (i * 37 + 11);
+            Path crossBlockFile = root.resolve("cross-block.bin");
+            Files.write(crossBlockFile, crossBlock);
             try (RandomAccessFile host = new RandomAccessFile(file.toFile(), "rw")) {
                 host.write(HEAD);
                 host.seek(LOW_SIGN_BIT_OFFSET);
@@ -50,7 +56,13 @@ public class NativePread64IntegrationTest {
                         probe.findSymbolByName("pread64_results").createPointer(emulator).getIntArray(0, 20));
                 assertArrayEquals(new byte[] {1, 2, 5, 6, 7, 3, 4, 0x55, 0x66, 0x77, (byte) 0x88},
                         probe.findSymbolByName("pread64_bytes").createPointer(emulator).getByteArray(0, 11));
+                if (arm64) {
+                    verifyCountRead(emulator, probe, "/small.bin", 0x100000000L, HEAD);
+                }
+                verifyCountRead(emulator, probe, "/cross-block.bin", crossBlock.length, crossBlock);
             }
+            assertArrayEquals(HEAD, Files.readAllBytes(smallFile));
+            assertArrayEquals(crossBlock, Files.readAllBytes(crossBlockFile));
             try (RandomAccessFile host = new RandomAccessFile(file.toFile(), "r")) {
                 assertEquals(HIGH_WORD_OFFSET + 2, host.length());
                 byte[] head = new byte[HEAD.length];
@@ -65,5 +77,13 @@ public class NativePread64IntegrationTest {
                 assertArrayEquals(new byte[] {0x77, (byte) 0x88}, bytes);
             }
         }
+    }
+
+    private static void verifyCountRead(AndroidEmulator emulator, Module probe, String path, Number count, byte[] expected) {
+        assertEquals(0, probe.callFunction(emulator, "pread64_count_probe", path, count).intValue());
+        assertArrayEquals(new int[] {expected.length, 0, 0},
+                probe.findSymbolByName("pread64_count_results").createPointer(emulator).getIntArray(0, 3));
+        assertArrayEquals(expected, probe.findSymbolByName("pread64_count_bytes")
+                .createPointer(emulator).getByteArray(0, expected.length));
     }
 }

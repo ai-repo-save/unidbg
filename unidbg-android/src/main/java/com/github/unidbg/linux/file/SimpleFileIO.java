@@ -142,12 +142,19 @@ public class SimpleFileIO extends BaseAndroidFileIO implements NewFileIO {
     public int pread(Backend backend, Pointer pointer, int count, long offset) {
         if (closed || !isReadable()) return -UnixEmulator.EBADF;
         if (count < 0 || offset < 0) return -UnixEmulator.EINVAL;
-        ByteBuffer bytes = ByteBuffer.allocate(count);
+        ByteBuffer bytes = ByteBuffer.allocate(Math.min(count, 64 * 1024));
+        int total = 0;
         try {
-            int read = description.backing.readAt(offset, bytes);
-            if (read < 0) read = 0;
-            if (read > 0) pointer.write(0, bytes.array(), 0, read);
-            return read;
+            while (total < count) {
+                int requested = Math.min(bytes.capacity(), count - total);
+                bytes.clear().limit(requested);
+                int read = description.backing.readAt(offset + total, bytes);
+                if (read <= 0) break;
+                pointer.write(total, bytes.array(), 0, read);
+                total += read;
+                if (read < requested) break;
+            }
+            return total;
         } catch (IOException failure) { throw new IllegalStateException("Reading file at offset: " + path, failure); }
     }
 

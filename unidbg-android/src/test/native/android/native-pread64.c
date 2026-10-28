@@ -50,3 +50,15 @@ int pread64_probe(const char *path) {
     pread64_results[19] = close(fd);
     return 0;
 }
+
+int pread64_count_results[3];
+unsigned char pread64_count_bytes[131089];
+
+int pread64_count_probe(const char *path, size_t count) {
+    int fd = open(path, O_RDONLY);
+    if (fd < 0) return -1;
+    pread64_count_results[0] = pread64(fd, pread64_count_bytes, count, 0);
+    pread64_count_results[1] = lseek(fd, 0, SEEK_CUR);
+    pread64_count_results[2] = close(fd);
+    return 0;
+}

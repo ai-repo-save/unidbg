@@ -33,8 +33,6 @@ public class NativePread64IntegrationTest {
             Files.createDirectories(directory);
             Path root = Files.createTempDirectory(directory, arm64 ? "arm64-" : "arm32-").toAbsolutePath();
             Path file = root.resolve("pread.bin");
-            Path smallFile = root.resolve("small.bin");
-            Files.write(smallFile, HEAD);
             byte[] crossBlock = new byte[131089];
             for (int i = 0; i < crossBlock.length; ++i) crossBlock[i] = (byte) (i * 37 + 11);
             Path crossBlockFile = root.resolve("cross-block.bin");
@@ -57,11 +55,22 @@ public class NativePread64IntegrationTest {
                 assertArrayEquals(new byte[] {1, 2, 5, 6, 7, 3, 4, 0x55, 0x66, 0x77, (byte) 0x88},
                         probe.findSymbolByName("pread64_bytes").createPointer(emulator).getByteArray(0, 11));
                 if (arm64) {
+                    Path smallFile = root.resolve("small.bin");
+                    Files.write(smallFile, HEAD);
                     verifyCountRead(emulator, probe, "/small.bin", 0x100000000L, HEAD);
+                    for (long count : new long[] {Long.MIN_VALUE, Long.MIN_VALUE + 1, -1L}) {
+                        assertEquals(0, probe.callFunction(emulator, "pread64_invalid_count_probe", "/small.bin", count).intValue());
+                        // Linux vfs_read's access_ok precedes rw_verify_area and MAX_RW_COUNT.
+                        assertArrayEquals(new int[] {-1, 14, -1, 22, -1, 9, -1, 9, 0, 0, 0},
+                                probe.findSymbolByName("pread64_invalid_count_results").createPointer(emulator).getIntArray(0, 11));
+                        assertArrayEquals(new byte[] {(byte) 0xa5, (byte) 0xa5, (byte) 0xa5, (byte) 0xa5,
+                                        (byte) 0xa5, (byte) 0xa5, (byte) 0xa5, (byte) 0xa5},
+                                probe.findSymbolByName("pread64_invalid_count_bytes").createPointer(emulator).getByteArray(0, 8));
+                    }
+                    assertArrayEquals(HEAD, Files.readAllBytes(smallFile));
                 }
                 verifyCountRead(emulator, probe, "/cross-block.bin", crossBlock.length, crossBlock);
             }
-            assertArrayEquals(HEAD, Files.readAllBytes(smallFile));
             assertArrayEquals(crossBlock, Files.readAllBytes(crossBlockFile));
             try (RandomAccessFile host = new RandomAccessFile(file.toFile(), "r")) {
                 assertEquals(HIGH_WORD_OFFSET + 2, host.length());

@@ -62,3 +62,29 @@ int pread64_count_probe(const char *path, size_t count) {
     pread64_count_results[2] = close(fd);
     return 0;
 }
+
+int pread64_invalid_count_results[11];
+unsigned char pread64_invalid_count_bytes[8];
+
+int pread64_invalid_count_probe(const char *path, size_t count) {
+    int fd = open(path, O_RDONLY);
+    if (fd < 0) return -1;
+    int write_only = open(path, O_WRONLY);
+    if (write_only < 0) {
+        close(fd);
+        return -1;
+    }
+    for (size_t i = 0; i < sizeof pread64_invalid_count_bytes; ++i)
+        pread64_invalid_count_bytes[i] = 0xa5;
+    const int fds[] = {fd, fd, -1, write_only};
+    const off64_t offsets[] = {0, -1, 0, 0};
+    for (size_t i = 0; i < sizeof fds / sizeof fds[0]; ++i) {
+        errno = 0;
+        pread64_invalid_count_results[2 * i] = pread64(fds[i], pread64_invalid_count_bytes, count, offsets[i]);
+        pread64_invalid_count_results[2 * i + 1] = errno;
+    }
+    pread64_invalid_count_results[8] = lseek(fd, 0, SEEK_CUR);
+    pread64_invalid_count_results[9] = close(write_only);
+    pread64_invalid_count_results[10] = close(fd);
+    return 0;
+}

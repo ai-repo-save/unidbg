@@ -445,6 +445,17 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
         Pointer buffer = context.getPointerArg(1);
         long count = context.getLongArg(2);
         long offset = context.getLongArg(3);
+        if (count < 0) {
+            if (offset < 0) {
+                return -UnixEmulator.EINVAL;
+            }
+            FileIO file = fdMap.get(fd);
+            if (file == null || !file.isReadable()) {
+                return -UnixEmulator.EBADF;
+            }
+            // Linux arm64 access_ok rejects size >= 2^63 before rw_verify_area and MAX_RW_COUNT.
+            return -UnixEmulator.EFAULT;
+        }
         // Linux include/linux/fs.h: MAX_RW_COUNT is INT_MAX & PAGE_MASK.
         int maxRwCount = Integer.MAX_VALUE & -emulator.getPageAlign();
         int readCount = Long.compareUnsigned(count, maxRwCount) > 0 ? maxRwCount : (int) count;

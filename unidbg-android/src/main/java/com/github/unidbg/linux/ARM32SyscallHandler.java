@@ -540,12 +540,17 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
 
         log.warn("handleInterrupt intno={}, NR={}, svcNumber=0x{}, PC={}, LR={}, syscall={}", intno, NR, Integer.toHexString(swi), pc, emulator.getContext().getLRPointer(), syscall, exception);
 
+        if (exception == null) {
+            backend.reg_write(ArmConst.UC_ARM_REG_R0, -UnixEmulator.ENOSYS);
+            return;
+        }
         if (exception instanceof RuntimeException) {
             throw (RuntimeException) exception;
         }
         if (exception instanceof Error) {
             throw (Error) exception;
         }
+        throw new BackendException(exception);
     }
 
     private int getrandom(Emulator<?> emulator) {
@@ -1880,7 +1885,8 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
         int fd = context.getIntArg(0);
         Pointer buffer = context.getPointerArg(1);
         int count = context.getIntArg(2);
-        long offset = context.getIntByReg(ArmConst.UC_ARM_REG_R4) | ((long) context.getIntByReg(ArmConst.UC_ARM_REG_R5) << 32L);
+        long offset = Integer.toUnsignedLong(context.getIntByReg(ArmConst.UC_ARM_REG_R4)) |
+                ((long) context.getIntByReg(ArmConst.UC_ARM_REG_R5) << 32);
         return pread(emulator, fd, buffer, count, offset);
     }
 

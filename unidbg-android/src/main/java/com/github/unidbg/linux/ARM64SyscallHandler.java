@@ -197,6 +197,9 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
                 case 63:
                     backend.reg_write(Arm64Const.UC_ARM64_REG_X0, read(backend, emulator));
                     return;
+                case 67:
+                    backend.reg_write(Arm64Const.UC_ARM64_REG_X0, pread64(emulator));
+                    return;
                 case 23:
                     backend.reg_write(Arm64Const.UC_ARM64_REG_X0, dup(emulator));
                     return;
@@ -420,6 +423,10 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
         }
 
         log.warn("handleInterrupt intno={}, NR={}, svcNumber=0x{}, PC={}, LR={}, syscall={}", intno, NR, Integer.toHexString(swi), pc, UnidbgPointer.register(emulator, Arm64Const.UC_ARM64_REG_LR), syscall, exception);
+        if (exception == null) {
+            backend.reg_write(Arm64Const.UC_ARM64_REG_X0, -UnixEmulator.ENOSYS);
+            return;
+        }
         if (log.isDebugEnabled()) {
             emulator.attach().debug("Unhandled syscall NR=" + NR + " (" + syscall + ") at " + pc);
         }
@@ -429,6 +436,16 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
         if (exception instanceof Error) {
             throw (Error) exception;
         }
+        throw new BackendException(exception);
+    }
+
+    private int pread64(Emulator<?> emulator) {
+        RegisterContext context = emulator.getContext();
+        int fd = context.getIntArg(0);
+        Pointer buffer = context.getPointerArg(1);
+        int count = context.getIntArg(2);
+        long offset = context.getLongArg(3);
+        return pread(emulator, fd, buffer, count, offset);
     }
 
     private static final int RLIMIT_STACK = 3; /* max stack size */

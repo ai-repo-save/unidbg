@@ -68,6 +68,7 @@
                         <exclude>**/JniNativeTailCallIntegrationTest.java</exclude>
                         <exclude>**/JniThreadAttachmentIntegrationTest.java</exclude>
                         <exclude>**/NativeSeqpacketTransferIntegrationTest.java</exclude>
+                        <exclude>**/NativePread64IntegrationTest.java</exclude>
                         <exclude>**/JniNonvirtualConstructionIntegrationTest.java</exclude>
                     </excludes>
                 </configuration>

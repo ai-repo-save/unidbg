@@ -86,7 +86,58 @@ uv run --script scripts/release.py --build-only \
 
 The selected Unicorn checkout supplies the engine source. Its actual commit and working-tree status are recorded. The consumer classpath supplies the collector's Jackson, picocli and logging dependencies. Maven exports the reactor's runtime dependencies with reactor core coordinates excluded.
 
-Preparation cleans child modules, rebuilds the Unicorn2 JNI binding and host JVM monitor bridge, stages generated resources under each module's `target/generated-resources/natives/linux_64`, then runs Maven resources/Java compilation. The output classpath points directly to the three core `target/classes` directories and their dependencies.
+Preparation cleans child modules, rebuilds the Unicorn2 JNI binding and host JVM monitor bridge, stages generated resources under each module's `target/generated-resources/natives/linux_64`, then runs Maven resources/Java compilation. The output classpath points directly to the three core `target/classes` directories and their dependencies. Maven `compile` includes `process-resources`, but neither phase builds these native libraries. Running only Maven can leave new Java native declarations paired with an old JNI library, or omit the monitor library.
+
+For an incremental build with an existing Unicorn archive and exported core classpath, run the following from the unidbg checkout. `UNICORN_SOURCE` supplies the engine headers; `UNICORN_BUILD` contains `libunicorn.a`. Run any Maven clean before native preparation because clean removes generated resources.
+
+```sh
+export JAVA_HOME=/absolute/jdk-21
+export PATH="$JAVA_HOME/bin:$PATH"
+UNICORN_SOURCE=/absolute/unicorn-source
+UNICORN_BUILD=/absolute/unicorn-build
+JOBS=4
+
+cmake -S backend/unicorn2/src/main/native -B target/unicorn-jni-build \
+  -DUNICORN_HOME="$UNICORN_SOURCE" -DUNICORN_BUILD="$UNICORN_BUILD"
+cmake --build target/unicorn-jni-build --parallel "$JOBS"
+mkdir -p backend/unicorn2/target/generated-resources/natives/linux_64
+cp -p target/unicorn-jni-build/libunicorn.so \
+  backend/unicorn2/target/generated-resources/natives/linux_64/libunicorn.so
+cmake -S unidbg-android/src/main/native/jvm-monitor \
+  -B unidbg-android/target/native-monitor -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_LIBRARY_OUTPUT_DIRECTORY="$PWD/unidbg-android/target/generated-resources/natives/linux_64"
+cmake --build unidbg-android/target/native-monitor \
+  --target unidbg_jvm_monitor --parallel "$JOBS"
+./mvnw -pl unidbg-android,backend/unicorn2 -am process-resources
+```
+
+`process-resources` copies the staged libraries into `target/classes`. If Java sources also changed, run `./mvnw -pl unidbg-android,backend/unicorn2 -am compile` after native preparation. The existing exported classpath continues to reference these classes directories. Confirm the generated and effective resource pairs before packaging the runtime:
+
+```sh
+cmp backend/unicorn2/target/generated-resources/natives/linux_64/libunicorn.so \
+  backend/unicorn2/target/classes/natives/linux_64/libunicorn.so
+cmp unidbg-android/target/generated-resources/natives/linux_64/libunidbg_jvm_monitor.so \
+  unidbg-android/target/classes/natives/linux_64/libunidbg_jvm_monitor.so
+```
+
+Install the prepared core through the runtime's existing development entry point. `CORE_CLASSPATH` selects the exported core classpath; `CONSUMER_CLASSPATH` selects the collector dependencies supplied during full preparation. The repository parameters select local Maven repositories for the runtime's fork dependencies.
+
+```sh
+RUNTIME_SOURCE=/absolute/unidbg-robolectric
+CORE_CLASSPATH=/absolute/core/classpath.txt
+CONSUMER_CLASSPATH=/absolute/collector-runtime-dependencies.txt
+ROBOLECTRIC_REPOSITORY=file:///absolute/robolectric-repository
+APK_PARSER_REPOSITORY=file:///absolute/apk-parser-repository
+
+"$RUNTIME_SOURCE/gradlew" -p "$RUNTIME_SOURCE" \
+  -PdevelopmentCoreClasspath="$CORE_CLASSPATH" \
+  -PdevelopmentConsumerClasspath="$CONSUMER_CLASSPATH" \
+  -ProbolectricRepository="$ROBOLECTRIC_REPOSITORY" \
+  -PapkParserRepository="$APK_PARSER_REPOSITORY" \
+  developmentInstall
+```
+
+`developmentInstall` packages the selected classes directories and their native resources into development core JARs, then installs the worker under `worker/build/development/install/unidbg-worker`. It does not build the native resources or change an installed JAR in place.
 
 The build output directory may be reused. `build-identity.json` and `classpath.txt` are overwritten with the current build facts. The identity records `kind=build`, `published=false`, the POM version, source state, directory/JAR hashes, generated and effective native resources, tools and commands. Source-before/source-after JSON and patches record the working tree around compilation. These records are observational; consumers do not need an identity file to execute the classpath. Rebuilding updates the same classes directories.
 

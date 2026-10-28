@@ -5,6 +5,7 @@ import com.github.unidbg.arm.backend.Backend;
 import com.github.unidbg.file.linux.BaseAndroidFileIO;
 import com.github.unidbg.file.linux.StatStructure;
 import com.github.unidbg.unix.IO;
+import com.github.unidbg.unix.UnixEmulator;
 import com.github.unidbg.utils.Inspector;
 import com.sun.jna.Pointer;
 import org.slf4j.Logger;
@@ -39,17 +40,23 @@ public class ByteArrayFileIO extends BaseAndroidFileIO {
 
     @Override
     public int pread(Backend backend, Pointer buffer, int count, long offset) {
-        int pos = this.pos;
-        try {
-            this.pos = (int) offset;
-            return read(backend, buffer, count);
-        } finally {
-            this.pos = pos;
+        if (offset < 0) {
+            return -UnixEmulator.EINVAL;
         }
+        if (offset >= bytes.length) {
+            return 0;
+        }
+        return readAt(buffer, count, (int) offset);
     }
 
     @Override
     public int read(Backend backend, Pointer buffer, int count) {
+        int read = readAt(buffer, count, pos);
+        pos += read;
+        return read;
+    }
+
+    private int readAt(Pointer buffer, int count, int pos) {
         if (pos >= bytes.length) {
             return 0;
         }
@@ -62,8 +69,6 @@ public class ByteArrayFileIO extends BaseAndroidFileIO {
         if (log.isDebugEnabled()) {
             log.debug(Inspector.inspectString(Arrays.copyOfRange(bytes, pos, pos + count), "read path=" + path + ", fp=" + pos + ", _count=" + count + ", length=" + bytes.length + ", buffer=" + buffer));
         }
-        pos += count;
-
         return count;
     }
 

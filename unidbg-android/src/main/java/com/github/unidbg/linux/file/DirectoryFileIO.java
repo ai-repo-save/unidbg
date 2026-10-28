@@ -8,6 +8,7 @@ import com.github.unidbg.file.linux.StatStructure;
 import com.github.unidbg.linux.struct.Dirent;
 import com.github.unidbg.linux.struct.StatFS;
 import com.github.unidbg.unix.IO;
+import com.github.unidbg.unix.UnixEmulator;
 import com.sun.jna.Pointer;
 
 import java.io.File;
@@ -86,10 +87,10 @@ public class DirectoryFileIO extends BaseAndroidFileIO {
         for (Iterator<DirectoryEntry> iterator = this.entries.iterator(); iterator.hasNext(); ) {
             DirectoryEntry entry = iterator.next();
             byte[] data = entry.name.getBytes(StandardCharsets.UTF_8);
-            long d_reclen = ARM.alignSize(data.length + 24, 8);
+            long d_reclen = ARM.alignSize(19 + data.length + 1, 8);
 
-            if (offset + d_reclen >= size) {
-                break;
+            if (d_reclen > size - offset) {
+                return offset == 0 ? -UnixEmulator.EINVAL : offset;
             }
 
             Dirent dirent = new Dirent(dirp.share(offset));

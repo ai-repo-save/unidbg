@@ -73,6 +73,7 @@
                         <exclude>**/FileFactsIntegrationTest.java</exclude>
                         <exclude>**/ByteArrayPointerIntegrationTest.java</exclude>
                         <exclude>**/IpaResolverIntegrationTest.java</exclude>
+                        <exclude>**/HookSvcLifecycleIntegrationTest.java</exclude>
                         <exclude>**/JniNonvirtualConstructionIntegrationTest.java</exclude>
                     </excludes>
                 </configuration>

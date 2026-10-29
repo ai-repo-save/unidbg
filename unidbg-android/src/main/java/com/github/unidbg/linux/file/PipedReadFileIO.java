@@ -27,6 +27,11 @@ public class PipedReadFileIO extends BaseAndroidFileIO implements AndroidFileIO 
     }
 
     @Override
+    protected boolean supportsPositionedRead() {
+        return false;
+    }
+
+    @Override
     public int read(Backend backend, Pointer buffer, int count) {
         try {
             byte[] receiveBuf = new byte[Math.min(count, inputStream.available())];

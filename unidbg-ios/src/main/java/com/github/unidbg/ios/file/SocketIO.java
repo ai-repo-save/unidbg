@@ -65,6 +65,11 @@ public abstract class SocketIO extends BaseDarwinFileIO implements DarwinFileIO 
     }
 
     @Override
+    protected boolean supportsPositionedRead() {
+        return false;
+    }
+
+    @Override
     public int getsockopt(int level, int optname, Pointer optval, Pointer optlen) {
         try {
             switch (level) {

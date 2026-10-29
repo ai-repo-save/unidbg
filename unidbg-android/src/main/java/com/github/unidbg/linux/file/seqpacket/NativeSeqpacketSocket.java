@@ -35,6 +35,11 @@ final class NativeSeqpacketSocket extends BaseAndroidFileIO {
     }
 
     @Override
+    protected boolean supportsPositionedRead() {
+        return false;
+    }
+
+    @Override
     public void close() {
         if (fd >= 0) {
             log.debug("event=native_socket_closed pair={} host_fd={}", pair, fd);

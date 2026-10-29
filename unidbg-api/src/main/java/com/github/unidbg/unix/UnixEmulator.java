@@ -15,6 +15,7 @@ public interface UnixEmulator {
     int ENOTDIR = 20; /* Not a directory */
     int EINVAL = 22; /* Invalid argument */
     int ENOTTY = 25; /* Inappropriate ioctl for device */
+    int ESPIPE = 29; /* Illegal seek */
     int ENOSYS = 38; /* Function not implemented */
     int ENOATTR = 93; /* Attribute not found */
     int EOPNOTSUPP = 95; /* Operation not supported on transport endpoint */

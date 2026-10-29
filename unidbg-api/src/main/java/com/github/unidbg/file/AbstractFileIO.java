@@ -3,6 +3,7 @@ package com.github.unidbg.file;
 import com.github.unidbg.Emulator;
 import com.github.unidbg.arm.backend.Backend;
 import com.github.unidbg.memory.mapping.MappingSource;
+import com.github.unidbg.unix.UnixEmulator;
 import com.github.unidbg.utils.Inspector;
 import com.sun.jna.Pointer;
 import org.slf4j.Logger;
@@ -182,8 +183,24 @@ public abstract class AbstractFileIO implements NewFileIO {
         throw new UnsupportedOperationException(getClass().getName());
     }
 
+    /** Linux clears FMODE_PREAD for pipes, sockets, and other non-seekable descriptions. */
+    protected boolean supportsPositionedRead() {
+        return true;
+    }
+
     @Override
     public int pread(Backend backend, Pointer buffer, int count, long offset) {
+        if (!supportsPositionedRead()) {
+            if (offset < 0) {
+                log.debug("event=pread_rejected class={} offset={} errno={} reason=negative_offset",
+                        getClass().getName(), offset, UnixEmulator.EINVAL);
+                return -UnixEmulator.EINVAL;
+            }
+            log.debug("event=pread_rejected class={} offset={} errno={} reason=not_seekable",
+                    getClass().getName(), offset, UnixEmulator.ESPIPE);
+            return -UnixEmulator.ESPIPE;
+        }
+        log.debug("event=pread_rejected class={} offset={} reason=unimplemented", getClass().getName(), offset);
         throw new UnsupportedOperationException(getClass().getName());
     }
 

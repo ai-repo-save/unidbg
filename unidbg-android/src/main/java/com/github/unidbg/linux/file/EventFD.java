@@ -28,6 +28,11 @@ public class EventFD extends BaseAndroidFileIO implements NewFileIO {
     }
 
     @Override
+    protected boolean supportsPositionedRead() {
+        return false;
+    }
+
+    @Override
     public int read(Backend backend, Pointer buffer, int count) {
         if (count != 8) {
             return super.read(backend, buffer, count);

@@ -81,6 +81,11 @@ public abstract class SocketIO extends BaseAndroidFileIO implements AndroidFileI
         super(IOConstants.O_RDWR);
     }
 
+    @Override
+    protected boolean supportsPositionedRead() {
+        return false;
+    }
+
     protected List<NetworkIF> getNetworkIFs(Emulator<?> emulator) throws SocketException {
         Enumeration<NetworkInterface> enumeration = NetworkInterface.getNetworkInterfaces();
         List<NetworkIF> list = new ArrayList<>();

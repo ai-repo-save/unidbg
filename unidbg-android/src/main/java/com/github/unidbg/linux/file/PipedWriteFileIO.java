@@ -25,6 +25,11 @@ public class PipedWriteFileIO extends BaseAndroidFileIO implements AndroidFileIO
     }
 
     @Override
+    protected boolean supportsPositionedRead() {
+        return false;
+    }
+
+    @Override
     public int write(byte[] data) {
         try {
             if (log.isDebugEnabled()) {

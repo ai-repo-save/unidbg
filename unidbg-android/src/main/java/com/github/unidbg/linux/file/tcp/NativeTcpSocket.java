@@ -52,6 +52,11 @@ public final class NativeTcpSocket extends BaseAndroidFileIO {
         owner.opened(this);
     }
 
+    @Override
+    protected boolean supportsPositionedRead() {
+        return false;
+    }
+
     int fd() {
         return fd;
     }

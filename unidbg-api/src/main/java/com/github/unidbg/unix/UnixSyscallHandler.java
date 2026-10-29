@@ -200,18 +200,18 @@ public abstract class UnixSyscallHandler<T extends NewFileIO> implements Syscall
         return null;
     }
 
-    private java.util.StringTokenizer procFdComponents(Emulator<T> emulator, String pathname) {
+    private java.util.StringTokenizer procDirectoryComponents(Emulator<T> emulator, String pathname, String directory) {
         if (!pathname.startsWith("/")) return null;
         java.util.StringTokenizer components = new java.util.StringTokenizer(pathname, "/");
         if (!"proc".equals(nextDirectoryComponent(components))) return null;
         String process = nextDirectoryComponent(components);
         if (!"self".equals(process) && !Integer.toString(emulator.getPid()).equals(process)) return null;
-        if (!"fd".equals(nextDirectoryComponent(components))) return null;
+        if (!directory.equals(nextDirectoryComponent(components))) return null;
         return components;
     }
 
     protected final ProcFdPath procFdPath(Emulator<T> emulator, String pathname) {
-        java.util.StringTokenizer components = procFdComponents(emulator, pathname);
+        java.util.StringTokenizer components = procDirectoryComponents(emulator, pathname, "fd");
         if (components == null) return null;
         String name = nextDirectoryComponent(components);
         if (name == null) return null;
@@ -308,13 +308,16 @@ public abstract class UnixSyscallHandler<T extends NewFileIO> implements Syscall
     }
 
     protected final boolean isFdDirectory(Emulator<T> emulator, String pathname) {
-        java.util.StringTokenizer components = procFdComponents(emulator, pathname);
-        return components != null && nextDirectoryComponent(components) == null;
+        return isProcDirectory(emulator, pathname, "fd");
     }
 
     protected final boolean isTaskDirectory(Emulator<T> emulator, String pathname) {
-        String path = pathname.endsWith("/") ? pathname.substring(0, pathname.length() - 1) : pathname;
-        return ("/proc/" + emulator.getPid() + "/task").equals(path) || "/proc/self/task".equals(path);
+        return isProcDirectory(emulator, pathname, "task");
+    }
+
+    private boolean isProcDirectory(Emulator<T> emulator, String pathname, String directory) {
+        java.util.StringTokenizer components = procDirectoryComponents(emulator, pathname, directory);
+        return components != null && nextDirectoryComponent(components) == null;
     }
 
     protected FileResult<T> createTaskDir(Emulator<T> emulator, int oflags, String pathname) {

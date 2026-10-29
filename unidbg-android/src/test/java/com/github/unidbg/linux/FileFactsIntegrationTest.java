@@ -216,11 +216,24 @@ public class FileFactsIntegrationTest {
                 assertEquals(errno, assertThrows(LinuxErrnoException.class,
                         () -> handler.listDirectoryAt(emulator, IO.AT_FDCWD, sample[0])).getErrno());
             }
-            for (String path : new String[] {"/proc/self/fd/", "/proc/" + emulator.getPid() + "/fd/", "/proc/self/fd/./"}) {
-                assertEquals(IO.S_IFDIR, handler.queryMetadataAt(emulator, IO.AT_FDCWD, path, 0).value.mode.getAsInt() & 0170000);
-                assertEquals(Arrays.asList(Integer.toString(file), Integer.toString(directory)),
-                        handler.listDirectoryAt(emulator, IO.AT_FDCWD, path).stream()
+            for (String node : new String[] {"fd", "task"}) {
+                List<String> entries = "fd".equals(node)
+                        ? Arrays.asList(Integer.toString(file), Integer.toString(directory))
+                        : Collections.singletonList(Integer.toString(emulator.getPid()));
+                for (String process : new String[] {"self", Integer.toString(emulator.getPid())}) {
+                    for (String suffix : new String[] {"", "/", "/.", "/./", "//././//"}) {
+                        String path = "/proc/" + process + "/" + node + suffix;
+                        assertEquals(0, libc.stat("/proc/self/" + node + suffix, nativeStat));
+                        assertEquals(IO.S_IFDIR, handler.queryMetadataAt(emulator, IO.AT_FDCWD, path, 0).value.mode.getAsInt() & 0170000);
+                        assertEquals(entries, handler.listDirectoryAt(emulator, IO.AT_FDCWD, path).stream()
                                 .map(entry -> entry.name).collect(java.util.stream.Collectors.toList()));
+                    }
+                }
+                String dotted = "/./proc/./self/./" + node + "/.";
+                assertEquals(0, libc.stat(dotted, nativeStat));
+                assertEquals(IO.S_IFDIR, handler.queryMetadataAt(emulator, IO.AT_FDCWD, dotted, 0).value.mode.getAsInt() & 0170000);
+                assertEquals(entries, handler.listDirectoryAt(emulator, IO.AT_FDCWD, dotted).stream()
+                        .map(entry -> entry.name).collect(java.util.stream.Collectors.toList()));
             }
             assertEquals(Files.size(root.resolve("source")), handler.queryMetadataAt(emulator, IO.AT_FDCWD,
                     "/proc/self/fd/./" + file, 0).value.size.getAsLong());
@@ -229,8 +242,14 @@ public class FileFactsIntegrationTest {
             assertEquals(0, libc.stat("/proc/self/fd/" + nativeDirectory + "/", nativeStat));
             assertEquals(IO.S_IFDIR, handler.queryMetadataAt(emulator, IO.AT_FDCWD,
                     "/proc/self/fd/" + directory + "/", 0).value.mode.getAsInt() & 0170000);
-            assertEquals(FileQueryResult.Status.UNKNOWN, handler.queryMetadataAt(emulator, IO.AT_FDCWD,
-                    "/proc/self/fd/" + directory + "/alpha", 0).status());
+            for (String child : new String[] {"alpha", "."}) {
+                String path = "/proc/self/fd/" + directory + "/" + child;
+                assertEquals(FileQueryResult.Status.UNKNOWN, handler.queryMetadataAt(emulator, IO.AT_FDCWD, path, 0).status());
+                assertThrows(UnsupportedOperationException.class,
+                        () -> handler.listDirectoryAt(emulator, IO.AT_FDCWD, path));
+            }
+            assertThrows(UnsupportedOperationException.class,
+                    () -> handler.queryMetadataAt(emulator, directory, ".", 0));
         } finally {
             handler.closeFileIO(file);
             handler.closeFileIO(directory);

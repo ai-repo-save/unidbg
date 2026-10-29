@@ -2,10 +2,14 @@ package com.github.unidbg.ios.simulator;
 
 import com.github.unidbg.Emulator;
 import com.github.unidbg.LibraryResolver;
+import com.github.unidbg.file.DirectoryEntry;
+import com.github.unidbg.file.FileMetadata;
+import com.github.unidbg.file.FileQueryResult;
 import com.github.unidbg.file.FileResult;
 import com.github.unidbg.file.IOResolver;
 import com.github.unidbg.file.ios.DarwinFileIO;
 import com.github.unidbg.spi.LibraryFile;
+import com.github.unidbg.unix.IO;
 
 import java.io.File;
 
@@ -43,6 +47,16 @@ public class CoreSimulatorResolver implements LibraryResolver, IOResolver<Darwin
 
     @Override
     public void onSetToLoader(Emulator<?> emulator) {
+    }
+
+    @Override
+    public FileQueryResult<FileMetadata> queryMetadata(Emulator<DarwinFileIO> emulator, String path, boolean followLinks) {
+        return null;
+    }
+
+    @Override
+    public FileQueryResult<java.util.List<DirectoryEntry>> queryDirectory(Emulator<DarwinFileIO> emulator, String path) {
+        return null;
     }
 
 }

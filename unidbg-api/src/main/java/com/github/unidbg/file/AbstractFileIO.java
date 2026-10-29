@@ -31,6 +31,11 @@ public abstract class AbstractFileIO implements NewFileIO {
         this.oflags = oflags;
     }
 
+    @Override
+    public FileQueryResult<FileMetadata> queryMetadata() {
+        return FileQueryResult.unknown();
+    }
+
     protected abstract void setFlags(long arg);
 
     @Override

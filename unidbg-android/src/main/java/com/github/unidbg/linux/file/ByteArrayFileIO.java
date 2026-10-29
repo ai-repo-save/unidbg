@@ -2,6 +2,8 @@ package com.github.unidbg.linux.file;
 
 import com.github.unidbg.Emulator;
 import com.github.unidbg.arm.backend.Backend;
+import com.github.unidbg.file.FileMetadata;
+import com.github.unidbg.file.FileQueryResult;
 import com.github.unidbg.file.linux.BaseAndroidFileIO;
 import com.github.unidbg.file.linux.StatStructure;
 import com.github.unidbg.unix.IO;
@@ -24,6 +26,11 @@ public class ByteArrayFileIO extends BaseAndroidFileIO {
         super(oflags);
         this.path = path;
         this.bytes = bytes;
+    }
+
+    @Override
+    public FileQueryResult<FileMetadata> queryMetadata() {
+        return FileQueryResult.success(FileMetadata.builder().mode(IO.S_IFREG).size(bytes.length).build());
     }
 
     private int pos;

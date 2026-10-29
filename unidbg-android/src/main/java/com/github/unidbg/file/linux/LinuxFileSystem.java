@@ -2,6 +2,9 @@ package com.github.unidbg.file.linux;
 
 import com.github.unidbg.Emulator;
 import com.github.unidbg.file.BaseFileSystem;
+import com.github.unidbg.file.DirectoryEntry;
+import com.github.unidbg.file.FileMetadata;
+import com.github.unidbg.file.FileQueryResult;
 import com.github.unidbg.file.FileResult;
 import com.github.unidbg.file.FileSystem;
 import com.github.unidbg.linux.android.LogCatHandler;
@@ -28,12 +31,29 @@ public class LinuxFileSystem extends BaseFileSystem<AndroidFileIO> implements Fi
         if ("/dev/tty".equals(pathname)) {
             return FileResult.<AndroidFileIO>success(new NullFileIO(pathname));
         }
-        if ("/proc/self/maps".equals(pathname) || ("/proc/" + emulator.getPid() + "/maps").equals(pathname) ||
-                ("/proc/self/task/" + emulator.getPid() + "/maps").equals(pathname)) {
+        if (isMaps(pathname)) {
             return FileResult.<AndroidFileIO>success(new MapsFileIO(emulator, oflags, pathname, emulator.getMemory().getLoadedModules()));
         }
 
         return super.open(pathname, oflags);
+    }
+
+    private boolean isMaps(String path) {
+        return "/proc/self/maps".equals(path) || ("/proc/" + emulator.getPid() + "/maps").equals(path)
+                || ("/proc/self/task/" + emulator.getPid() + "/maps").equals(path);
+    }
+
+    @Override
+    public FileQueryResult<FileMetadata> queryMetadata(String path, boolean followLinks) {
+        if (isMaps(path)) return FileQueryResult.success(FileMetadata.builder().mode(IO.S_IFREG).build());
+        if ("/dev/tty".equals(path)) return FileQueryResult.success(FileMetadata.builder().build());
+        return super.queryMetadata(path, followLinks);
+    }
+
+    @Override
+    public FileQueryResult<java.util.List<DirectoryEntry>> queryDirectory(String path) {
+        if (isMaps(path) || "/dev/tty".equals(path)) return FileQueryResult.failed(com.github.unidbg.unix.UnixEmulator.ENOTDIR);
+        return super.queryDirectory(path);
     }
 
     public LogCatHandler getLogCatHandler() {

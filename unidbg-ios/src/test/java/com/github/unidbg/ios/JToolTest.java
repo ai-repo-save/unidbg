@@ -3,7 +3,11 @@ package com.github.unidbg.ios;
 import com.github.unidbg.Emulator;
 import com.github.unidbg.Module;
 import com.github.unidbg.arm.backend.HypervisorFactory;
+import com.github.unidbg.file.DirectoryEntry;
+import com.github.unidbg.file.FileMetadata;
+import com.github.unidbg.file.FileQueryResult;
 import com.github.unidbg.file.FileResult;
+import com.github.unidbg.file.HostFileFacts;
 import com.github.unidbg.file.IOResolver;
 import com.github.unidbg.file.ios.DarwinFileIO;
 import com.github.unidbg.ios.file.SimpleFileIO;
@@ -23,11 +27,19 @@ public class JToolTest {
         emulator.getSyscallHandler().setVerbose(false);
 
         final File jtool = new File("unidbg-ios/src/test/resources/example_binaries/jtool_osx");
-        IOResolver<DarwinFileIO> resolver = (emulator1, pathname, oflags) -> {
+        IOResolver<DarwinFileIO> resolver = new IOResolver<DarwinFileIO>() {
+            @Override public FileResult<DarwinFileIO> resolve(Emulator<DarwinFileIO> emulator1, String pathname, int oflags) {
             if ("test_executable".equals(pathname)) {
                 return FileResult.success(new SimpleFileIO(oflags, jtool, pathname));
             }
             return null;
+            }
+            @Override public FileQueryResult<FileMetadata> queryMetadata(Emulator<DarwinFileIO> emulator1, String path, boolean followLinks) {
+                return "test_executable".equals(path) ? HostFileFacts.metadata(jtool, followLinks) : null;
+            }
+            @Override public FileQueryResult<java.util.List<DirectoryEntry>> queryDirectory(Emulator<DarwinFileIO> emulator1, String path) {
+                return "test_executable".equals(path) ? HostFileFacts.directory(jtool) : null;
+            }
         };
         emulator.getSyscallHandler().addIOResolver(resolver);
 

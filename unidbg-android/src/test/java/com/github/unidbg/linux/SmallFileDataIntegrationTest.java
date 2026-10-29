@@ -1,9 +1,15 @@
 package com.github.unidbg.linux;
 
 import com.github.unidbg.AndroidEmulator;
+import com.github.unidbg.Emulator;
 import com.github.unidbg.Module;
 import com.github.unidbg.arm.backend.Unicorn2Factory;
+import com.github.unidbg.file.DirectoryEntry;
+import com.github.unidbg.file.FileMetadata;
+import com.github.unidbg.file.FileQueryResult;
 import com.github.unidbg.file.FileResult;
+import com.github.unidbg.file.IOResolver;
+import com.github.unidbg.file.linux.AndroidFileIO;
 import com.github.unidbg.linux.android.AndroidEmulatorBuilder;
 import com.github.unidbg.linux.android.AndroidResolver;
 import com.github.unidbg.linux.file.ByteArrayFileIO;
@@ -57,8 +63,17 @@ public class SmallFileDataIntegrationTest {
             try (AndroidEmulator emulator = (arm64 ? AndroidEmulatorBuilder.for64Bit() : AndroidEmulatorBuilder.for32Bit())
                     .setRootDir(root.toFile()).addBackendFactory(new Unicorn2Factory(true)).build()) {
                 emulator.getMemory().setLibraryResolver(new AndroidResolver(23));
-                emulator.getSyscallHandler().addIOResolver((emu, path, flags) ->
-                        "/memory.bin".equals(path) ? FileResult.success(new ByteArrayFileIO(flags, path, source)) : null);
+                emulator.getSyscallHandler().addIOResolver(new IOResolver<AndroidFileIO>() {
+                    @Override public FileResult<AndroidFileIO> resolve(Emulator<AndroidFileIO> emu, String path, int flags) {
+                        return "/memory.bin".equals(path) ? FileResult.success(new ByteArrayFileIO(flags, path, source)) : null;
+                    }
+                    @Override public FileQueryResult<FileMetadata> queryMetadata(Emulator<AndroidFileIO> emu, String path, boolean followLinks) {
+                        return "/memory.bin".equals(path) ? FileQueryResult.success(FileMetadata.builder().mode(0100000).size(source.length).build()) : null;
+                    }
+                    @Override public FileQueryResult<java.util.List<DirectoryEntry>> queryDirectory(Emulator<AndroidFileIO> emu, String path) {
+                        return "/memory.bin".equals(path) ? FileQueryResult.failed(20) : null;
+                    }
+                });
                 Module probe = emulator.loadLibrary(new File(library), false);
                 assertEquals(0, probe.callFunction(emulator, "directory_probe", "/entries").intValue());
                 int[] directoryResults = probe.findSymbolByName("directory_results").createPointer(emulator).getIntArray(0, 6);

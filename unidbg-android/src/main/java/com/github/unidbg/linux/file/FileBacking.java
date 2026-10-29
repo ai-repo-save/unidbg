@@ -1,8 +1,11 @@
 package com.github.unidbg.linux.file;
 
 import com.github.unidbg.file.FileIO;
+import com.github.unidbg.file.FileMetadata;
+import com.github.unidbg.file.FileQueryResult;
 import com.github.unidbg.linux.LinuxErrnoException;
 import com.github.unidbg.memory.mapping.HostMappingException;
+import com.github.unidbg.memory.mapping.LinuxFileMetadata;
 import com.github.unidbg.memory.mapping.LinuxMappingSource;
 import com.github.unidbg.memory.mapping.MappingSource;
 import com.sun.jna.Library;
@@ -77,6 +80,8 @@ public final class FileBacking implements Closeable {
         this.appendFd = appendFd;
         log.debug("event=file_backing_opened backing={}", id);
     }
+
+    public FileQueryResult<FileMetadata> queryMetadata() { return LinuxFileMetadata.query(appendFd); }
 
     public long backingId() { return id; }
 

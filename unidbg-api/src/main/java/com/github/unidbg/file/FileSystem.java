@@ -11,6 +11,9 @@ public interface FileSystem<T extends NewFileIO> {
     File createWorkDir(); // 当设置了rootDir以后才可用，为rootDir/unidbg_work目录
 
     FileResult<T> open(String pathname, int oflags);
+    FileQueryResult<FileMetadata> queryMetadata(String pathname, boolean followLinks);
+    FileQueryResult<java.util.List<DirectoryEntry>> queryDirectory(String pathname);
+
     void unlink(String path);
 
     /**

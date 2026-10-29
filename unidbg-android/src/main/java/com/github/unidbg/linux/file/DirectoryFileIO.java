@@ -2,6 +2,9 @@ package com.github.unidbg.linux.file;
 
 import com.github.unidbg.Emulator;
 import com.github.unidbg.arm.ARM;
+import com.github.unidbg.file.DirectoryEntry;
+import com.github.unidbg.file.FileMetadata;
+import com.github.unidbg.file.FileQueryResult;
 import com.github.unidbg.file.UnidbgFileFilter;
 import com.github.unidbg.file.linux.BaseAndroidFileIO;
 import com.github.unidbg.file.linux.StatStructure;
@@ -21,33 +24,6 @@ import java.util.List;
 
 public class DirectoryFileIO extends BaseAndroidFileIO {
 
-    public enum DirentType {
-        DT_FIFO(1), /* FIFO */
-        DT_CHR(2), /* character device */
-        DT_DIR(4), /* directory */
-        DT_BLK(6), /* block device */
-        DT_REG(8), /* regular file */
-        DT_LNK(10), /* symbolic link */
-        DT_SOCK(12), /* socket */
-        DT_WHT(14); /* whiteout */
-        private final byte type;
-        DirentType(int type) {
-            this.type = (byte) type;
-        }
-    }
-
-    public static class DirectoryEntry {
-        private final DirentType type;
-        private final String name;
-        public DirectoryEntry(boolean isFile, String name) {
-            this(isFile ? DirentType.DT_REG : DirentType.DT_DIR, name);
-        }
-        public DirectoryEntry(DirentType type, String name) {
-            this.type = type;
-            this.name = name;
-        }
-    }
-
     private static DirectoryEntry[] createEntries(File dir) {
         List<DirectoryEntry> list = new ArrayList<>();
         File[] files = dir.listFiles(new UnidbgFileFilter());
@@ -63,6 +39,7 @@ public class DirectoryFileIO extends BaseAndroidFileIO {
     private final String path;
 
     private final List<DirectoryEntry> entries;
+    private final List<DirectoryEntry> facts;
 
     public DirectoryFileIO(int oflags, String path, File dir) {
         this(oflags, path, createEntries(dir));
@@ -73,12 +50,20 @@ public class DirectoryFileIO extends BaseAndroidFileIO {
 
         this.path = path;
 
+        this.facts = entries == null ? Collections.emptyList() : Collections.unmodifiableList(Arrays.asList(entries.clone()));
         this.entries = new ArrayList<>();
         this.entries.add(new DirectoryEntry(false, "."));
         this.entries.add(new DirectoryEntry(false, ".."));
         if (entries != null) {
             Collections.addAll(this.entries, entries);
         }
+    }
+
+    public List<DirectoryEntry> queryDirectory() { return facts; }
+
+    @Override
+    public FileQueryResult<FileMetadata> queryMetadata() {
+        return FileQueryResult.success(FileMetadata.builder().mode(IO.S_IFDIR).build());
     }
 
     @Override
@@ -97,7 +82,7 @@ public class DirectoryFileIO extends BaseAndroidFileIO {
             dirent.d_ino = 0;
             dirent.d_off = 0;
             dirent.d_reclen = (short) d_reclen;
-            dirent.d_type = entry.type.type;
+            dirent.d_type = entry.type.value;
             dirent.d_name = Arrays.copyOf(data, data.length + 1);
             dirent.pack();
             offset += d_reclen;

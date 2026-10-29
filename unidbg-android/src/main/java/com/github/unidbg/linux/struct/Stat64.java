@@ -9,6 +9,8 @@ import java.util.List;
 
 public class Stat64 extends StatStructure {
 
+    public Stat64(byte[] data) { super(data); }
+
     public Stat64(Pointer p) {
         super(p);
     }
@@ -23,20 +25,20 @@ public class Stat64 extends StatStructure {
 
     @Override
     public void setSt_atim(long st_atim, long tv_nsec) {
-        this.st_atim.tv_sec = st_atim / 1000L;
-        this.st_atim.tv_nsec = (st_atim % 1000) * 1000000L + (tv_nsec % 1000000L);
+        this.st_atim.tv_sec = Math.floorDiv(st_atim, 1000L);
+        this.st_atim.tv_nsec = (Math.floorMod(st_atim, 1000L)) * 1000000L + (tv_nsec % 1000000L);
     }
 
     @Override
     public void setSt_mtim(long st_mtim, long tv_nsec) {
-        this.st_mtim.tv_sec = st_mtim / 1000L;
-        this.st_mtim.tv_nsec = (st_mtim % 1000) * 1000000L + (tv_nsec % 1000000L);
+        this.st_mtim.tv_sec = Math.floorDiv(st_mtim, 1000L);
+        this.st_mtim.tv_nsec = (Math.floorMod(st_mtim, 1000L)) * 1000000L + (tv_nsec % 1000000L);
     }
 
     @Override
     public void setSt_ctim(long st_ctim, long tv_nsec) {
-        this.st_ctim.tv_sec = st_ctim / 1000L;
-        this.st_ctim.tv_nsec = (st_ctim % 1000) * 1000000L + (tv_nsec % 1000000L);
+        this.st_ctim.tv_sec = Math.floorDiv(st_ctim, 1000L);
+        this.st_ctim.tv_nsec = (Math.floorMod(st_ctim, 1000L)) * 1000000L + (tv_nsec % 1000000L);
     }
 
     @Override

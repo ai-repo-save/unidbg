@@ -1,16 +1,23 @@
 package com.github.unidbg.linux;
 
 import com.github.unidbg.AndroidEmulator;
+import com.github.unidbg.Emulator;
 import com.github.unidbg.Module;
 import com.github.unidbg.arm.backend.Unicorn2Factory;
+import com.github.unidbg.file.DirectoryEntry;
+import com.github.unidbg.file.FileMetadata;
+import com.github.unidbg.file.FileQueryResult;
 import com.github.unidbg.file.FileResult;
+import com.github.unidbg.file.IOResolver;
+import com.github.unidbg.file.linux.AndroidFileIO;
 import com.github.unidbg.linux.android.AndroidEmulatorBuilder;
 import com.github.unidbg.linux.android.AndroidResolver;
 import com.github.unidbg.linux.file.ByteArrayFileIO;
-import com.github.unidbg.pointer.UnidbgPointer;
 import com.github.unidbg.memory.MemoryBlock;
-import java.util.concurrent.atomic.AtomicInteger;
+import com.github.unidbg.pointer.UnidbgPointer;
 import org.junit.Test;
+
+import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.Assert.*;
 
 /** Regression: a lower-priority ENOENT must not replace an explicit EINTR response. */
@@ -24,13 +31,30 @@ public class ResolverPriorityIntegrationTest {
                 emulator.getMemory().setCallInitFunction(false);
                 Module libc = emulator.getMemory().load(libraries.resolveLibrary(emulator, "libc.so"), false);
                 String path = "/proc/bus/pci/devices";
-                emulator.getSyscallHandler().addIOResolver((emu, name, flags) ->
-                        path.equals(name) ? FileResult.failed(2) : null);
+                emulator.getSyscallHandler().addIOResolver(new IOResolver<AndroidFileIO>() {
+                    @Override public FileResult<AndroidFileIO> resolve(Emulator<AndroidFileIO> emu, String name, int flags) {
+                        return path.equals(name) ? FileResult.failed(2) : null;
+                    }
+                    @Override public FileQueryResult<FileMetadata> queryMetadata(Emulator<AndroidFileIO> emu, String name, boolean followLinks) {
+                        return path.equals(name) ? FileQueryResult.unknown() : null;
+                    }
+                    @Override public FileQueryResult<java.util.List<DirectoryEntry>> queryDirectory(Emulator<AndroidFileIO> emu, String name) {
+                        return path.equals(name) ? FileQueryResult.unknown() : null;
+                    }
+                });
                 AtomicInteger calls = new AtomicInteger();
-                emulator.getSyscallHandler().addIOResolver((emu, name, flags) -> {
+                emulator.getSyscallHandler().addIOResolver(new IOResolver<AndroidFileIO>() {
+                    @Override public FileResult<AndroidFileIO> resolve(Emulator<AndroidFileIO> emu, String name, int flags) {
                     if (!path.equals(name)) return null;
                     if (calls.getAndIncrement() == 0) return FileResult.failed(4);
                     return FileResult.success(new ByteArrayFileIO(flags, name, new byte[] {49, 9, 50}));
+                    }
+                    @Override public FileQueryResult<FileMetadata> queryMetadata(Emulator<AndroidFileIO> emu, String name, boolean followLinks) {
+                        return path.equals(name) ? FileQueryResult.unknown() : null;
+                    }
+                    @Override public FileQueryResult<java.util.List<DirectoryEntry>> queryDirectory(Emulator<AndroidFileIO> emu, String name) {
+                        return path.equals(name) ? FileQueryResult.unknown() : null;
+                    }
                 });
                 assertEquals(-1, libc.findSymbolByName("openat").call(emulator, 0, path, 0, 0).intValue());
                 UnidbgPointer errno = UnidbgPointer.pointer(emulator, libc.findSymbolByName("__errno").call(emulator).longValue());

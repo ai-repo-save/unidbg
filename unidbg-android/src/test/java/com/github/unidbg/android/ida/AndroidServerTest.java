@@ -8,7 +8,11 @@ import com.github.unidbg.Symbol;
 import com.github.unidbg.arm.HookStatus;
 import com.github.unidbg.arm.context.RegisterContext;
 import com.github.unidbg.debugger.ida.Utils;
+import com.github.unidbg.file.DirectoryEntry;
+import com.github.unidbg.file.FileMetadata;
+import com.github.unidbg.file.FileQueryResult;
 import com.github.unidbg.file.FileResult;
+import com.github.unidbg.file.HostFileFacts;
 import com.github.unidbg.file.IOResolver;
 import com.github.unidbg.file.linux.AndroidFileIO;
 import com.github.unidbg.hook.ReplaceCallback;
@@ -59,17 +63,41 @@ public class AndroidServerTest implements IOResolver<AndroidFileIO>, PTrace {
             return FileResult.<AndroidFileIO>success(new SimpleFileIO(oflags, executable, pathname));
         }
         if ("/proc".equals(pathname)) {
-            return FileResult.<AndroidFileIO>success(new DirectoryFileIO(oflags, pathname, new DirectoryFileIO.DirectoryEntry(false, Integer.toString(attachPid))));
+            return FileResult.<AndroidFileIO>success(new DirectoryFileIO(oflags, pathname, new DirectoryEntry(false, Integer.toString(attachPid))));
         }
         if (("/proc/" + attachPid).equals(pathname)) {
             return FileResult.<AndroidFileIO>success(new DirectoryFileIO(oflags, pathname,
-                    new DirectoryFileIO.DirectoryEntry(true, "maps"),
-                    new DirectoryFileIO.DirectoryEntry(true, "cmdline"),
-                    new DirectoryFileIO.DirectoryEntry(true, "exe"),
-                    new DirectoryFileIO.DirectoryEntry(false, "task")));
+                    new DirectoryEntry(true, "maps"),
+                    new DirectoryEntry(true, "cmdline"),
+                    new DirectoryEntry(true, "exe"),
+                    new DirectoryEntry(false, "task")));
         }
 
         return null;
+    }
+
+    @Override
+    public FileQueryResult<FileMetadata> queryMetadata(Emulator<AndroidFileIO> emulator, String path, boolean followLinks) {
+        int pid = emulator.getPid() - 1;
+        if (("/proc/" + pid + "/exe").equals(path) || "/system/bin/android_server_7.4".equals(path)) {
+            return HostFileFacts.metadata(executable, followLinks);
+        }
+        if (("/proc/" + pid + "/maps").equals(path) || ("/proc/" + pid + "/cmdline").equals(path)
+                || ("/proc/" + pid + "/task/" + pid + "/comm").equals(path)) {
+            return FileQueryResult.success(FileMetadata.builder().mode(0100000).build());
+        }
+        return "/proc".equals(path) || ("/proc/" + pid).equals(path)
+                ? FileQueryResult.success(FileMetadata.builder().mode(0040000).build()) : null;
+    }
+
+    @Override
+    public FileQueryResult<java.util.List<DirectoryEntry>> queryDirectory(Emulator<AndroidFileIO> emulator, String path) {
+        int pid = emulator.getPid() - 1;
+        if ("/proc".equals(path)) return FileQueryResult.success(java.util.Collections.singletonList(new DirectoryEntry(false, Integer.toString(pid))));
+        if (("/proc/" + pid).equals(path)) return FileQueryResult.success(Arrays.asList(
+                new DirectoryEntry(true, "maps"), new DirectoryEntry(true, "cmdline"),
+                new DirectoryEntry(true, "exe"), new DirectoryEntry(false, "task")));
+        return queryMetadata(emulator, path, true) == null ? null : FileQueryResult.failed(20);
     }
 
     private final Emulator<AndroidFileIO> emulator;

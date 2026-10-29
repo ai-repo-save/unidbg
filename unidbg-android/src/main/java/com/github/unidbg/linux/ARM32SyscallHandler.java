@@ -364,10 +364,16 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
                     backend.reg_write(ArmConst.UC_ARM_REG_R0, fstat(backend, emulator));
                     return;
                 case 199: // getuid
+                    backend.reg_write(ArmConst.UC_ARM_REG_R0, getGuestCredentials().requireRealUid());
+                    return;
                 case 200: // getgid
+                    backend.reg_write(ArmConst.UC_ARM_REG_R0, getGuestCredentials().requireRealGid());
+                    return;
                 case 201: // geteuid
+                    backend.reg_write(ArmConst.UC_ARM_REG_R0, getGuestCredentials().requireEffectiveUid());
+                    return;
                 case 202: // getegid
-                    backend.reg_write(ArmConst.UC_ARM_REG_R0, 0);
+                    backend.reg_write(ArmConst.UC_ARM_REG_R0, getGuestCredentials().requireEffectiveGid());
                     return;
                 case 205:
                     backend.reg_write(ArmConst.UC_ARM_REG_R0, getgroups(backend, emulator));
@@ -990,7 +996,7 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
         if (log.isDebugEnabled()) {
             log.debug("access pathname={}, mode={}", path, mode);
         }
-        int ret = faccessat(emulator, path);
+        int ret = accessAt(emulator, IO.AT_FDCWD, path, mode);
         if (ret == -1) {
             log.info("access pathname={}, mode={}", path, mode);
         }
@@ -1061,17 +1067,11 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
         if (log.isDebugEnabled()) {
             log.debug("lstat pathname={}, statbuf={}", path, statbuf);
         }
-        return stat64(emulator, path, statbuf);
+        return statAt(emulator, IO.AT_FDCWD, path, 0x100, statbuf);
     }
 
     protected int stat64(Emulator<AndroidFileIO> emulator, String pathname, Pointer statbuf) {
-        FileResult<AndroidFileIO> result = resolve(emulator, pathname, IOConstants.O_RDONLY);
-        if (result != null && result.isSuccess()) {
-            return result.io.fstat(emulator, new Stat32(statbuf));
-        }
-
-        log.info("stat64 pathname={}, LR={}", pathname, emulator.getContext().getLRPointer());
-        return -(result != null ? result.errno : UnixEmulator.ENOENT);
+        return statAt(emulator, IO.AT_FDCWD, pathname, 0, statbuf);
     }
 
     private int newselect(Backend backend, Emulator<?> emulator) {
@@ -1432,12 +1432,8 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
     }
 
     private int getgroups(Backend backend, Emulator<?> emulator) {
-        int size = backend.reg_read(ArmConst.UC_ARM_REG_R0).intValue();
-        Pointer list = UnidbgPointer.register(emulator, ArmConst.UC_ARM_REG_R1);
-        if (log.isDebugEnabled()) {
-            log.debug("getgroups size={}, list={}", size, list);
-        }
-        return 0;
+        return queryGroups(backend.reg_read(ArmConst.UC_ARM_REG_R0).intValue(),
+                UnidbgPointer.register(emulator, ArmConst.UC_ARM_REG_R1));
     }
 
     protected int uname(Emulator<?> emulator) {
@@ -1689,28 +1685,9 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
 
     private int faccessat(Backend backend, Emulator<AndroidFileIO> emulator) {
         int dirfd = backend.reg_read(ArmConst.UC_ARM_REG_R0).intValue();
-        Pointer pathname_p = UnidbgPointer.register(emulator, ArmConst.UC_ARM_REG_R1);
-        int oflags = backend.reg_read(ArmConst.UC_ARM_REG_R2).intValue();
-        int mode = backend.reg_read(ArmConst.UC_ARM_REG_R3).intValue();
-        String pathname = pathname_p.getString(0);
-        String msg = "faccessat dirfd=" + dirfd + ", pathname=" + pathname + ", oflags=0x" + Integer.toHexString(oflags) + ", mode=0x" + Integer.toHexString(mode);
-        if (log.isDebugEnabled()) {
-            log.debug(msg);
-        }
-        int ret = faccessat(emulator, pathname);
-        if (ret == -1) {
-            log.info(msg);
-        }
-        return ret;
-    }
-
-    private int faccessat(Emulator<AndroidFileIO> emulator, String pathname) {
-        FileResult<?> result = resolve(emulator, pathname, IOConstants.O_RDONLY);
-        if (result != null && result.isSuccess()) {
-            return 0;
-        }
-
-        return -(result != null ? result.errno : UnixEmulator.EACCES);
+        Pointer pathname = UnidbgPointer.register(emulator, ArmConst.UC_ARM_REG_R1);
+        int mode = backend.reg_read(ArmConst.UC_ARM_REG_R2).intValue();
+        return accessAt(emulator, dirfd, pathname.getString(0), mode);
     }
 
     private int fstatat64(Backend backend, Emulator<AndroidFileIO> emulator) {
@@ -1718,14 +1695,7 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
         Pointer pathname = UnidbgPointer.register(emulator, ArmConst.UC_ARM_REG_R1);
         Pointer statbuf = UnidbgPointer.register(emulator, ArmConst.UC_ARM_REG_R2);
         int flags = backend.reg_read(ArmConst.UC_ARM_REG_R3).intValue();
-        String path = FilenameUtils.normalize(pathname.getString(0), true);
-        if (log.isDebugEnabled()) {
-            log.debug("fstatat64 dirfd={}, pathname={}, statbuf={}, flags={}", dirfd, path, statbuf, flags);
-        }
-        if (dirfd != IO.AT_FDCWD && !path.startsWith("/")) {
-            throw new BackendException();
-        }
-        return stat64(emulator, path, statbuf);
+        return statAt(emulator, dirfd, pathname.getString(0), flags, statbuf);
     }
 
     private int openat(Emulator<AndroidFileIO> emulator) {

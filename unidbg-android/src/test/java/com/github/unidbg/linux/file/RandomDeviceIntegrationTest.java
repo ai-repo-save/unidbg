@@ -1,9 +1,15 @@
 package com.github.unidbg.linux.file;
 
 import com.github.unidbg.AndroidEmulator;
+import com.github.unidbg.Emulator;
 import com.github.unidbg.Module;
 import com.github.unidbg.arm.backend.Unicorn2Factory;
+import com.github.unidbg.file.DirectoryEntry;
+import com.github.unidbg.file.FileMetadata;
+import com.github.unidbg.file.FileQueryResult;
 import com.github.unidbg.file.FileResult;
+import com.github.unidbg.file.IOResolver;
+import com.github.unidbg.file.linux.AndroidFileIO;
 import com.github.unidbg.file.linux.StatStructure;
 import com.github.unidbg.linux.android.AndroidEmulatorBuilder;
 import com.github.unidbg.linux.android.AndroidResolver;
@@ -35,7 +41,8 @@ public class RandomDeviceIntegrationTest {
                 AndroidResolver resolver = new AndroidResolver(23);
                 emulator.getMemory().setLibraryResolver(resolver);
                 AtomicInteger entropyBytes = new AtomicInteger();
-                emulator.getSyscallHandler().addIOResolver((target, path, flags) -> {
+                emulator.getSyscallHandler().addIOResolver(new IOResolver<AndroidFileIO>() {
+                    @Override public FileResult<AndroidFileIO> resolve(Emulator<AndroidFileIO> target, String path, int flags) {
                     if (!path.equals("/dev/random") && !path.equals("/dev/urandom") && !path.equals("/dev/srandom")) {
                         return null;
                     }
@@ -49,6 +56,13 @@ public class RandomDeviceIntegrationTest {
                             }
                         }
                     });
+                    }
+                    @Override public FileQueryResult<FileMetadata> queryMetadata(Emulator<AndroidFileIO> target, String path, boolean followLinks) {
+                        return DriverFileIO.queryMetadata(path);
+                    }
+                    @Override public FileQueryResult<java.util.List<DirectoryEntry>> queryDirectory(Emulator<AndroidFileIO> target, String path) {
+                        return DriverFileIO.queryMetadata(path) == null ? null : FileQueryResult.failed(20);
+                    }
                 });
                 Module libc = emulator.getMemory().load(resolver.resolveLibrary(emulator, "libc.so"), false);
                 MemoryBlock block = emulator.getMemory().malloc(8193, true);

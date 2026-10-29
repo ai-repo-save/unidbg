@@ -5,7 +5,10 @@ import com.github.unidbg.Family;
 import com.github.unidbg.Module;
 import com.github.unidbg.arm.backend.UnHook;
 import com.github.unidbg.debugger.Breaker;
+import com.github.unidbg.file.DirectoryEntry;
 import com.github.unidbg.file.FileIO;
+import com.github.unidbg.file.FileMetadata;
+import com.github.unidbg.file.FileQueryResult;
 import com.github.unidbg.file.FileResult;
 import com.github.unidbg.file.IOResolver;
 import com.github.unidbg.file.NewFileIO;
@@ -118,6 +121,61 @@ public abstract class UnixSyscallHandler<T extends NewFileIO> implements Syscall
         }
     }
 
+    public final FileQueryResult<FileMetadata> queryMetadata(Emulator<T> emulator, String pathname, boolean followLinks) {
+        FileQueryResult<FileMetadata> result = queryFacts(resolver -> resolver.queryMetadata(emulator, pathname, followLinks),
+                () -> {
+                    FileQueryResult<FileMetadata> special = querySpecialMetadata(emulator, pathname, followLinks);
+                    return special != null ? special : emulator.getFileSystem().queryMetadata(pathname, followLinks);
+                });
+        log.debug("event=file_metadata_queried emulator={} path={} follow_links={} status={} errno={}",
+                System.identityHashCode(emulator), pathname, followLinks, result.status(), result.errno);
+        return result;
+    }
+
+    public final FileQueryResult<List<DirectoryEntry>> queryDirectory(Emulator<T> emulator, String pathname) {
+        FileQueryResult<List<DirectoryEntry>> result = queryFacts(resolver -> resolver.queryDirectory(emulator, pathname),
+                () -> {
+                    FileQueryResult<List<DirectoryEntry>> special = querySpecialDirectory(emulator, pathname);
+                    return special != null ? special : emulator.getFileSystem().queryDirectory(pathname);
+                });
+        log.debug("event=file_directory_queried emulator={} path={} status={} errno={}",
+                System.identityHashCode(emulator), pathname, result.status(), result.errno);
+        return result;
+    }
+
+    private <V> FileQueryResult<V> queryFacts(java.util.function.Function<IOResolver<T>, FileQueryResult<V>> query,
+                                             java.util.function.Supplier<FileQueryResult<V>> filesystem) {
+        FileQueryResult<V> fallback = null;
+        for (IOResolver<T> resolver : resolvers) {
+            FileQueryResult<V> result = query.apply(resolver);
+            if (result == null) continue;
+            if (!result.isFallback()) return result;
+            if (fallback == null) fallback = result;
+        }
+        FileQueryResult<V> result = filesystem.get();
+        if (result.isSuccess() || fallback == null) return result;
+        return FileQueryResult.success(fallback.value);
+    }
+
+    protected FileQueryResult<FileMetadata> querySpecialMetadata(Emulator<T> emulator, String pathname, boolean followLinks) {
+        if (isProcFd(emulator, pathname)) {
+            T held = fdMap.get(Integer.parseInt(pathname.substring(pathname.lastIndexOf('/') + 1)));
+            if (held == null) return FileQueryResult.failed(UnixEmulator.ENOENT);
+            if (!followLinks) return FileQueryResult.success(FileMetadata.builder().mode(IO.S_IFLNK | 0777).build());
+            return held.queryMetadata();
+        }
+        return null;
+    }
+
+    protected FileQueryResult<List<DirectoryEntry>> querySpecialDirectory(Emulator<T> emulator, String pathname) {
+        if (isProcFd(emulator, pathname)) return FileQueryResult.unknown();
+        return null;
+    }
+
+    protected final boolean isProcFd(Emulator<T> emulator, String pathname) {
+        return pathname.startsWith("/proc/" + emulator.getPid() + "/fd/") || pathname.startsWith("/proc/self/fd/");
+    }
+
     protected FileResult<T> resolve(Emulator<T> emulator, String pathname, int oflags) {
         FileResult<T> failResult = null;
         for (IOResolver<T> resolver : resolvers) {
@@ -137,7 +195,7 @@ public abstract class UnixSyscallHandler<T extends NewFileIO> implements Syscall
             return failResult;
         }
 
-        if (pathname.startsWith("/proc/" + emulator.getPid() + "/fd/") || pathname.startsWith("/proc/self/fd/")) {
+        if (isProcFd(emulator, pathname)) {
             int fd = Integer.parseInt(pathname.substring(pathname.lastIndexOf("/") + 1));
             T file = fdMap.get(fd);
             if (file != null) {
@@ -175,14 +233,23 @@ public abstract class UnixSyscallHandler<T extends NewFileIO> implements Syscall
             return FileResult.success(failResult.io);
         }
         
-        if (("/proc/" + emulator.getPid() + "/fd").equals(pathname) || "/proc/self/fd".equals(pathname)) {
+        if (isFdDirectory(emulator, pathname)) {
             return createFdDir(oflags, pathname);
         }
-        if (("/proc/" + emulator.getPid() + "/task/").equals(pathname) || "/proc/self/task/".equals(pathname)) {
+        if (isTaskDirectory(emulator, pathname)) {
             return createTaskDir(emulator, oflags, pathname);
         }
         
         return failResult;
+    }
+
+    protected final boolean isFdDirectory(Emulator<T> emulator, String pathname) {
+        return ("/proc/" + emulator.getPid() + "/fd").equals(pathname) || "/proc/self/fd".equals(pathname);
+    }
+
+    protected final boolean isTaskDirectory(Emulator<T> emulator, String pathname) {
+        String path = pathname.endsWith("/") ? pathname.substring(0, pathname.length() - 1) : pathname;
+        return ("/proc/" + emulator.getPid() + "/task").equals(path) || "/proc/self/task".equals(path);
     }
 
     protected FileResult<T> createTaskDir(Emulator<T> emulator, int oflags, String pathname) {

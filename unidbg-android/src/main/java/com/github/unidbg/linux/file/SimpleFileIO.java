@@ -3,6 +3,8 @@ package com.github.unidbg.linux.file;
 import com.github.unidbg.Emulator;
 import com.github.unidbg.arm.backend.Backend;
 import com.github.unidbg.file.FileIO;
+import com.github.unidbg.file.FileMetadata;
+import com.github.unidbg.file.FileQueryResult;
 import com.github.unidbg.file.NewFileIO;
 import com.github.unidbg.file.linux.BaseAndroidFileIO;
 import com.github.unidbg.file.linux.IOConstants;
@@ -156,6 +158,11 @@ public class SimpleFileIO extends BaseAndroidFileIO implements NewFileIO {
             }
             return total;
         } catch (IOException failure) { throw new IllegalStateException("Reading file at offset: " + path, failure); }
+    }
+
+    @Override
+    public FileQueryResult<FileMetadata> queryMetadata() {
+        return closed ? FileQueryResult.failed(UnixEmulator.EBADF) : description.backing.queryMetadata();
     }
 
     @Override

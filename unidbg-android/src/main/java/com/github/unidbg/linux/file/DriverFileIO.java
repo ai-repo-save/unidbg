@@ -1,12 +1,15 @@
 package com.github.unidbg.linux.file;
 
 import com.github.unidbg.Emulator;
-import com.github.unidbg.unix.UnixEmulator;
 import com.github.unidbg.arm.backend.Backend;
+import com.github.unidbg.file.FileMetadata;
+import com.github.unidbg.file.FileQueryResult;
 import com.github.unidbg.file.NewFileIO;
 import com.github.unidbg.file.linux.AndroidFileIO;
 import com.github.unidbg.file.linux.BaseAndroidFileIO;
 import com.github.unidbg.pointer.UnidbgPointer;
+import com.github.unidbg.unix.IO;
+import com.github.unidbg.unix.UnixEmulator;
 import com.sun.jna.Pointer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,20 +19,41 @@ public class DriverFileIO extends BaseAndroidFileIO implements NewFileIO, Androi
     private static final Logger log = LoggerFactory.getLogger(DriverFileIO.class);
 
     public static DriverFileIO create(Emulator<?> emulator, int oflags, String pathname) {
-        if ("/dev/urandom".equals(pathname) || "/dev/random".equals(pathname) || "/dev/srandom".equals(pathname)) {
-            return new RandomFileIO(emulator, pathname);
+        Device device = device(pathname);
+        if (device == null) return null;
+        switch (device) {
+            case RANDOM: case URANDOM: case SRANDOM: return new RandomFileIO(emulator, pathname);
+            case ASHMEM: return new Ashmem(emulator, oflags, pathname);
+            case ZERO: return new ZeroFileIO(emulator, oflags, pathname);
+            default: return new DriverFileIO(emulator, oflags, pathname);
         }
-        if ("/dev/alarm".equals(pathname) || "/dev/null".equals(pathname)) {
-            return new DriverFileIO(emulator, oflags, pathname);
-        }
-        if ("/dev/ashmem".equals(pathname)) {
-            return new Ashmem(emulator, oflags, pathname);
-        }
-        if ("/dev/zero".equals(pathname)) {
-            return new ZeroFileIO(emulator, oflags, pathname);
-        }
+    }
+
+    private enum Device {
+        RANDOM("/dev/random"), URANDOM("/dev/urandom"), SRANDOM("/dev/srandom"),
+        ALARM("/dev/alarm"), NULL("/dev/null"), ASHMEM("/dev/ashmem"), ZERO("/dev/zero");
+        final String path;
+        Device(String path) { this.path = path; }
+    }
+
+    private static Device device(String path) {
+        for (Device device : Device.values()) if (device.path.equals(path)) return device;
         return null;
     }
+
+    public static FileQueryResult<FileMetadata> queryMetadata(String path) {
+        Device device = device(path);
+        if (device == null) return null;
+        switch (device) {
+            case RANDOM: case URANDOM: case SRANDOM:
+                return FileQueryResult.success(FileMetadata.builder().mode(IO.S_IFCHR | 0666).nlink(1).build());
+            default:
+                return FileQueryResult.success(FileMetadata.builder().build());
+        }
+    }
+
+    @Override
+    public FileQueryResult<FileMetadata> queryMetadata() { return queryMetadata(path); }
 
     private final Emulator<?> emulator;
     private final String path;

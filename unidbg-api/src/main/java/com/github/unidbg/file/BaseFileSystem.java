@@ -99,6 +99,23 @@ public abstract class BaseFileSystem<T extends NewFileIO> implements FileSystem<
         return createFileIO(file, oflags, pathname);
     }
 
+    @Override
+    public FileQueryResult<FileMetadata> queryMetadata(String pathname, boolean followLinks) {
+        if (pathname.isEmpty()) return FileQueryResult.failed(UnixEmulator.ENOENT);
+        if (IO.STDIN.equals(pathname) || IO.STDOUT.equals(pathname) || IO.STDERR.equals(pathname)) {
+            return FileQueryResult.unknown();
+        }
+        File file = resolveFileInRootDir(pathname);
+        return file == null ? FileQueryResult.failed(UnixEmulator.EACCES) : HostFileFacts.metadata(file, followLinks);
+    }
+
+    @Override
+    public FileQueryResult<java.util.List<DirectoryEntry>> queryDirectory(String pathname) {
+        if (pathname.isEmpty()) return FileQueryResult.failed(UnixEmulator.ENOENT);
+        File file = resolveFileInRootDir(pathname);
+        return file == null ? FileQueryResult.failed(UnixEmulator.EACCES) : HostFileFacts.directory(file);
+    }
+
     protected abstract T createStdout(int oflags, File stdio, String pathname);
 
     protected abstract T createStdin(int oflags);

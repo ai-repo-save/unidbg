@@ -3,8 +3,12 @@ package com.github.unidbg.linux.android;
 import com.github.unidbg.AndroidEmulator;
 import com.github.unidbg.Emulator;
 import com.github.unidbg.LibraryResolver;
+import com.github.unidbg.file.DirectoryEntry;
+import com.github.unidbg.file.FileMetadata;
+import com.github.unidbg.file.FileQueryResult;
 import com.github.unidbg.file.FileResult;
 import com.github.unidbg.file.FileSystem;
+import com.github.unidbg.file.HostFileFacts;
 import com.github.unidbg.file.IOResolver;
 import com.github.unidbg.file.linux.AndroidFileIO;
 import com.github.unidbg.hook.InlineHook;
@@ -115,13 +119,43 @@ public class AndroidResolver implements LibraryResolver, IOResolver<AndroidFileI
             return FileResult.success(createFileIO(fileSystem.createWorkDir(), path, oflags));
         }
 
-        String androidResource = FilenameUtils.normalize("/android/sdk" + sdk + "/" + path, true);
-        URL url = getClass().getResource(androidResource);
+        URL url = resource(path);
         if (url != null) {
             return FileResult.fallback(createFileIO(url, fileSystem, path, oflags));
         }
 
         return null;
+    }
+
+    private URL resource(String path) {
+        return getClass().getResource(FilenameUtils.normalize("/android/sdk" + sdk + "/" + path, true));
+    }
+
+    @Override
+    public FileQueryResult<FileMetadata> queryMetadata(Emulator<AndroidFileIO> emulator, String path, boolean followLinks) {
+        if (path.startsWith(LogCatFileIO.LOG_PATH_PREFIX)) return null;
+        if (".".equals(path)) {
+            File work = new File(emulator.getFileSystem().getRootDir(), FileSystem.DEFAULT_WORK_DIR);
+            return work.exists() ? HostFileFacts.metadata(work, followLinks)
+                    : FileQueryResult.success(FileMetadata.builder().mode(com.github.unidbg.unix.IO.S_IFDIR).build());
+        }
+        URL url = resource(path);
+        if (url == null) return null;
+        FileQueryResult<FileMetadata> result = HostFileFacts.metadata(url, followLinks);
+        return result.isSuccess() ? FileQueryResult.fallback(result.value) : result;
+    }
+
+    @Override
+    public FileQueryResult<List<DirectoryEntry>> queryDirectory(Emulator<AndroidFileIO> emulator, String path) {
+        if (path.startsWith(LogCatFileIO.LOG_PATH_PREFIX)) return null;
+        if (".".equals(path)) {
+            File work = new File(emulator.getFileSystem().getRootDir(), FileSystem.DEFAULT_WORK_DIR);
+            return work.exists() ? HostFileFacts.directory(work) : FileQueryResult.success(java.util.Collections.emptyList());
+        }
+        URL url = resource(path);
+        if (url == null) return null;
+        FileQueryResult<List<DirectoryEntry>> result = HostFileFacts.directory(url);
+        return result.isSuccess() ? FileQueryResult.fallback(result.value) : result;
     }
 
     private AndroidFileIO createFileIO(URL url, FileSystem<AndroidFileIO> fileSystem, String pathname, int oflags) {
@@ -139,7 +173,7 @@ public class AndroidResolver implements LibraryResolver, IOResolver<AndroidFileI
                     JarEntry entry = jarURLConnection.getJarEntry();
                     if (entry.isDirectory()) {
                         Enumeration<JarEntry> entryEnumeration = jarFile.entries();
-                        List<DirectoryFileIO.DirectoryEntry> list = new ArrayList<>();
+                        List<DirectoryEntry> list = new ArrayList<>();
                         while (entryEnumeration.hasMoreElements()) {
                             JarEntry check = entryEnumeration.nextElement();
                             if (entry.getName().equals(check.getName())) {
@@ -152,11 +186,11 @@ public class AndroidResolver implements LibraryResolver, IOResolver<AndroidFileI
                                     sub = sub.substring(0, sub.length() - 1);
                                 }
                                 if (!sub.contains("/")) {
-                                    list.add(new DirectoryFileIO.DirectoryEntry(true, sub));
+                                    list.add(new DirectoryEntry(true, sub));
                                 }
                             }
                         }
-                        return new DirectoryFileIO(oflags, pathname, list.toArray(new DirectoryFileIO.DirectoryEntry[0]));
+                        return new DirectoryFileIO(oflags, pathname, list.toArray(new DirectoryEntry[0]));
                     } else {
                         File backing = new File(fileSystem.createWorkDir(), entry.getName());
                         if (!backing.exists()) {

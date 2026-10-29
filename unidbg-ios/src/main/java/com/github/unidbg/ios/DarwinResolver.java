@@ -4,8 +4,12 @@ import com.dd.plist.NSDictionary;
 import com.dd.plist.PropertyListParser;
 import com.github.unidbg.Emulator;
 import com.github.unidbg.LibraryResolver;
+import com.github.unidbg.file.DirectoryEntry;
+import com.github.unidbg.file.FileMetadata;
+import com.github.unidbg.file.FileQueryResult;
 import com.github.unidbg.file.FileResult;
 import com.github.unidbg.file.FileSystem;
+import com.github.unidbg.file.HostFileFacts;
 import com.github.unidbg.file.IOResolver;
 import com.github.unidbg.file.ios.DarwinFileIO;
 import com.github.unidbg.ios.file.ByteArrayFileIO;
@@ -17,6 +21,7 @@ import com.github.unidbg.ios.patch.NewObjcPatcher;
 import com.github.unidbg.ios.patch.OldObjcPatcher;
 import com.github.unidbg.memory.Memory;
 import com.github.unidbg.spi.LibraryFile;
+import com.github.unidbg.unix.IO;
 import com.github.unidbg.unix.UnixEmulator;
 import com.github.unidbg.utils.ResourceUtils;
 import org.apache.commons.io.FilenameUtils;
@@ -124,31 +129,65 @@ public class DarwinResolver implements LibraryResolver, IOResolver<DarwinFileIO>
         }
 
         if (path.endsWith("/Library/Preferences/.GlobalPreferences.plist")) {
-            if (_GlobalPreferences == null) {
-                Locale locale = Locale.getDefault();
-                Map<String, Object> map = new HashMap<>();
-                map.put("AppleICUForce24HourTime", true);
-                map.put("AppleLanguages", new String[] { locale.getLanguage() });
-                map.put("AppleLocale", locale.toString());
-                NSDictionary root = (NSDictionary) NSDictionary.fromJavaObject(map);
-                ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-                try {
-                    PropertyListParser.saveAsBinary(root, outputStream);
-                } catch (IOException e) {
-                    throw new IllegalStateException("save .GlobalPreferences.plist failed", e);
-                }
-                _GlobalPreferences = outputStream.toByteArray();
-            }
+            if (_GlobalPreferences == null) _GlobalPreferences = globalPreferences();
             return FileResult.<DarwinFileIO>success(new ByteArrayFileIO(oflags, path, _GlobalPreferences));
         }
 
-        String iosResource = FilenameUtils.normalize("/ios/" + version + "/" + path, true);
-        URL url = getClass().getResource(iosResource);
+        URL url = resource(path);
         if (url != null) {
             return FileResult.fallback(createFileIO(url, path, oflags));
         }
 
         return null;
+    }
+
+    private URL resource(String path) {
+        return getClass().getResource(FilenameUtils.normalize("/ios/" + version + "/" + path, true));
+    }
+
+    private byte[] globalPreferences() {
+        Locale locale = Locale.getDefault();
+        Map<String, Object> map = new HashMap<>();
+        map.put("AppleICUForce24HourTime", true);
+        map.put("AppleLanguages", new String[] { locale.getLanguage() });
+        map.put("AppleLocale", locale.toString());
+        NSDictionary root = (NSDictionary) NSDictionary.fromJavaObject(map);
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        try { PropertyListParser.saveAsBinary(root, output); }
+        catch (IOException error) { throw new IllegalStateException("Saving global preferences", error); }
+        return output.toByteArray();
+    }
+
+    @Override
+    public FileQueryResult<FileMetadata> queryMetadata(Emulator<DarwinFileIO> emulator, String path, boolean followLinks) {
+        if (path.isEmpty()) return FileQueryResult.failed(UnixEmulator.ENOENT);
+        if (".".equals(path)) {
+            File work = new File(emulator.getFileSystem().getRootDir(), FileSystem.DEFAULT_WORK_DIR);
+            return work.exists() ? HostFileFacts.metadata(work, followLinks)
+                    : FileQueryResult.success(FileMetadata.builder().mode(IO.S_IFDIR).build());
+        }
+        if (path.endsWith("/Library/Preferences/.GlobalPreferences.plist")) {
+            int length = _GlobalPreferences == null ? globalPreferences().length : _GlobalPreferences.length;
+            return FileQueryResult.success(FileMetadata.builder().mode(IO.S_IFREG).size(length).build());
+        }
+        URL url = resource(path);
+        if (url == null) return null;
+        FileQueryResult<FileMetadata> result = HostFileFacts.metadata(url, followLinks);
+        return result.isSuccess() ? FileQueryResult.fallback(result.value) : result;
+    }
+
+    @Override
+    public FileQueryResult<List<DirectoryEntry>> queryDirectory(Emulator<DarwinFileIO> emulator, String path) {
+        if (path.isEmpty()) return FileQueryResult.failed(UnixEmulator.ENOENT);
+        if (".".equals(path)) {
+            File work = new File(emulator.getFileSystem().getRootDir(), FileSystem.DEFAULT_WORK_DIR);
+            return work.exists() ? HostFileFacts.directory(work) : FileQueryResult.success(Collections.emptyList());
+        }
+        if (path.endsWith("/Library/Preferences/.GlobalPreferences.plist")) return FileQueryResult.failed(UnixEmulator.ENOTDIR);
+        URL url = resource(path);
+        if (url == null) return null;
+        FileQueryResult<List<DirectoryEntry>> result = HostFileFacts.directory(url);
+        return result.isSuccess() ? FileQueryResult.fallback(result.value) : result;
     }
 
     private DarwinFileIO createFileIO(URL url, String pathname, int oflags) {

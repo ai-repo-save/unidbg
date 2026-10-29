@@ -3,11 +3,11 @@ package com.github.unidbg.memory.mapping;
 import com.sun.jna.Library;
 import com.sun.jna.Native;
 import com.sun.jna.Platform;
+import com.sun.jna.Pointer;
 import com.sun.jna.Structure;
 import com.sun.jna.platform.linux.LibC;
 import com.sun.jna.platform.unix.LibCAPI;
 import com.sun.jna.platform.unix.LibCUtil;
-import com.sun.jna.Pointer;
 
 final class LinuxMappingCalls {
 
@@ -24,6 +24,8 @@ final class LinuxMappingCalls {
     interface FileCalls extends Library {
         int open(String path, int flags);
         int fstat(int fd, FileStat stat);
+        int stat(String path, FileStat stat);
+        int lstat(String path, FileStat stat);
         int getpagesize();
         int madvise(Pointer address, long length, int advice);
     }

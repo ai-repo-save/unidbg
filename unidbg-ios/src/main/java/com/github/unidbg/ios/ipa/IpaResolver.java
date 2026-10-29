@@ -1,12 +1,17 @@
 package com.github.unidbg.ios.ipa;
 
 import com.github.unidbg.Emulator;
+import com.github.unidbg.file.DirectoryEntry;
+import com.github.unidbg.file.FileMetadata;
+import com.github.unidbg.file.FileQueryResult;
 import com.github.unidbg.file.FileResult;
+import com.github.unidbg.file.HostFileFacts;
 import com.github.unidbg.file.IOResolver;
 import com.github.unidbg.file.ios.DarwinFileIO;
 import com.github.unidbg.ios.file.ByteArrayFileIO;
 import com.github.unidbg.ios.file.DirectoryFileIO;
 import com.github.unidbg.ios.file.JarEntryFileIO;
+import com.github.unidbg.unix.IO;
 import org.apache.commons.io.FilenameUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -42,30 +47,10 @@ class IpaResolver implements IOResolver<DarwinFileIO> {
         }
 
         pathname = FilenameUtils.normalize(pathname, true);
-        if (pathname.startsWith(appDir)) {
-            String path = IpaLoader.PAYLOAD_PREFIX + pathname.substring(randomDir.length());
+        String path = archivePath(pathname);
+        if (path != null) {
             try (JarFile jarFile = new JarFile(ipa)) {
-                Enumeration<JarEntry> enumeration = jarFile.entries();
-                JarEntry entry = null;
-                boolean hasChild = false;
-                String dir = path;
-                if (!dir.endsWith("/")) {
-                    dir += "/";
-                }
-                while (enumeration.hasMoreElements()) {
-                    JarEntry jarEntry = enumeration.nextElement();
-                    if (path.equals(jarEntry.getName()) || (path + "/").equals(jarEntry.getName())) {
-                        entry = jarEntry;
-                        break;
-                    }
-                    if (!hasChild && jarEntry.getName().startsWith(dir)) {
-                        hasChild = true;
-                    }
-                }
-                if (entry == null && hasChild) {
-                    return FileResult.success(createDirectoryFileIO(dir, pathname, oflags));
-                }
-
+                JarEntry entry = findEntry(jarFile, path);
                 if (entry == null) {
                     if (log.isDebugEnabled()) {
                         log.debug("Resolve appDir={}, path={}", appDir, path);
@@ -116,6 +101,50 @@ class IpaResolver implements IOResolver<DarwinFileIO> {
             }
         }
         return new DirectoryFileIO(oflags, pathname, ipa.getParentFile(), list.toArray(new DirectoryFileIO.DirectoryEntry[0]));
+    }
+
+    private String archivePath(String pathname) {
+        pathname = FilenameUtils.normalize(pathname, true);
+        return pathname.startsWith(appDir) ? IpaLoader.PAYLOAD_PREFIX + pathname.substring(randomDir.length()) : null;
+    }
+
+    private JarEntry findEntry(JarFile jar, String path) {
+        JarEntry entry = jar.getJarEntry(path);
+        if (entry == null) entry = jar.getJarEntry(path + "/");
+        if (entry != null) return entry;
+        Enumeration<JarEntry> iterator = jar.entries();
+        while (iterator.hasMoreElements()) {
+            if (iterator.nextElement().getName().startsWith(path + "/")) return new JarEntry(path + "/");
+        }
+        return null;
+    }
+
+    @Override
+    public FileQueryResult<FileMetadata> queryMetadata(Emulator<DarwinFileIO> emulator, String path, boolean followLinks) {
+        if ((randomDir + "/StoreKit/receipt").equals(path)) return FileQueryResult.success(FileMetadata.builder().mode(IO.S_IFREG).size(0).build());
+        String archive = archivePath(path);
+        if (archive == null) return null;
+        try (JarFile jar = new JarFile(ipa)) {
+            JarEntry entry = findEntry(jar, archive);
+            if (entry == null) return null;
+            FileMetadata.Builder facts = FileMetadata.builder().mode(entry.isDirectory() ? IO.S_IFDIR : IO.S_IFREG);
+            if (entry.getSize() >= 0) facts.size(entry.getSize());
+            if (entry.getTime() >= 0) facts.mtime(java.nio.file.attribute.FileTime.fromMillis(entry.getTime()));
+            return FileQueryResult.success(facts.build());
+        } catch (IOException error) { throw new IllegalStateException("Reading IPA facts: " + path, error); }
+    }
+
+    @Override
+    public FileQueryResult<List<DirectoryEntry>> queryDirectory(Emulator<DarwinFileIO> emulator, String path) {
+        if ((randomDir + "/StoreKit/receipt").equals(path)) return FileQueryResult.failed(com.github.unidbg.unix.UnixEmulator.ENOTDIR);
+        String archive = archivePath(path);
+        if (archive == null) return null;
+        try (JarFile jar = new JarFile(ipa)) {
+            JarEntry entry = findEntry(jar, archive);
+            if (entry == null) return null;
+            if (!entry.isDirectory()) return FileQueryResult.failed(com.github.unidbg.unix.UnixEmulator.ENOTDIR);
+            return FileQueryResult.success(HostFileFacts.archiveDirectory(jar, entry.getName()));
+        } catch (IOException error) { throw new IllegalStateException("Reading IPA directory facts: " + path, error); }
     }
 
 }

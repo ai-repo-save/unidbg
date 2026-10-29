@@ -3,12 +3,17 @@ package com.github.unidbg.linux;
 import com.github.unidbg.AbstractEmulator;
 import com.github.unidbg.Emulator;
 import com.github.unidbg.arm.backend.BackendException;
-import com.github.unidbg.arm.context.RegisterContext;
 import com.github.unidbg.arm.context.Arm32RegisterContext;
+import com.github.unidbg.arm.context.RegisterContext;
+import com.github.unidbg.file.DirectoryEntry;
+import com.github.unidbg.file.FileMetadata;
+import com.github.unidbg.file.FileQueryResult;
 import com.github.unidbg.file.FileResult;
 import com.github.unidbg.file.linux.AndroidFileIO;
 import com.github.unidbg.file.linux.IOConstants;
+import com.github.unidbg.file.linux.StatStructure;
 import com.github.unidbg.linux.file.DirectoryFileIO;
+import com.github.unidbg.linux.file.DriverFileIO;
 import com.github.unidbg.linux.file.EventFD;
 import com.github.unidbg.linux.file.PipedReadFileIO;
 import com.github.unidbg.linux.file.PipedWriteFileIO;
@@ -17,17 +22,17 @@ import com.github.unidbg.linux.file.tcp.NativeTcpSocketFactory;
 import com.github.unidbg.linux.signal.SigAction;
 import com.github.unidbg.linux.signal.SignalFunction;
 import com.github.unidbg.linux.signal.SignalTask;
-import com.github.unidbg.linux.struct.StatFS;
 import com.github.unidbg.linux.struct.StatFS32;
 import com.github.unidbg.linux.struct.StatFS64;
+import com.github.unidbg.linux.struct.StatFS;
 import com.github.unidbg.linux.thread.FutexIndefinitelyWaiter;
 import com.github.unidbg.linux.thread.FutexNanoSleepWaiter;
 import com.github.unidbg.linux.thread.FutexWaiter;
 import com.github.unidbg.linux.thread.MarshmallowThread;
 import com.github.unidbg.linux.thread.NanoSleepWaiter;
-import com.github.unidbg.pointer.UnidbgPointer;
 import com.github.unidbg.memory.Memory;
 import com.github.unidbg.memory.MemoryMap;
+import com.github.unidbg.pointer.UnidbgPointer;
 import com.github.unidbg.signal.SigSet;
 import com.github.unidbg.signal.SignalOps;
 import com.github.unidbg.signal.UnixSigSet;
@@ -46,6 +51,7 @@ import com.github.unidbg.unix.struct.TimeSpec;
 import com.github.unidbg.utils.Inspector;
 import com.sun.jna.Pointer;
 import net.dongliu.apk.parser.utils.Pair;
+import org.apache.commons.io.FilenameUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -64,6 +70,29 @@ public abstract class AndroidSyscallHandler extends UnixSyscallHandler<AndroidFi
     private static final Logger log = LoggerFactory.getLogger(AndroidSyscallHandler.class);
     private static final AtomicLong REMAPS = new AtomicLong();
     private final NativeTcpSocketFactory tcpSockets = new NativeTcpSocketFactory();
+    private GuestCredentials credentials = new GuestCredentials(java.util.OptionalInt.of(0), java.util.OptionalInt.of(0),
+            java.util.OptionalInt.of(0), java.util.OptionalInt.of(0),
+            java.util.Optional.of(java.util.Collections.emptySet()));
+
+    public final GuestCredentials getGuestCredentials() { return credentials; }
+
+    public final void setGuestCredentials(GuestCredentials credentials) {
+        this.credentials = java.util.Objects.requireNonNull(credentials);
+        log.debug("event=guest_credentials_configured handler={} ruid={} euid={} rgid={} egid={} supplementary_groups={}",
+                System.identityHashCode(this), credentials.realUid, credentials.effectiveUid,
+                credentials.realGid, credentials.effectiveGid, credentials.supplementaryGroups);
+    }
+
+    protected final int queryGroups(int size, Pointer buffer) {
+        if (size < 0) return -UnixEmulator.EINVAL;
+        java.util.Set<Integer> groups = credentials.supplementaryGroups.orElseThrow(() ->
+                new UnsupportedOperationException("Guest supplementary groups are unavailable"));
+        if (size == 0) return groups.size();
+        if (size < groups.size()) return -UnixEmulator.EINVAL;
+        int index = 0;
+        for (int group : groups) buffer.setInt((index++) * 4L, group);
+        return groups.size();
+    }
 
     @Override
     public void destroy() {
@@ -203,6 +232,106 @@ public abstract class AndroidSyscallHandler extends UnixSyscallHandler<AndroidFi
         } catch (LinuxErrnoException failure) {
             return FileResult.failed(failure.getErrno());
         }
+    }
+
+    public final FileQueryResult<FileMetadata> queryMetadataAt(Emulator<AndroidFileIO> emulator,
+                                                               int dirfd, String path, int flags) {
+        if ((flags & ~(0x100 | 0x800 | 0x1000)) != 0) throw new LinuxErrnoException(UnixEmulator.EINVAL);
+        if (path.isEmpty() && (flags & 0x1000) != 0) {
+            if (dirfd == IO.AT_FDCWD) return queryMetadata(emulator, ".", true);
+            AndroidFileIO held = fdMap.get(dirfd);
+            if (held == null) throw new LinuxErrnoException(UnixEmulator.EBADF);
+            return held.queryMetadata();
+        }
+        String pathname = queryPath(emulator, dirfd, path);
+        return queryMetadata(emulator, pathname, (flags & 0x100) == 0);
+    }
+
+    public final StatStructure statAt(Emulator<AndroidFileIO> emulator, int dirfd, String path, int flags) {
+        return FileQuerySupport.snapshot(emulator, FileQuerySupport.require(queryMetadataAt(emulator, dirfd, path, flags), path), path);
+    }
+
+    public final void checkAccessAt(Emulator<AndroidFileIO> emulator, int dirfd, String path, int mode) {
+        if ((mode & ~7) != 0) throw new LinuxErrnoException(UnixEmulator.EINVAL);
+        FileMetadata facts = FileQuerySupport.require(queryMetadataAt(emulator, dirfd, path, 0), path);
+        FileQuerySupport.access(facts, path, mode, credentials);
+    }
+
+    public final List<DirectoryEntry> listDirectoryAt(Emulator<AndroidFileIO> emulator, int dirfd, String path) {
+        return FileQuerySupport.require(queryDirectory(emulator, queryPath(emulator, dirfd, path)), path);
+    }
+
+    private String queryPath(Emulator<AndroidFileIO> emulator, int dirfd, String path) {
+        if (path.isEmpty()) throw new LinuxErrnoException(UnixEmulator.ENOENT);
+        if (!path.startsWith("/") && dirfd != IO.AT_FDCWD) {
+            AndroidFileIO held = fdMap.get(dirfd);
+            if (held == null) throw new LinuxErrnoException(UnixEmulator.EBADF);
+            FileMetadata facts = FileQuerySupport.require(held.queryMetadata(), "dirfd=" + dirfd);
+            if (!facts.mode.isPresent()) throw new UnsupportedOperationException("Directory type unavailable: dirfd=" + dirfd);
+            if ((facts.mode.getAsInt() & 0170000) != IO.S_IFDIR) throw new LinuxErrnoException(UnixEmulator.ENOTDIR);
+            throw new UnsupportedOperationException("Held directory anchors are unavailable: dirfd=" + dirfd + ", path=" + path);
+        }
+        String normalized = FilenameUtils.normalize(path, true);
+        if (normalized == null) throw new LinuxErrnoException(UnixEmulator.EINVAL);
+        return normalized;
+    }
+
+    protected final int statAt(Emulator<AndroidFileIO> emulator, int dirfd, String path, int flags, Pointer buffer) {
+        try {
+            StatStructure stat = statAt(emulator, dirfd, path, flags);
+            buffer.write(0, stat.getPointer().getByteArray(0, stat.size()), 0, stat.size());
+            return 0;
+        } catch (LinuxErrnoException failure) {
+            return -failure.getErrno();
+        }
+    }
+
+    protected final int accessAt(Emulator<AndroidFileIO> emulator, int dirfd, String path, int mode) {
+        try {
+            checkAccessAt(emulator, dirfd, path, mode);
+            return 0;
+        } catch (LinuxErrnoException failure) {
+            return -failure.getErrno();
+        }
+    }
+
+    private List<DirectoryEntry> fdEntries() {
+        List<DirectoryEntry> entries = new ArrayList<>();
+        for (Integer fd : fdMap.keySet()) entries.add(new DirectoryEntry(DirectoryEntry.DirentType.DT_LNK, fd.toString()));
+        return java.util.Collections.unmodifiableList(entries);
+    }
+
+    private List<DirectoryEntry> taskEntries(Emulator<AndroidFileIO> emulator) {
+        return java.util.Collections.singletonList(new DirectoryEntry(false, Integer.toString(emulator.getPid())));
+    }
+
+    @Override
+    protected FileQueryResult<FileMetadata> querySpecialMetadata(Emulator<AndroidFileIO> emulator, String pathname, boolean followLinks) {
+        FileQueryResult<FileMetadata> held = super.querySpecialMetadata(emulator, pathname, followLinks);
+        if (held != null) return held;
+        if (isFdDirectory(emulator, pathname) || isTaskDirectory(emulator, pathname)) {
+            return FileQueryResult.success(FileMetadata.builder().mode(IO.S_IFDIR).build());
+        }
+        return DriverFileIO.queryMetadata(pathname);
+    }
+
+    @Override
+    protected FileQueryResult<List<DirectoryEntry>> querySpecialDirectory(Emulator<AndroidFileIO> emulator, String pathname) {
+        if (isFdDirectory(emulator, pathname)) return FileQueryResult.success(fdEntries());
+        if (isTaskDirectory(emulator, pathname)) return FileQueryResult.success(taskEntries(emulator));
+        if (DriverFileIO.queryMetadata(pathname) != null) return FileQueryResult.failed(UnixEmulator.ENOTDIR);
+        if (isProcFd(emulator, pathname)) {
+            AndroidFileIO held = fdMap.get(Integer.parseInt(pathname.substring(pathname.lastIndexOf('/') + 1)));
+            if (held == null) return FileQueryResult.failed(UnixEmulator.ENOENT);
+            if (held instanceof DirectoryFileIO) return FileQueryResult.success(((DirectoryFileIO) held).queryDirectory());
+            FileQueryResult<FileMetadata> facts = held.queryMetadata();
+            if (facts.isSuccess() && facts.value.mode.isPresent() && (facts.value.mode.getAsInt() & 0170000) != IO.S_IFDIR) {
+                return FileQueryResult.failed(UnixEmulator.ENOTDIR);
+            }
+            if (facts.status() == FileQueryResult.Status.ERROR) return FileQueryResult.failed(facts.errno);
+            return FileQueryResult.unknown();
+        }
+        return super.querySpecialDirectory(emulator, pathname);
     }
 
     protected final long remapAnonymous(Emulator<?> emulator, long oldAddress, int oldSize,
@@ -658,16 +787,12 @@ public abstract class AndroidSyscallHandler extends UnixSyscallHandler<AndroidFi
 
     @Override
     protected FileResult<AndroidFileIO> createFdDir(int oflags, String pathname) {
-        List<DirectoryFileIO.DirectoryEntry> list = new ArrayList<>();
-        for (Map.Entry<Integer, AndroidFileIO> entry : fdMap.entrySet()) {
-            list.add(new DirectoryFileIO.DirectoryEntry(DirectoryFileIO.DirentType.DT_LNK, entry.getKey().toString()));
-        }
-        return FileResult.<AndroidFileIO>success(new DirectoryFileIO(oflags, pathname, list.toArray(new DirectoryFileIO.DirectoryEntry[0])));
+        return FileResult.<AndroidFileIO>success(new DirectoryFileIO(oflags, pathname, fdEntries().toArray(new DirectoryEntry[0])));
     }
 
     @Override
     protected FileResult<AndroidFileIO> createTaskDir(Emulator<AndroidFileIO> emulator, int oflags, String pathname) {
-        return FileResult.<AndroidFileIO>success(new DirectoryFileIO(oflags, pathname, new DirectoryFileIO.DirectoryEntry(false, Integer.toString(emulator.getPid()))));
+        return FileResult.<AndroidFileIO>success(new DirectoryFileIO(oflags, pathname, taskEntries(emulator).toArray(new DirectoryEntry[0])));
     }
 
     protected long statfs64(Emulator<AndroidFileIO> emulator, String path, Pointer buf) {

@@ -14,6 +14,8 @@ public interface FileIO {
     int SEEK_CUR = 1;
     int SEEK_END = 2;
 
+    FileQueryResult<FileMetadata> queryMetadata();
+
     void close();
 
     /** Completion runs once with the raw close result on the backend owner and must not yield. */

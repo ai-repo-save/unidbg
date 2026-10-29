@@ -36,25 +36,46 @@ public abstract class UnidbgStructure extends Structure implements PointerArg {
     private static class ByteArrayPointer extends UnidbgPointer {
         private final Emulator<?> emulator;
         private final byte[] data;
+        private final int start;
+        private final int length;
+
         public ByteArrayPointer(Emulator<?> emulator, byte[] data) {
+            this(emulator, data, 0, data.length);
+        }
+
+        private ByteArrayPointer(Emulator<?> emulator, byte[] data, int start, int length) {
             super(emulator, data);
             this.emulator = emulator;
             this.data = data;
+            this.start = start;
+            this.length = length;
         }
+
+        private void checkRange(long offset, long size) {
+            if (offset < 0 || size < 0 || offset > length || size > length - offset) {
+                throw new com.github.unidbg.InvalidMemoryAccessException("offset=" + offset + ", size=" + size + ", length=" + length);
+            }
+        }
+
         @Override
-        public UnidbgPointer share(long offset, long sz) {
-            if (offset == 0) {
-                return this;
-            }
-            if (offset > 0 && offset + sz < data.length) {
-                if (sz == 0) {
-                    sz = data.length - offset;
-                }
-                byte[] tmp = new byte[(int) sz];
-                System.arraycopy(data, (int) offset, tmp, 0, (int) sz);
-                return new ByteArrayPointer(emulator, tmp);
-            }
-            throw new UnsupportedOperationException("offset=0x" + Long.toHexString(offset) + ", sz=" + sz);
+        public byte[] getByteArray(long offset, int size) {
+            checkRange(offset, size);
+            return java.util.Arrays.copyOfRange(data, start + (int) offset, start + (int) offset + size);
+        }
+
+        @Override
+        public void write(long offset, byte[] bytes, int index, int size) {
+            checkRange(offset, size);
+            System.arraycopy(bytes, index, data, start + (int) offset, size);
+        }
+
+        @Override
+        public UnidbgPointer share(long offset, long size) {
+            long remaining = length - offset;
+            long viewSize = size == 0 ? remaining : size;
+            checkRange(offset, viewSize);
+            if (offset == 0 && viewSize == length) return this;
+            return new ByteArrayPointer(emulator, data, start + (int) offset, (int) viewSize);
         }
     }
 

@@ -55,8 +55,12 @@ final class JniInvocationSupport {
     }
 
     private static VarArg arguments(Emulator<?> emulator, BaseVM vm, DvmMethod method, Arguments mode) {
-        if (mode == Arguments.ORDINARY) return ArmVarArg.create(emulator, vm, method);
-        com.github.unidbg.pointer.UnidbgPointer pointer = emulator.getContext().getPointerArg(3);
+        return arguments(emulator, vm, method, mode, 3);
+    }
+
+    private static VarArg arguments(Emulator<?> emulator, BaseVM vm, DvmMethod method, Arguments mode, int firstArgument) {
+        if (mode == Arguments.ORDINARY) return ArmVarArg.create(emulator, vm, method, firstArgument);
+        com.github.unidbg.pointer.UnidbgPointer pointer = emulator.getContext().getPointerArg(firstArgument);
         if (mode == Arguments.A) return new JValueList(vm, pointer, method);
         return emulator.is64Bit() ? new VaList64(emulator, vm, pointer, method) : new VaList32(emulator, vm, pointer, method);
     }
@@ -160,10 +164,27 @@ final class JniInvocationSupport {
             DvmClass clazz = isStatic ? vm.resolveJniObject(context.getIntArg(1)) : receiver.getObjectType();
             DvmMethod method = isStatic ? clazz.getStaticMethod(context.getIntArg(2)) : clazz.getMethod(context.getIntArg(2));
             if (method == null) throw new IllegalArgumentException("Unknown JNI method");
+            if (method.isConstructor() && method.getDvmClass() != clazz) {
+                throw new IllegalArgumentException("Constructor method ID must come from the receiver class");
+            }
             VarArg args = arguments(emulator, vm, method, mode);
             return dispatch(emulator, vm, provider(vm, clazz), returnType, method.getSignature(),
                     (host, backend, completion) -> host.invokeMethod(clazz, receiver, method, args, isStatic, backend, completion),
                     jni -> modelMethod(jni, vm, clazz, receiver, method, args, isStatic, returnType, mode));
+        });
+    }
+
+    static Pointer nonvirtual(Emulator<?> emulator, BaseVM vm, char returnType, Arguments mode) {
+        return register(emulator, vm, () -> {
+            RegisterContext context = emulator.getContext();
+            DvmObject<?> receiver = vm.resolveJniObject(context.getIntArg(1));
+            DvmClass dispatch = vm.resolveJniObject(context.getIntArg(2));
+            DvmMethod method = dispatch.getMethod(context.getIntArg(3));
+            if (method == null) throw new IllegalArgumentException("Unknown JNI nonvirtual method");
+            VarArg args = arguments(emulator, vm, method, mode, 4);
+            return dispatch(emulator, vm, provider(vm, dispatch), returnType, method.getSignature(),
+                    (host, backend, completion) -> host.invokeNonvirtual(dispatch, receiver, method, args, backend, completion),
+                    jni -> modelMethod(jni, vm, dispatch, receiver, method, args, false, returnType, mode));
         });
     }
 

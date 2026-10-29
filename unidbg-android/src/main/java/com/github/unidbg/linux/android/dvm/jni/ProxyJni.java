@@ -1,6 +1,7 @@
 package com.github.unidbg.linux.android.dvm.jni;
 
 import com.github.unidbg.linux.android.dvm.*;
+import com.github.unidbg.linux.android.dvm.host.JvmInvocationBridge;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -11,7 +12,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Function;
 
-/** Invokes host-only reflection; synchronous Jni callbacks belong to the modeled fallback. */
+/** Binds host members; synchronous Jni callbacks belong to the modeled fallback. */
 public class ProxyJni extends JniFunction implements HostJni {
     private static final Logger log = LoggerFactory.getLogger(ProxyJni.class);
     private final ProxyClassLoader classLoader;
@@ -37,13 +38,30 @@ public class ProxyJni extends JniFunction implements HostJni {
     public Object invokeMethod(DvmClass type, DvmObject<?> receiver, DvmMethod method,
                                   VarArg arguments, boolean isStatic, Function<Jni, Object> backend, Completion completion) throws Throwable {
         try {
-            ProxyCall call = ProxyUtils.findMethod(classLoader.loadClass(type), method, arguments, isStatic, visitor);
+            Class<?> hostClass = classLoader.loadClass(type);
+            ProxyCall call = method.isConstructor() ? ProxyInvocation.bind(hostClass, method, arguments, visitor)
+                    : ProxyUtils.findMethod(hostClass, method, arguments, isStatic, visitor);
             Object target = isStatic ? null : ProxyDvmObject.unpack(receiver);
             String descriptor = method.getArgs();
             char resultType = descriptor.charAt(descriptor.lastIndexOf(')') + 1);
             return HostJni.submit(type.vm, resultType == '[' ? 'L' : resultType, () -> call.call(target), completion);
         } catch (ClassNotFoundException | NoSuchMethodException missing) {
             return unresolved(method.getSignature(), missing, provider -> provider.invokeMethod(type, receiver, method, arguments, isStatic, backend, completion), backend);
+        }
+    }
+
+    @Override
+    public Object invokeNonvirtual(DvmClass dispatch, DvmObject<?> receiver, DvmMethod method, VarArg arguments,
+                                  Function<Jni, Object> backend, Completion completion) throws Throwable {
+        try {
+            ProxyCall call = ProxyInvocation.bind(classLoader.loadClass(dispatch), method, arguments, visitor);
+            Object target = ProxyDvmObject.unpack(receiver);
+            String descriptor = method.getArgs();
+            char resultType = descriptor.charAt(descriptor.lastIndexOf(')') + 1);
+            return HostJni.submit(dispatch.vm, resultType == '[' ? 'L' : resultType, () -> call.call(target), completion);
+        } catch (ClassNotFoundException | NoSuchMethodException missing) {
+            return unresolved(method.getSignature(), missing,
+                    provider -> provider.invokeNonvirtual(dispatch, receiver, method, arguments, backend, completion), backend);
         }
     }
 
@@ -61,9 +79,9 @@ public class ProxyJni extends JniFunction implements HostJni {
     @Override
     public Object invokeAllocation(DvmClass type, Function<Jni, Object> backend, Completion completion) throws Throwable {
         try {
-            ProxyCall call = ProxyUtils.findAllocConstructor(classLoader.loadClass(type), visitor);
-            return HostJni.submit(type.vm, 'L', () -> call.call(null), completion);
-        } catch (ClassNotFoundException | NoSuchMethodException missing) {
+            Class<?> hostClass = classLoader.loadClass(type);
+            return HostJni.submit(type.vm, 'L', () -> ProxyInvocation.value(JvmInvocationBridge.allocate(hostClass)), completion);
+        } catch (ClassNotFoundException missing) {
             return unresolved(type.getClassName() + "->allocObject", missing, provider -> provider.invokeAllocation(type, backend, completion), backend);
         }
     }

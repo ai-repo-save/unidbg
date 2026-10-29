@@ -338,288 +338,65 @@ public class DalvikVM64 extends BaseVM implements VM {
 
         Pointer _CallVoidMethodA = JniInvocationSupport.method(emulator, DalvikVM64.this, 'V', false, JniInvocationSupport.Arguments.A);
 
-        Pointer _CallNonvirtualObjectMethod = svcMemory.registerSvc(new Arm64Svc() {
-            @Override
-            public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
-            }
-        });
+        Pointer _CallNonvirtualObjectMethod = JniInvocationSupport.nonvirtual(emulator, DalvikVM64.this, 'L', JniInvocationSupport.Arguments.ORDINARY);
 
-        Pointer _CallNonvirtualObjectMethodV = svcMemory.registerSvc(new Arm64Svc() {
-            @Override
-            public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
-            }
-        });
+        Pointer _CallNonvirtualObjectMethodV = JniInvocationSupport.nonvirtual(emulator, DalvikVM64.this, 'L', JniInvocationSupport.Arguments.V);
 
-        Pointer _CallNonvirtualObjectMethodA = svcMemory.registerSvc(new Arm64Svc() {
-            @Override
-            public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
-            }
-        });
+        Pointer _CallNonvirtualObjectMethodA = JniInvocationSupport.nonvirtual(emulator, DalvikVM64.this, 'L', JniInvocationSupport.Arguments.A);
 
-        Pointer _CallNonvirtualBooleanMethod = svcMemory.registerSvc(new Arm64Svc() {
-            @Override
-            public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
-            }
-        });
+        Pointer _CallNonvirtualBooleanMethod = JniInvocationSupport.nonvirtual(emulator, DalvikVM64.this, 'Z', JniInvocationSupport.Arguments.ORDINARY);
 
-        Pointer _CallNonvirtualBooleanMethodV = svcMemory.registerSvc(new Arm64Svc() {
-            @Override
-            public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
-            }
-        });
+        Pointer _CallNonvirtualBooleanMethodV = JniInvocationSupport.nonvirtual(emulator, DalvikVM64.this, 'Z', JniInvocationSupport.Arguments.V);
 
-        Pointer _CallNonvirtualBooleanMethodA = svcMemory.registerSvc(new Arm64Svc() {
-            @Override
-            public long handle(Emulator<?> emulator) {
-                RegisterContext context = emulator.getContext();
-                UnidbgPointer object = context.getPointerArg(1);
-                UnidbgPointer clazz = context.getPointerArg(2);
-                UnidbgPointer jmethodID = context.getPointerArg(3);
-                UnidbgPointer jvalue = context.getPointerArg(4);
-                if (log.isDebugEnabled()) {
-                    log.debug("CallNonvirtualBooleanMethodA object={}, clazz={}, jmethodID={}, jvalue={}", object, clazz, jmethodID, jvalue);
-                }
-                DvmObject<?> dvmObject = object == null ? null : resolveJniObject(object.toIntPeer());
-                DvmClass dvmClass = (DvmClass) resolveJniObject(clazz.toIntPeer());
-                DvmMethod dvmMethod = dvmClass == null ? null : dvmClass.getMethod(jmethodID.toIntPeer());
-                if (dvmMethod == null) {
-                    throw new BackendException();
-                } else {
-                    VaList vaList = new JValueList(DalvikVM64.this, jvalue, dvmMethod);
-                    if (dvmMethod.isConstructor()) {
-                        throw new IllegalStateException();
-                    }
-                    boolean ret = dvmMethod.callBooleanMethodA(dvmObject, vaList);
-                    if (verbose || verboseMethodOperation) {
-                        System.out.printf("JNIEnv->CallNonvirtualBooleanMethodA(%s, %s(%s) => %s) was called from %s%n", dvmObject, dvmMethod.methodName, vaList.formatArgs(), ret, context.getLRPointer());
-                    }
-                    return ret ? JNI_TRUE : JNI_FALSE;
-                }
-            }
-        });
+        Pointer _CallNonvirtualBooleanMethodA = JniInvocationSupport.nonvirtual(emulator, DalvikVM64.this, 'Z', JniInvocationSupport.Arguments.A);
 
-        Pointer _CallNonvirtualByteMethod = svcMemory.registerSvc(new Arm64Svc() {
-            @Override
-            public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
-            }
-        });
+        Pointer _CallNonvirtualByteMethod = JniInvocationSupport.nonvirtual(emulator, DalvikVM64.this, 'B', JniInvocationSupport.Arguments.ORDINARY);
 
-        Pointer _CallNonvirtualByteMethodV = svcMemory.registerSvc(new Arm64Svc() {
-            @Override
-            public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
-            }
-        });
+        Pointer _CallNonvirtualByteMethodV = JniInvocationSupport.nonvirtual(emulator, DalvikVM64.this, 'B', JniInvocationSupport.Arguments.V);
 
-        Pointer _CallNonvirtualByteMethodA = svcMemory.registerSvc(new Arm64Svc() {
-            @Override
-            public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
-            }
-        });
+        Pointer _CallNonvirtualByteMethodA = JniInvocationSupport.nonvirtual(emulator, DalvikVM64.this, 'B', JniInvocationSupport.Arguments.A);
 
-        Pointer _CallNonvirtualCharMethod = svcMemory.registerSvc(new Arm64Svc() {
-            @Override
-            public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
-            }
-        });
+        Pointer _CallNonvirtualCharMethod = JniInvocationSupport.nonvirtual(emulator, DalvikVM64.this, 'C', JniInvocationSupport.Arguments.ORDINARY);
 
-        Pointer _CallNonvirtualCharMethodV = svcMemory.registerSvc(new Arm64Svc() {
-            @Override
-            public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
-            }
-        });
+        Pointer _CallNonvirtualCharMethodV = JniInvocationSupport.nonvirtual(emulator, DalvikVM64.this, 'C', JniInvocationSupport.Arguments.V);
 
-        Pointer _CallNonvirtualCharMethodA = svcMemory.registerSvc(new Arm64Svc() {
-            @Override
-            public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
-            }
-        });
+        Pointer _CallNonvirtualCharMethodA = JniInvocationSupport.nonvirtual(emulator, DalvikVM64.this, 'C', JniInvocationSupport.Arguments.A);
 
-        Pointer _CallNonvirtualShortMethod = svcMemory.registerSvc(new Arm64Svc() {
-            @Override
-            public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
-            }
-        });
+        Pointer _CallNonvirtualShortMethod = JniInvocationSupport.nonvirtual(emulator, DalvikVM64.this, 'S', JniInvocationSupport.Arguments.ORDINARY);
 
-        Pointer _CallNonvirtualShortMethodV = svcMemory.registerSvc(new Arm64Svc() {
-            @Override
-            public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
-            }
-        });
+        Pointer _CallNonvirtualShortMethodV = JniInvocationSupport.nonvirtual(emulator, DalvikVM64.this, 'S', JniInvocationSupport.Arguments.V);
 
-        Pointer _CallNonvirtualShortMethodA = svcMemory.registerSvc(new Arm64Svc() {
-            @Override
-            public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
-            }
-        });
+        Pointer _CallNonvirtualShortMethodA = JniInvocationSupport.nonvirtual(emulator, DalvikVM64.this, 'S', JniInvocationSupport.Arguments.A);
 
-        Pointer _CallNonvirtualIntMethod = svcMemory.registerSvc(new Arm64Svc() {
-            @Override
-            public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
-            }
-        });
+        Pointer _CallNonvirtualIntMethod = JniInvocationSupport.nonvirtual(emulator, DalvikVM64.this, 'I', JniInvocationSupport.Arguments.ORDINARY);
 
-        Pointer _CallNonvirtualIntMethodV = svcMemory.registerSvc(new Arm64Svc() {
-            @Override
-            public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
-            }
-        });
+        Pointer _CallNonvirtualIntMethodV = JniInvocationSupport.nonvirtual(emulator, DalvikVM64.this, 'I', JniInvocationSupport.Arguments.V);
 
-        Pointer _CallNonvirtualIntMethodA = svcMemory.registerSvc(new Arm64Svc() {
-            @Override
-            public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
-            }
-        });
+        Pointer _CallNonvirtualIntMethodA = JniInvocationSupport.nonvirtual(emulator, DalvikVM64.this, 'I', JniInvocationSupport.Arguments.A);
 
-        Pointer _CallNonvirtualLongMethod = svcMemory.registerSvc(new Arm64Svc() {
-            @Override
-            public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
-            }
-        });
+        Pointer _CallNonvirtualLongMethod = JniInvocationSupport.nonvirtual(emulator, DalvikVM64.this, 'J', JniInvocationSupport.Arguments.ORDINARY);
 
-        Pointer _CallNonvirtualLongMethodV = svcMemory.registerSvc(new Arm64Svc() {
-            @Override
-            public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
-            }
-        });
+        Pointer _CallNonvirtualLongMethodV = JniInvocationSupport.nonvirtual(emulator, DalvikVM64.this, 'J', JniInvocationSupport.Arguments.V);
 
-        Pointer _CallNonvirtualLongMethodA = svcMemory.registerSvc(new Arm64Svc() {
-            @Override
-            public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
-            }
-        });
+        Pointer _CallNonvirtualLongMethodA = JniInvocationSupport.nonvirtual(emulator, DalvikVM64.this, 'J', JniInvocationSupport.Arguments.A);
 
-        Pointer _CallNonvirtualFloatMethod = svcMemory.registerSvc(new Arm64Svc() {
-            @Override
-            public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
-            }
-        });
+        Pointer _CallNonvirtualFloatMethod = JniInvocationSupport.nonvirtual(emulator, DalvikVM64.this, 'F', JniInvocationSupport.Arguments.ORDINARY);
 
-        Pointer _CallNonvirtualFloatMethodV = svcMemory.registerSvc(new Arm64Svc() {
-            @Override
-            public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
-            }
-        });
+        Pointer _CallNonvirtualFloatMethodV = JniInvocationSupport.nonvirtual(emulator, DalvikVM64.this, 'F', JniInvocationSupport.Arguments.V);
 
-        Pointer _CallNonvirtualFloatMethodA = svcMemory.registerSvc(new Arm64Svc() {
-            @Override
-            public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
-            }
-        });
+        Pointer _CallNonvirtualFloatMethodA = JniInvocationSupport.nonvirtual(emulator, DalvikVM64.this, 'F', JniInvocationSupport.Arguments.A);
 
-        Pointer _CallNonvirtualDoubleMethod = svcMemory.registerSvc(new Arm64Svc() {
-            @Override
-            public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
-            }
-        });
+        Pointer _CallNonvirtualDoubleMethod = JniInvocationSupport.nonvirtual(emulator, DalvikVM64.this, 'D', JniInvocationSupport.Arguments.ORDINARY);
 
-        Pointer _CallNonvirtualDoubleMethodV = svcMemory.registerSvc(new Arm64Svc() {
-            @Override
-            public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
-            }
-        });
+        Pointer _CallNonvirtualDoubleMethodV = JniInvocationSupport.nonvirtual(emulator, DalvikVM64.this, 'D', JniInvocationSupport.Arguments.V);
 
-        Pointer _CallNonvirtualDoubleMethodA = svcMemory.registerSvc(new Arm64Svc() {
-            @Override
-            public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
-            }
-        });
+        Pointer _CallNonvirtualDoubleMethodA = JniInvocationSupport.nonvirtual(emulator, DalvikVM64.this, 'D', JniInvocationSupport.Arguments.A);
 
-        Pointer _CallNonvirtualVoidMethod = svcMemory.registerSvc(new Arm64Svc() {
-            @Override
-            public long handle(Emulator<?> emulator) {
-                throw new UnsupportedOperationException();
-            }
-        });
+        Pointer _CallNonvirtualVoidMethod = JniInvocationSupport.nonvirtual(emulator, DalvikVM64.this, 'V', JniInvocationSupport.Arguments.ORDINARY);
 
-        Pointer _CallNonvirtualVoidMethodV = svcMemory.registerSvc(new Arm64Svc() {
-            @Override
-            public long handle(Emulator<?> emulator) {
-                RegisterContext context = emulator.getContext();
-                UnidbgPointer object = context.getPointerArg(1);
-                UnidbgPointer clazz = context.getPointerArg(2);
-                UnidbgPointer jmethodID = context.getPointerArg(3);
-                UnidbgPointer va_list = context.getPointerArg(4);
-                if (log.isDebugEnabled()) {
-                    log.debug("CallNonvirtualVoidMethodV object={}, clazz={}, jmethodID={}, va_list={}", object, clazz, jmethodID, va_list);
-                }
-                DvmObject<?> dvmObject = object == null ? null : resolveJniObject(object.toIntPeer());
-                DvmClass dvmClass = (DvmClass) resolveJniObject(clazz.toIntPeer());
-                DvmMethod dvmMethod = dvmClass == null ? null : dvmClass.getMethod(jmethodID.toIntPeer());
-                if (dvmMethod == null) {
-                    throw new BackendException();
-                } else {
-                    VaList vaList = new VaList64(emulator, DalvikVM64.this, va_list, dvmMethod);
-                    if (dvmMethod.isConstructor()) {
-                        DvmObject<?> obj = dvmMethod.newObjectV(vaList);
-                        Objects.requireNonNull(dvmObject).setValue(obj.value);
-                    } else {
-                        dvmMethod.callVoidMethodV(dvmObject, vaList);
-                    }
-                    if (verbose || verboseMethodOperation) {
-                        System.out.printf("JNIEnv->CallNonvirtualVoidMethodV(%s, %s, %s(%s)) was called from %s%n", dvmObject, dvmClass.getClassName(), dvmMethod.methodName, vaList.formatArgs(), context.getLRPointer());
-                    }
-                    return 0;
-                }
-            }
-        });
+        Pointer _CallNonvirtualVoidMethodV = JniInvocationSupport.nonvirtual(emulator, DalvikVM64.this, 'V', JniInvocationSupport.Arguments.V);
 
-        Pointer _CallNonVirtualVoidMethodA = svcMemory.registerSvc(new Arm64Svc() {
-            @Override
-            public long handle(Emulator<?> emulator) {
-                RegisterContext context = emulator.getContext();
-                UnidbgPointer object = context.getPointerArg(1);
-                UnidbgPointer clazz = context.getPointerArg(2);
-                UnidbgPointer jmethodID = context.getPointerArg(3);
-                UnidbgPointer jvalue = context.getPointerArg(4);
-                if (log.isDebugEnabled()) {
-                    log.debug("CallNonVirtualVoidMethodA object={}, clazz={}, jmethodID={}, jvalue={}", object, clazz, jmethodID, jvalue);
-                }
-                DvmObject<?> dvmObject = object == null ? null : resolveJniObject(object.toIntPeer());
-                DvmClass dvmClass = (DvmClass) resolveJniObject(clazz.toIntPeer());
-                DvmMethod dvmMethod = dvmClass == null ? null : dvmClass.getMethod(jmethodID.toIntPeer());
-                if (dvmMethod == null) {
-                    throw new BackendException();
-                } else {
-                    VaList vaList = new JValueList(DalvikVM64.this, jvalue, dvmMethod);
-                    if (dvmMethod.isConstructor()) {
-                        DvmObject<?> obj = dvmMethod.newObjectV(vaList);
-                        Objects.requireNonNull(dvmObject).setValue(obj.value);
-                    } else {
-                        dvmMethod.callVoidMethodA(dvmObject, vaList);
-                    }
-                    if (verbose || verboseMethodOperation) {
-                        System.out.printf("JNIEnv->CallNonVirtualVoidMethodA(%s, %s, %s(%s)) was called from %s%n", dvmObject, dvmClass.getClassName(), dvmMethod.methodName, vaList.formatArgs(), context.getLRPointer());
-                    }
-                    return 0;
-                }
-            }
-        });
+        Pointer _CallNonVirtualVoidMethodA = JniInvocationSupport.nonvirtual(emulator, DalvikVM64.this, 'V', JniInvocationSupport.Arguments.A);
 
         Pointer _GetFieldID = svcMemory.registerSvc(new Arm64Svc() {
             @Override

@@ -6,20 +6,25 @@ import com.github.unidbg.pointer.UnidbgPointer;
 public abstract class ArmVarArg extends VarArg {
 
     static VarArg create(Emulator<?> emulator, BaseVM vm, DvmMethod method) {
-        return emulator.is64Bit() ? new ArmVarArg64(emulator, vm, method) : new ArmVarArg32(emulator, vm, method);
+        return create(emulator, vm, method, 3);
+    }
+
+    static VarArg create(Emulator<?> emulator, BaseVM vm, DvmMethod method, int firstArgument) {
+        return emulator.is64Bit() ? new ArmVarArg64(emulator, vm, method, firstArgument)
+                : new ArmVarArg32(emulator, vm, method, firstArgument);
     }
 
     protected final Emulator<?> emulator;
+    protected final int firstArgument;
 
-    protected ArmVarArg(Emulator<?> emulator, BaseVM vm, DvmMethod method) {
+    protected ArmVarArg(Emulator<?> emulator, BaseVM vm, DvmMethod method, int firstArgument) {
         super(vm, method);
         this.emulator = emulator;
+        this.firstArgument = firstArgument;
     }
 
-    private static final int REG_OFFSET = 3;
-
     protected final UnidbgPointer getArg(int index) {
-        return emulator.getContext().getPointerArg(REG_OFFSET + index);
+        return emulator.getContext().getPointerArg(firstArgument + index);
     }
 
     protected final int getInt(int index) {

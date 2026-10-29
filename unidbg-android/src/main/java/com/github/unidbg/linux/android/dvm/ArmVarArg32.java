@@ -7,8 +7,8 @@ import java.nio.ByteOrder;
 
 class ArmVarArg32 extends ArmVarArg {
 
-    ArmVarArg32(Emulator<?> emulator, BaseVM vm, DvmMethod method) {
-        super(emulator, vm, method);
+    ArmVarArg32(Emulator<?> emulator, BaseVM vm, DvmMethod method, int firstArgument) {
+        super(emulator, vm, method, firstArgument);
 
         int offset = 0;
         for (Shorty shorty : shorties) {
@@ -23,7 +23,7 @@ class ArmVarArg32 extends ArmVarArg {
                     break;
                 }
                 case 'D': {
-                    if (offset % 2 == 0) {
+                    if ((firstArgument + offset) % 2 != 0) {
                         offset++;
                     }
                     ByteBuffer buffer = ByteBuffer.allocate(8);
@@ -35,7 +35,7 @@ class ArmVarArg32 extends ArmVarArg {
                     break;
                 }
                 case 'F': {
-                    if (offset % 2 == 0) {
+                    if ((firstArgument + offset) % 2 != 0) {
                         offset++;
                     }
                     ByteBuffer buffer = ByteBuffer.allocate(8);
@@ -47,7 +47,7 @@ class ArmVarArg32 extends ArmVarArg {
                     break;
                 }
                 case 'J': {
-                    if (offset % 2 == 0) {
+                    if ((firstArgument + offset) % 2 != 0) {
                         offset++;
                     }
                     ByteBuffer buffer = ByteBuffer.allocate(8);

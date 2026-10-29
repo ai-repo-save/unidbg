@@ -8,13 +8,14 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
 class ArmVarArg64 extends ArmVarArg {
-    private int general = 3;
+    private int general;
     private int floating;
     private long stackOffset;
     private final UnidbgPointer stack;
 
-    ArmVarArg64(Emulator<?> emulator, BaseVM vm, DvmMethod method) {
-        super(emulator, vm, method);
+    ArmVarArg64(Emulator<?> emulator, BaseVM vm, DvmMethod method, int firstArgument) {
+        super(emulator, vm, method, firstArgument);
+        general = firstArgument;
         stack = emulator.getContext().getStackPointer();
         for (Shorty shorty : shorties) {
             switch (shorty.getType()) {

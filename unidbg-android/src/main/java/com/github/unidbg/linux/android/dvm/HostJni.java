@@ -12,6 +12,8 @@ public interface HostJni extends Jni {
 
     Object invokeMethod(DvmClass type, DvmObject<?> receiver, DvmMethod method, VarArg arguments,
                         boolean isStatic, Function<Jni, Object> backend, Completion completion) throws Throwable;
+    Object invokeNonvirtual(DvmClass dispatch, DvmObject<?> receiver, DvmMethod method, VarArg arguments,
+                            Function<Jni, Object> backend, Completion completion) throws Throwable;
     Object invokeConstructor(DvmClass type, DvmMethod method, VarArg arguments,
                              Function<Jni, Object> backend, Completion completion) throws Throwable;
     Object invokeAllocation(DvmClass type, Function<Jni, Object> backend, Completion completion) throws Throwable;

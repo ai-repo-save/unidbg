@@ -294,8 +294,9 @@ public abstract class AndroidSyscallHandler extends UnixSyscallHandler<AndroidFi
         if (!path.startsWith("/") && dirfd != IO.AT_FDCWD) {
             AndroidFileIO held = fdMap.get(dirfd);
             if (held == null) throw new LinuxErrnoException(UnixEmulator.EBADF);
-            FileMetadata facts = FileQuerySupport.require(held.queryMetadata(), "dirfd=" + dirfd);
-            if (!facts.mode.isPresent()) throw new UnsupportedOperationException("Directory type unavailable: dirfd=" + dirfd);
+            String source = "dirfd=" + dirfd + ", path=" + path + ", source=" + held.getClass().getName();
+            FileMetadata facts = FileQuerySupport.require(held.queryMetadata(), source);
+            if (!facts.mode.isPresent()) throw new UnsupportedOperationException("Directory type unavailable: " + source);
             if ((facts.mode.getAsInt() & 0170000) != IO.S_IFDIR) throw new LinuxErrnoException(UnixEmulator.ENOTDIR);
             throw new UnsupportedOperationException("Held directory anchors are unavailable: dirfd=" + dirfd + ", path=" + path);
         }

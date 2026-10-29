@@ -71,6 +71,8 @@
                         <exclude>**/NativePread64IntegrationTest.java</exclude>
                         <exclude>**/SmallFileDataIntegrationTest.java</exclude>
                         <exclude>**/FileFactsIntegrationTest.java</exclude>
+                        <exclude>**/ByteArrayPointerIntegrationTest.java</exclude>
+                        <exclude>**/IpaResolverIntegrationTest.java</exclude>
                         <exclude>**/JniNonvirtualConstructionIntegrationTest.java</exclude>
                     </excludes>
                 </configuration>

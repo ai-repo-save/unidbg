@@ -210,7 +210,7 @@ public class AndroidResolver implements LibraryResolver, IOResolver<AndroidFileI
 
     private AndroidFileIO createFileIO(File file, String pathname, int oflags) {
         if (file.canRead()) {
-            return file.isDirectory() ? new DirectoryFileIO(oflags, pathname) : new SimpleFileIO(oflags, file, pathname);
+            return file.isDirectory() ? new DirectoryFileIO(oflags, pathname, file) : new SimpleFileIO(oflags, file, pathname);
         }
 
         return null;

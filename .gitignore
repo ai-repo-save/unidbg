@@ -136,3 +136,5 @@
 !/unidbg-android/src/test/native/android/jni-argument-abi.c
 !/unidbg-android/src/test/java/com/github/unidbg/linux/android/dvm/JniArgumentAbiIntegrationTest.java
 !/unidbg-android/src/test/java/com/github/unidbg/linux/PreadEligibilityIntegrationTest.java
+!/unidbg-android/src/main/java/com/github/unidbg/linux/file/DirectoryIdentity.java
+!/unidbg-android/src/test/java/com/github/unidbg/linux/DirfdIdentityIntegrationTest.java

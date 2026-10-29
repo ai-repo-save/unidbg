@@ -58,6 +58,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.PipedInputStream;
 import java.io.PipedOutputStream;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -289,7 +290,7 @@ public abstract class AndroidSyscallHandler extends UnixSyscallHandler<AndroidFi
         return FileQuerySupport.require(queryDirectory(emulator, queryPath(emulator, dirfd, path)), path);
     }
 
-    private String queryPath(Emulator<AndroidFileIO> emulator, int dirfd, String path) {
+    protected final String queryPath(Emulator<AndroidFileIO> emulator, int dirfd, String path) {
         if (path.isEmpty()) throw new LinuxErrnoException(UnixEmulator.ENOENT);
         if (!path.startsWith("/") && dirfd != IO.AT_FDCWD) {
             AndroidFileIO held = fdMap.get(dirfd);
@@ -298,9 +299,27 @@ public abstract class AndroidSyscallHandler extends UnixSyscallHandler<AndroidFi
             FileMetadata facts = FileQuerySupport.require(held.queryMetadata(), source);
             if (!facts.mode.isPresent()) throw new UnsupportedOperationException("Directory type unavailable: " + source);
             if ((facts.mode.getAsInt() & 0170000) != IO.S_IFDIR) throw new LinuxErrnoException(UnixEmulator.ENOTDIR);
-            throw new UnsupportedOperationException("Held directory anchors are unavailable: dirfd=" + dirfd + ", path=" + path);
+            if (!(held instanceof DirectoryFileIO)) {
+                throw new UnsupportedOperationException("Held directory anchors are unavailable: dirfd=" + dirfd + ", path=" + path);
+            }
+            String guest = guestPath(emulator, ((DirectoryFileIO) held).resolveRelative(path));
+            log.debug("event=directory_anchor_resolved emulator={} dirfd={} relative={} guest={}",
+                    System.identityHashCode(emulator), dirfd, path, guest);
+            return guest;
         }
         return path;
+    }
+
+    private String guestPath(Emulator<AndroidFileIO> emulator, Path host) {
+        try {
+            Path root = emulator.getFileSystem().getRootDir().getCanonicalFile().toPath();
+            Path real = host.toRealPath();
+            if (!real.startsWith(root)) throw new LinuxErrnoException(UnixEmulator.EACCES);
+            String relative = root.relativize(real).toString().replace(File.separatorChar, '/');
+            return relative.isEmpty() ? "/" : "/" + relative;
+        } catch (IOException failure) {
+            throw new IllegalStateException("Resolving directory anchor path: " + host, failure);
+        }
     }
 
     protected final int statAt(Emulator<AndroidFileIO> emulator, int dirfd, String path, int flags, Pointer buffer) {

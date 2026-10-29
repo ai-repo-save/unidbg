@@ -325,8 +325,9 @@ public class FileFactsIntegrationTest {
                 assertThrows(UnsupportedOperationException.class,
                         () -> handler.listDirectoryAt(emulator, IO.AT_FDCWD, path));
             }
-            assertThrows(UnsupportedOperationException.class,
-                    () -> handler.queryMetadataAt(emulator, directory, ".", 0));
+            FileMetadata dot = handler.queryMetadataAt(emulator, directory, ".", 0).value;
+            assertEquals(((Number) Files.readAttributes(root.resolve("entries"), "unix:*").get("ino")).longValue(),
+                    dot.ino.getAsLong());
         } finally {
             handler.closeFileIO(file);
             handler.closeFileIO(directory);

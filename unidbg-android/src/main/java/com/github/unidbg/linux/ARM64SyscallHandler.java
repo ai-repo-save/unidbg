@@ -1339,12 +1339,15 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
         if (pathname.isEmpty()) {
             return -UnixEmulator.ENOENT;
         }
+        try {
+            pathname = queryPath(emulator, dirfd, pathname);
+        } catch (LinuxErrnoException failure) {
+            log.debug("event=openat_rejected dirfd={} path={} errno={}", dirfd, pathname, failure.getErrno());
+            return -failure.getErrno();
+        }
         pathname = FilenameUtils.normalize(pathname, true);
         if ("/data/misc/zoneinfo/current/tzdata".equals(pathname) || "/dev/pmsg0".equals(pathname)) {
             return -UnixEmulator.ENOENT;
-        }
-        if (!pathname.startsWith("/") && dirfd != IO.AT_FDCWD) {
-            throw new BackendException();
         }
         int result = open(emulator, pathname, oflags);
         if (result < 0) {

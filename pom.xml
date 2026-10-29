@@ -78,6 +78,7 @@
                         <exclude>**/CodeTracePauseIntegrationTest.java</exclude>
                         <exclude>**/JniNonvirtualConstructionIntegrationTest.java</exclude>
                         <exclude>**/PreadEligibilityIntegrationTest.java</exclude>
+                        <exclude>**/DirfdIdentityIntegrationTest.java</exclude>
                     </excludes>
                 </configuration>
             </plugin>

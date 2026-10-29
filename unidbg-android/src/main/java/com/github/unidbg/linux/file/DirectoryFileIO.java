@@ -16,6 +16,7 @@ import com.sun.jna.Pointer;
 
 import java.io.File;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -37,18 +38,24 @@ public class DirectoryFileIO extends BaseAndroidFileIO {
     }
 
     private final String path;
+    private final DirectoryIdentity identity;
 
     private final List<DirectoryEntry> entries;
     private final List<DirectoryEntry> facts;
 
     public DirectoryFileIO(int oflags, String path, File dir) {
-        this(oflags, path, createEntries(dir));
+        this(oflags, path, createEntries(dir), DirectoryIdentity.open(dir.toPath()));
     }
 
     public DirectoryFileIO(int oflags, String path, DirectoryEntry...entries) {
+        this(oflags, path, entries, null);
+    }
+
+    private DirectoryFileIO(int oflags, String path, DirectoryEntry[] entries, DirectoryIdentity identity) {
         super(oflags);
 
         this.path = path;
+        this.identity = identity;
 
         this.facts = entries == null ? Collections.emptyList() : Collections.unmodifiableList(Arrays.asList(entries.clone()));
         this.entries = new ArrayList<>();
@@ -57,6 +64,13 @@ public class DirectoryFileIO extends BaseAndroidFileIO {
         if (entries != null) {
             Collections.addAll(this.entries, entries);
         }
+    }
+
+    public Path resolveRelative(String relative) {
+        if (identity == null) {
+            throw new UnsupportedOperationException("Held directory anchors are unavailable: path=" + path + ", relative=" + relative);
+        }
+        return identity.resolve(relative);
     }
 
     public List<DirectoryEntry> queryDirectory() { return facts; }
@@ -95,6 +109,7 @@ public class DirectoryFileIO extends BaseAndroidFileIO {
 
     @Override
     public void close() {
+        if (identity != null) identity.close();
     }
 
     @Override

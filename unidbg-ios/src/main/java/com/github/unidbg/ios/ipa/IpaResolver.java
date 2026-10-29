@@ -109,12 +109,13 @@ class IpaResolver implements IOResolver<DarwinFileIO> {
     }
 
     private JarEntry findEntry(JarFile jar, String path) {
+        String directory = path.endsWith("/") ? path : path + "/";
         JarEntry entry = jar.getJarEntry(path);
-        if (entry == null) entry = jar.getJarEntry(path + "/");
+        if (entry == null) entry = jar.getJarEntry(directory);
         if (entry != null) return entry;
         Enumeration<JarEntry> iterator = jar.entries();
         while (iterator.hasMoreElements()) {
-            if (iterator.nextElement().getName().startsWith(path + "/")) return new JarEntry(path + "/");
+            if (iterator.nextElement().getName().startsWith(directory)) return new JarEntry(directory);
         }
         return null;
     }

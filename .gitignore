@@ -122,6 +122,7 @@
 !/unidbg-api/src/main/java/com/github/unidbg/file/HostFileFacts.java
 !/unidbg-api/src/main/java/com/github/unidbg/memory/mapping/LinuxFileMetadata.java
 !/unidbg-android/src/main/java/com/github/unidbg/linux/FileQuerySupport.java
+!/unidbg-android/src/main/java/com/github/unidbg/linux/GuestCredentials.java
 !/unidbg-android/src/test/java/com/github/unidbg/linux/FileFactsIntegrationTest.java
 !/unidbg-android/src/test/java/com/github/unidbg/linux/android/dvm/JniThreadAttachmentIntegrationTest.java
 !/unidbg-android/src/test/java/com/github/unidbg/linux/android/dvm/JniNativeTailCallIntegrationTest.java

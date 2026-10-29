@@ -69,6 +69,7 @@ public class AssemblyCodeDumper implements CodeHook, TraceHook {
     private final int maxLengthLibraryName;
 
     private UnHook unHook;
+    private boolean paused;
 
     @Override
     public void onAttach(UnHook unHook) {
@@ -87,7 +88,20 @@ public class AssemblyCodeDumper implements CodeHook, TraceHook {
     }
 
     @Override
+    public void pause() {
+        paused = true;
+        lastInstructionWritePrinter = null;
+    }
+
+    @Override
+    public void resume() {
+        lastInstructionWritePrinter = null;
+        paused = false;
+    }
+
+    @Override
     public void stopTrace() {
+        pause();
         detach();
         IOUtils.close(redirect);
         redirect = null;
@@ -108,6 +122,7 @@ public class AssemblyCodeDumper implements CodeHook, TraceHook {
 
     @Override
     public void hook(final Backend backend, final long address, final int size, Object user) {
+        if (paused) return;
         if (canTrace(address)) {
             try {
                 PrintStream out = System.err;

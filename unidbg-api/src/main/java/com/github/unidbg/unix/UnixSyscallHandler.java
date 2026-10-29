@@ -158,22 +158,73 @@ public abstract class UnixSyscallHandler<T extends NewFileIO> implements Syscall
     }
 
     protected FileQueryResult<FileMetadata> querySpecialMetadata(Emulator<T> emulator, String pathname, boolean followLinks) {
-        if (isProcFd(emulator, pathname)) {
-            T held = fdMap.get(Integer.parseInt(pathname.substring(pathname.lastIndexOf('/') + 1)));
+        ProcFdPath descriptor = procFdPath(emulator, pathname);
+        if (descriptor != null) {
+            if (!descriptor.fd.isPresent()) return FileQueryResult.unknown();
+            T held = fdMap.get(descriptor.fd.getAsInt());
             if (held == null) return FileQueryResult.failed(UnixEmulator.ENOENT);
-            if (!followLinks) return FileQueryResult.success(FileMetadata.builder().mode(IO.S_IFLNK | 0777).build());
-            return held.queryMetadata();
+            if (!descriptor.requiresDirectory && !followLinks) {
+                return FileQueryResult.success(FileMetadata.builder().mode(IO.S_IFLNK | 0777).build());
+            }
+            FileQueryResult<FileMetadata> facts = held.queryMetadata();
+            if (!descriptor.requiresDirectory || !facts.isSuccess()) return facts;
+            if (!facts.value.mode.isPresent()) return FileQueryResult.unknown();
+            if ((facts.value.mode.getAsInt() & 0170000) != IO.S_IFDIR) return FileQueryResult.failed(UnixEmulator.ENOTDIR);
+            return descriptor.hasChildPath ? FileQueryResult.unknown() : facts;
         }
         return null;
     }
 
     protected FileQueryResult<List<DirectoryEntry>> querySpecialDirectory(Emulator<T> emulator, String pathname) {
-        if (isProcFd(emulator, pathname)) return FileQueryResult.unknown();
+        if (procFdPath(emulator, pathname) != null) return FileQueryResult.unknown();
         return null;
     }
 
-    protected final boolean isProcFd(Emulator<T> emulator, String pathname) {
-        return pathname.startsWith("/proc/" + emulator.getPid() + "/fd/") || pathname.startsWith("/proc/self/fd/");
+    protected static final class ProcFdPath {
+        public final java.util.OptionalInt fd;
+        public final boolean requiresDirectory;
+        public final boolean hasChildPath;
+
+        private ProcFdPath(java.util.OptionalInt fd, boolean requiresDirectory, boolean hasChildPath) {
+            this.fd = fd;
+            this.requiresDirectory = requiresDirectory;
+            this.hasChildPath = hasChildPath;
+        }
+    }
+
+    private static String nextDirectoryComponent(java.util.StringTokenizer components) {
+        while (components.hasMoreTokens()) {
+            String component = components.nextToken();
+            if (!".".equals(component)) return component;
+        }
+        return null;
+    }
+
+    private java.util.StringTokenizer procFdComponents(Emulator<T> emulator, String pathname) {
+        if (!pathname.startsWith("/")) return null;
+        java.util.StringTokenizer components = new java.util.StringTokenizer(pathname, "/");
+        if (!"proc".equals(nextDirectoryComponent(components))) return null;
+        String process = nextDirectoryComponent(components);
+        if (!"self".equals(process) && !Integer.toString(emulator.getPid()).equals(process)) return null;
+        if (!"fd".equals(nextDirectoryComponent(components))) return null;
+        return components;
+    }
+
+    protected final ProcFdPath procFdPath(Emulator<T> emulator, String pathname) {
+        java.util.StringTokenizer components = procFdComponents(emulator, pathname);
+        if (components == null) return null;
+        String name = nextDirectoryComponent(components);
+        if (name == null) return null;
+        if ("..".equals(name)) return new ProcFdPath(java.util.OptionalInt.empty(), true, components.hasMoreTokens());
+        int fd = 0;
+        if (name.length() > 1 && name.charAt(0) == '0') fd = -1;
+        for (int index = 0; fd >= 0 && index < name.length(); index++) {
+            int digit = name.charAt(index) - '0';
+            if (digit < 0 || digit > 9 || fd > (Integer.MAX_VALUE - digit) / 10) fd = -1;
+            else fd = fd * 10 + digit;
+        }
+        boolean child = components.hasMoreTokens();
+        return new ProcFdPath(java.util.OptionalInt.of(fd), child || pathname.endsWith("/"), child);
     }
 
     protected FileResult<T> resolve(Emulator<T> emulator, String pathname, int oflags) {
@@ -195,14 +246,27 @@ public abstract class UnixSyscallHandler<T extends NewFileIO> implements Syscall
             return failResult;
         }
 
-        if (isProcFd(emulator, pathname)) {
-            int fd = Integer.parseInt(pathname.substring(pathname.lastIndexOf("/") + 1));
-            T file = fdMap.get(fd);
-            if (file != null) {
-                @SuppressWarnings("unchecked")
-                T reopened = (T) file.reopen(oflags);
-                return FileResult.success(reopened);
+        ProcFdPath descriptor = procFdPath(emulator, pathname);
+        if (descriptor != null) {
+            if (!descriptor.fd.isPresent()) {
+                throw new UnsupportedOperationException("Proc directory parent anchors are unavailable: " + pathname);
             }
+            T file = fdMap.get(descriptor.fd.getAsInt());
+            if (file == null) return FileResult.failed(UnixEmulator.ENOENT);
+            if (descriptor.requiresDirectory) {
+                FileQueryResult<FileMetadata> facts = file.queryMetadata();
+                if (facts.status() == FileQueryResult.Status.ERROR) return FileResult.failed(facts.errno);
+                if (!facts.isSuccess() || !facts.value.mode.isPresent()) {
+                    throw new UnsupportedOperationException("Descriptor directory type unavailable: " + pathname);
+                }
+                if ((facts.value.mode.getAsInt() & 0170000) != IO.S_IFDIR) return FileResult.failed(UnixEmulator.ENOTDIR);
+                if (descriptor.hasChildPath) {
+                    throw new UnsupportedOperationException("Held directory anchors are unavailable: " + pathname);
+                }
+            }
+            @SuppressWarnings("unchecked")
+            T reopened = (T) file.reopen(oflags);
+            return FileResult.success(reopened);
         }
 
         FileResult<T> result = emulator.getFileSystem().open(pathname, oflags);
@@ -244,7 +308,8 @@ public abstract class UnixSyscallHandler<T extends NewFileIO> implements Syscall
     }
 
     protected final boolean isFdDirectory(Emulator<T> emulator, String pathname) {
-        return ("/proc/" + emulator.getPid() + "/fd").equals(pathname) || "/proc/self/fd".equals(pathname);
+        java.util.StringTokenizer components = procFdComponents(emulator, pathname);
+        return components != null && nextDirectoryComponent(components) == null;
     }
 
     protected final boolean isTaskDirectory(Emulator<T> emulator, String pathname) {

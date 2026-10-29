@@ -51,7 +51,6 @@ import com.github.unidbg.unix.struct.TimeSpec;
 import com.github.unidbg.utils.Inspector;
 import com.sun.jna.Pointer;
 import net.dongliu.apk.parser.utils.Pair;
-import org.apache.commons.io.FilenameUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -69,6 +68,7 @@ public abstract class AndroidSyscallHandler extends UnixSyscallHandler<AndroidFi
 
     private static final Logger log = LoggerFactory.getLogger(AndroidSyscallHandler.class);
     private static final AtomicLong REMAPS = new AtomicLong();
+    private static final AtomicLong ACCESS_CHECKS = new AtomicLong();
     private final NativeTcpSocketFactory tcpSockets = new NativeTcpSocketFactory();
     private GuestCredentials credentials = new GuestCredentials(java.util.OptionalInt.of(0), java.util.OptionalInt.of(0),
             java.util.OptionalInt.of(0), java.util.OptionalInt.of(0),
@@ -252,9 +252,27 @@ public abstract class AndroidSyscallHandler extends UnixSyscallHandler<AndroidFi
     }
 
     public final void checkAccessAt(Emulator<AndroidFileIO> emulator, int dirfd, String path, int mode) {
-        if ((mode & ~7) != 0) throw new LinuxErrnoException(UnixEmulator.EINVAL);
-        FileMetadata facts = FileQuerySupport.require(queryMetadataAt(emulator, dirfd, path, 0), path);
-        FileQuerySupport.access(facts, path, mode, credentials);
+        long check = ACCESS_CHECKS.incrementAndGet();
+        try {
+            if ((mode & ~7) != 0) throw new LinuxErrnoException(UnixEmulator.EINVAL);
+            String pathname = queryPath(emulator, dirfd, path);
+            FileQuerySupport.accessPath(pathname, mode, credentials,
+                    component -> queryMetadata(emulator, component, false));
+            log.debug("event=file_access_checked emulator={} check={} dirfd={} path={} mode={} status=allowed errno=0",
+                    System.identityHashCode(emulator), check, dirfd, path, mode);
+        } catch (LinuxErrnoException failure) {
+            log.debug("event=file_access_checked emulator={} check={} dirfd={} path={} mode={} status=denied errno={}",
+                    System.identityHashCode(emulator), check, dirfd, path, mode, failure.getErrno());
+            throw failure;
+        } catch (UnsupportedOperationException failure) {
+            log.debug("event=file_access_checked emulator={} check={} dirfd={} path={} mode={} status=unknown errno=unknown reason={}",
+                    System.identityHashCode(emulator), check, dirfd, path, mode, failure.getMessage());
+            throw failure;
+        } catch (RuntimeException failure) {
+            log.warn("event=file_access_failed emulator={} check={} dirfd={} path={} mode={}",
+                    System.identityHashCode(emulator), check, dirfd, path, mode, failure);
+            throw failure;
+        }
     }
 
     public final List<DirectoryEntry> listDirectoryAt(Emulator<AndroidFileIO> emulator, int dirfd, String path) {
@@ -271,9 +289,7 @@ public abstract class AndroidSyscallHandler extends UnixSyscallHandler<AndroidFi
             if ((facts.mode.getAsInt() & 0170000) != IO.S_IFDIR) throw new LinuxErrnoException(UnixEmulator.ENOTDIR);
             throw new UnsupportedOperationException("Held directory anchors are unavailable: dirfd=" + dirfd + ", path=" + path);
         }
-        String normalized = FilenameUtils.normalize(path, true);
-        if (normalized == null) throw new LinuxErrnoException(UnixEmulator.EINVAL);
-        return normalized;
+        return path;
     }
 
     protected final int statAt(Emulator<AndroidFileIO> emulator, int dirfd, String path, int flags, Pointer buffer) {
@@ -320,15 +336,19 @@ public abstract class AndroidSyscallHandler extends UnixSyscallHandler<AndroidFi
         if (isFdDirectory(emulator, pathname)) return FileQueryResult.success(fdEntries());
         if (isTaskDirectory(emulator, pathname)) return FileQueryResult.success(taskEntries(emulator));
         if (DriverFileIO.queryMetadata(pathname) != null) return FileQueryResult.failed(UnixEmulator.ENOTDIR);
-        if (isProcFd(emulator, pathname)) {
-            AndroidFileIO held = fdMap.get(Integer.parseInt(pathname.substring(pathname.lastIndexOf('/') + 1)));
+        ProcFdPath descriptor = procFdPath(emulator, pathname);
+        if (descriptor != null) {
+            if (!descriptor.fd.isPresent()) return FileQueryResult.unknown();
+            AndroidFileIO held = fdMap.get(descriptor.fd.getAsInt());
             if (held == null) return FileQueryResult.failed(UnixEmulator.ENOENT);
-            if (held instanceof DirectoryFileIO) return FileQueryResult.success(((DirectoryFileIO) held).queryDirectory());
             FileQueryResult<FileMetadata> facts = held.queryMetadata();
             if (facts.isSuccess() && facts.value.mode.isPresent() && (facts.value.mode.getAsInt() & 0170000) != IO.S_IFDIR) {
                 return FileQueryResult.failed(UnixEmulator.ENOTDIR);
             }
             if (facts.status() == FileQueryResult.Status.ERROR) return FileQueryResult.failed(facts.errno);
+            if (!descriptor.hasChildPath && held instanceof DirectoryFileIO) {
+                return FileQueryResult.success(((DirectoryFileIO) held).queryDirectory());
+            }
             return FileQueryResult.unknown();
         }
         return super.querySpecialDirectory(emulator, pathname);

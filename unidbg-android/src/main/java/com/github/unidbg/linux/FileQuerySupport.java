@@ -62,6 +62,37 @@ final class FileQuerySupport {
         setter.accept(Math.addExact(Math.multiplyExact(instant.getEpochSecond(), 1000), instant.getNano() / 1000000), (long) instant.getNano());
     }
 
+    static void accessPath(String path, int mode, GuestCredentials credentials,
+                           java.util.function.Function<String, FileQueryResult<FileMetadata>> metadata) {
+        String current = path.startsWith("/") ? "/" : ".";
+        FileMetadata facts = require(metadata.apply(current), current);
+        int offset = 0;
+        while (offset < path.length()) {
+            while (offset < path.length() && path.charAt(offset) == '/') offset++;
+            if (offset == path.length()) break;
+            requireDirectory(facts, current);
+            access(facts, current, 1, credentials);
+            int end = path.indexOf('/', offset);
+            if (end < 0) end = path.length();
+            String component = path.substring(offset, end);
+            current = current.equals("/") ? current + component
+                    : current.equals(".") && offset == 0 ? component : current + "/" + component;
+            facts = require(metadata.apply(current), current);
+            if (!facts.mode.isPresent()) throw unavailable(current, "mode");
+            if ((facts.mode.getAsInt() & 0170000) == 0120000) {
+                throw unavailable(current, "symlink target and search ancestors");
+            }
+            offset = end;
+        }
+        if (path.endsWith("/")) requireDirectory(facts, current);
+        access(facts, current, mode, credentials);
+    }
+
+    private static void requireDirectory(FileMetadata facts, String path) {
+        if (!facts.mode.isPresent()) throw unavailable(path, "mode");
+        if ((facts.mode.getAsInt() & 0170000) != 0040000) throw new LinuxErrnoException(UnixEmulator.ENOTDIR);
+    }
+
     static void access(FileMetadata facts, String path, int mode, GuestCredentials credentials) {
         if (mode == 0) return;
         if (facts.mode.isPresent()) {

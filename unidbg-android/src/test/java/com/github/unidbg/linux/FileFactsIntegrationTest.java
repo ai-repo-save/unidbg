@@ -21,6 +21,9 @@ import com.github.unidbg.linux.struct.Stat64;
 import com.github.unidbg.memory.MemoryBlock;
 import com.github.unidbg.pointer.UnidbgPointer;
 import com.github.unidbg.unix.IO;
+import com.sun.jna.Library;
+import com.sun.jna.Memory;
+import com.sun.jna.Native;
 import com.sun.jna.Pointer;
 import org.junit.Test;
 
@@ -49,6 +52,7 @@ public class FileFactsIntegrationTest {
         Files.createDirectories(parent);
         for (boolean wide : new boolean[] {false, true}) {
             Path root = Files.createTempDirectory(parent, wide ? "arm64-" : "arm32-").toAbsolutePath();
+            Files.setPosixFilePermissions(root, java.nio.file.attribute.PosixFilePermissions.fromString("rwxr-xr-x"));
             Path source = root.resolve("source");
             byte[] contents = {10, 20, 30, 40};
             Files.write(source, contents);
@@ -56,6 +60,13 @@ public class FileFactsIntegrationTest {
             Files.setLastModifiedTime(source, FileTime.from(modification));
             Files.createDirectory(root.resolve("entries"));
             Files.write(root.resolve("entries/alpha"), contents);
+            Files.createDirectories(root.resolve("actual/dir"));
+            Files.write(root.resolve("actual/source"), new byte[] {1, 2, 3, 4, 5, 6});
+            Files.createSymbolicLink(root.resolve("link"), Paths.get("actual/dir"));
+            Files.createDirectory(root.resolve("locked"));
+            Files.setPosixFilePermissions(root.resolve("locked"), java.nio.file.attribute.PosixFilePermissions.fromString("rwx------"));
+            Files.write(root.resolve("locked/readable"), contents);
+            Files.setPosixFilePermissions(root.resolve("locked/readable"), java.nio.file.attribute.PosixFilePermissions.fromString("r--r--r--"));
             try (AndroidEmulator emulator = (wide ? AndroidEmulatorBuilder.for64Bit() : AndroidEmulatorBuilder.for32Bit())
                     .setRootDir(root.toFile()).addBackendFactory(new Unicorn2Factory(true)).build()) {
                 AndroidSyscallHandler handler = (AndroidSyscallHandler) emulator.getSyscallHandler();
@@ -64,6 +75,7 @@ public class FileFactsIntegrationTest {
                 handler.addIOResolver(new ReplayFiles("/queried", facts));
                 MemoryBlock scratch = emulator.getMemory().malloc(4096, true);
                 try (RawSyscalls calls = new RawSyscalls(emulator)) {
+                    verifyPathResolution(emulator, handler, calls, scratch.getPointer(), root);
                     List<byte[]> baseline = replay(emulator, handler, calls, scratch.getPointer(), "/baseline", false);
                     List<byte[]> queried = replay(emulator, handler, calls, scratch.getPointer(), "/queried", true);
                     assertEquals(baseline.size(), queried.size());
@@ -103,6 +115,19 @@ public class FileFactsIntegrationTest {
                             OptionalInt.empty(), OptionalInt.empty(), Optional.empty()));
                     assertEquals(targetUid, calls.call(wide ? 174 : 199));
                     handler.checkAccessAt(emulator, IO.AT_FDCWD, "/queried/dac", 4);
+                    for (String path : new String[] {"/locked/readable", "/locked/../source", "/locked/."}) {
+                        for (int mode : new int[] {0, 4}) {
+                            scratch.getPointer().setString(0, path);
+                            assertEquals(-13, calls.call(wide ? 48 : 334, IO.AT_FDCWD, scratch.getPointer().peer, mode));
+                        }
+                    }
+                    scratch.getPointer().setString(0, "/locked/");
+                    assertEquals(0, calls.call(wide ? 48 : 334, IO.AT_FDCWD, scratch.getPointer().peer, 0));
+                    assertEquals(-22, calls.call(wide ? 48 : 334, IO.AT_FDCWD, scratch.getPointer().peer, 8));
+                    assertThrows(UnsupportedOperationException.class,
+                            () -> handler.checkAccessAt(emulator, IO.AT_FDCWD, "/queried/unknown-parent/file", 0));
+                    assertThrows(UnsupportedOperationException.class,
+                            () -> handler.checkAccessAt(emulator, IO.AT_FDCWD, "/link/../source", 0));
                     assertEquals(13, assertThrows(LinuxErrnoException.class,
                             () -> handler.checkAccessAt(emulator, IO.AT_FDCWD, "/queried/dac", 2)).getErrno());
                     assertThrows(UnsupportedOperationException.class,
@@ -140,6 +165,91 @@ public class FileFactsIntegrationTest {
                     scratch.free();
                 }
             }
+        }
+    }
+
+    private interface LinuxLibC extends Library {
+        LinuxLibC INSTANCE = Native.load("c", LinuxLibC.class);
+        int stat(String path, Pointer stat);
+        int access(String path, int mode);
+        int open(String path, int flags);
+        int close(int fd);
+    }
+
+    private static void verifyPathResolution(AndroidEmulator emulator, AndroidSyscallHandler handler,
+                                             RawSyscalls calls, UnidbgPointer buffer, Path root) throws Exception {
+        LinuxLibC libc = LinuxLibC.INSTANCE;
+        Memory nativeStat = new Memory(256);
+        String missing = "/missing/../source";
+        assertEquals(-1, libc.stat(root + missing, nativeStat));
+        assertEquals(2, Native.getLastError());
+        assertEquals(2, handler.queryMetadataAt(emulator, IO.AT_FDCWD, missing, 0).errno);
+        buffer.setString(0, missing);
+        assertEquals(-2, calls.call(emulator.is64Bit() ? 48 : 334, IO.AT_FDCWD, buffer.peer, 0));
+        assertEquals(-1, libc.stat(root + "/source/../source", nativeStat));
+        assertEquals(20, Native.getLastError());
+        assertEquals(20, handler.queryMetadataAt(emulator, IO.AT_FDCWD, "/source/../source", 0).errno);
+        assertEquals(0, libc.stat(root + "/link/../source", nativeStat));
+        assertEquals(Files.size(root.resolve("actual/source")),
+                handler.statAt(emulator, IO.AT_FDCWD, "/link/../source", 0).st_size);
+        assertEquals(IO.S_IFLNK, handler.statAt(emulator, IO.AT_FDCWD, "/link", 0x100).st_mode & 0170000);
+
+        int file = handler.open(emulator, "/source", 0);
+        int directory = handler.open(emulator, "/entries", 0x10000);
+        int nativeFile = libc.open(root + "/source", 0);
+        int nativeDirectory = libc.open(root + "/entries", 0x10000);
+        try {
+            String[][] paths = {
+                    {"/proc/self/fd/name", "/proc/self/fd/name", "2"},
+                    {"/proc/self/fd/2147483648", "/proc/self/fd/2147483648", "2"},
+                    {"/proc/self/fd/0" + file, "/proc/self/fd/0" + nativeFile, "2"},
+                    {"/proc/self/fd/" + file + "/" + directory, "/proc/self/fd/" + nativeFile + "/" + nativeDirectory, "20"},
+                    {"/proc/self/fd/" + file + "/", "/proc/self/fd/" + nativeFile + "/", "20"}
+            };
+            for (String[] sample : paths) {
+                int errno = Integer.parseInt(sample[2]);
+                assertEquals(-1, libc.stat(sample[1], nativeStat));
+                assertEquals(errno, Native.getLastError());
+                assertEquals(errno, handler.queryMetadataAt(emulator, IO.AT_FDCWD, sample[0], 0).errno);
+                buffer.setString(0, sample[0]);
+                assertEquals(-errno, calls.call(emulator.is64Bit() ? 79 : 327, IO.AT_FDCWD, buffer.peer, buffer.peer + 512, 0));
+                assertEquals(errno, assertThrows(LinuxErrnoException.class,
+                        () -> handler.listDirectoryAt(emulator, IO.AT_FDCWD, sample[0])).getErrno());
+            }
+            for (String path : new String[] {"/proc/self/fd/", "/proc/" + emulator.getPid() + "/fd/", "/proc/self/fd/./"}) {
+                assertEquals(IO.S_IFDIR, handler.queryMetadataAt(emulator, IO.AT_FDCWD, path, 0).value.mode.getAsInt() & 0170000);
+                assertEquals(Arrays.asList(Integer.toString(file), Integer.toString(directory)),
+                        handler.listDirectoryAt(emulator, IO.AT_FDCWD, path).stream()
+                                .map(entry -> entry.name).collect(java.util.stream.Collectors.toList()));
+            }
+            assertEquals(Files.size(root.resolve("source")), handler.queryMetadataAt(emulator, IO.AT_FDCWD,
+                    "/proc/self/fd/./" + file, 0).value.size.getAsLong());
+            assertEquals(FileQueryResult.Status.UNKNOWN, handler.queryMetadataAt(emulator, IO.AT_FDCWD,
+                    "/proc/self/fd/..", 0).status());
+            assertEquals(0, libc.stat("/proc/self/fd/" + nativeDirectory + "/", nativeStat));
+            assertEquals(IO.S_IFDIR, handler.queryMetadataAt(emulator, IO.AT_FDCWD,
+                    "/proc/self/fd/" + directory + "/", 0).value.mode.getAsInt() & 0170000);
+            assertEquals(FileQueryResult.Status.UNKNOWN, handler.queryMetadataAt(emulator, IO.AT_FDCWD,
+                    "/proc/self/fd/" + directory + "/alpha", 0).status());
+        } finally {
+            handler.closeFileIO(file);
+            handler.closeFileIO(directory);
+            assertEquals(0, libc.close(nativeFile));
+            assertEquals(0, libc.close(nativeDirectory));
+        }
+
+        assertEquals(0, libc.access(root + "/locked/readable", 4));
+        Files.setPosixFilePermissions(root.resolve("locked"), java.nio.file.attribute.PosixFilePermissions.fromString("rw-------"));
+        try {
+            for (String path : new String[] {"/locked/readable", "/locked/../source", "/locked/."}) {
+                for (int mode : new int[] {0, 4}) {
+                    assertEquals(-1, libc.access(root + path, mode));
+                    assertEquals(13, Native.getLastError());
+                }
+            }
+            assertEquals(0, libc.access(root + "/locked/", 0));
+        } finally {
+            Files.setPosixFilePermissions(root.resolve("locked"), java.nio.file.attribute.PosixFilePermissions.fromString("rwx------"));
         }
     }
 
@@ -267,6 +377,9 @@ public class FileFactsIntegrationTest {
         }
 
         @Override public FileQueryResult<FileMetadata> queryMetadata(Emulator<AndroidFileIO> emulator, String path, boolean followLinks) {
+            if (prefix.equals(path)) return FileQueryResult.success(FileMetadata.builder().mode(IO.S_IFDIR | 0755).build());
+            if ((prefix + "/unknown-parent").equals(path)) return FileQueryResult.unknown();
+            if ((prefix + "/unknown-parent/file").equals(path)) return FileQueryResult.success(metadata);
             if ((prefix + "/file").equals(path)) return FileQueryResult.success(metadata);
             if ((prefix + "/pre-epoch").equals(path)) return FileQueryResult.success(preEpoch);
             if ((prefix + "/unknown").equals(path)) return FileQueryResult.unknown();
@@ -289,7 +402,7 @@ public class FileFactsIntegrationTest {
         RawSyscalls(AndroidEmulator emulator) {
             this.emulator = emulator;
             code = emulator.getMemory().mmap(8192, 7);
-            for (int number : new int[] {3, 6, 56, 57, 61, 63, 79, 80, 158, 174, 176, 197, 199, 200, 205, 217, 322, 327}) {
+            for (int number : new int[] {3, 6, 48, 56, 57, 61, 63, 79, 80, 158, 174, 176, 197, 199, 200, 205, 217, 322, 327, 334}) {
                 long offset = number * 16L;
                 code.setInt(offset, emulator.is64Bit() ? 0xd2800008 | (number << 5)
                         : 0xe3007000 | (number & 0xfff) | ((number & 0xf000) << 4));

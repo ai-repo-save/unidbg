@@ -20,6 +20,7 @@ public final class FileMetadata {
     public final Optional<FileTime> atime;
     public final Optional<FileTime> mtime;
     public final Optional<FileTime> ctime;
+    public final Optional<String> linkTarget;
 
     private FileMetadata(Builder builder) {
         mode = builder.mode;
@@ -35,6 +36,7 @@ public final class FileMetadata {
         atime = builder.atime;
         mtime = builder.mtime;
         ctime = builder.ctime;
+        linkTarget = builder.linkTarget;
     }
 
     public static Builder builder() { return new Builder(); }
@@ -53,6 +55,7 @@ public final class FileMetadata {
         private Optional<FileTime> atime = Optional.empty();
         private Optional<FileTime> mtime = Optional.empty();
         private Optional<FileTime> ctime = Optional.empty();
+        private Optional<String> linkTarget = Optional.empty();
 
         public Builder mode(int value) { mode = OptionalInt.of(value); return this; }
         public Builder uid(int value) { uid = OptionalInt.of(value); return this; }
@@ -67,6 +70,7 @@ public final class FileMetadata {
         public Builder atime(FileTime value) { atime = Optional.of(value); return this; }
         public Builder mtime(FileTime value) { mtime = Optional.of(value); return this; }
         public Builder ctime(FileTime value) { ctime = Optional.of(value); return this; }
+        public Builder linkTarget(String value) { linkTarget = Optional.of(value); return this; }
         public FileMetadata build() { return new FileMetadata(this); }
     }
 }

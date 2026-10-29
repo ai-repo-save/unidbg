@@ -40,7 +40,6 @@ import com.github.unidbg.unix.IO;
 import com.github.unidbg.unix.UnixEmulator;
 import com.github.unidbg.utils.Inspector;
 import com.sun.jna.Pointer;
-import org.apache.commons.io.FilenameUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import unicorn.Arm64Const;
@@ -1345,7 +1344,6 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
             log.debug("event=openat_rejected dirfd={} path={} errno={}", dirfd, pathname, failure.getErrno());
             return -failure.getErrno();
         }
-        pathname = FilenameUtils.normalize(pathname, true);
         if ("/data/misc/zoneinfo/current/tzdata".equals(pathname) || "/dev/pmsg0".equals(pathname)) {
             return -UnixEmulator.ENOENT;
         }

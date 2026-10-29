@@ -1715,7 +1715,6 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
             log.debug("event=openat_rejected dirfd={} path={} errno={}", dirfd, pathname, failure.getErrno());
             return -failure.getErrno();
         }
-        pathname = FilenameUtils.normalize(pathname, true);
         if ("/data/misc/zoneinfo/current/tzdata".equals(pathname) || "/dev/pmsg0".equals(pathname)) {
             return -UnixEmulator.ENOENT;
         }

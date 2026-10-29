@@ -13,11 +13,17 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.file.attribute.FileTime;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
 
 public final class FileQuerySupport {
     private static final Logger log = LoggerFactory.getLogger(FileQuerySupport.class);
+    private static final int ELOOP = 40;
+    private static final int S_IFMT = 0170000;
+    private static final int S_IFLNK = 0120000;
+    private static final int S_IFDIR = 0040000;
 
     static <V> V require(FileQueryResult<V> result, String path) {
         if (result.isSuccess()) return result.value;
@@ -81,32 +87,122 @@ public final class FileQuerySupport {
 
     static void accessPath(String path, int mode, GuestCredentials credentials, int emulator, long check,
                            java.util.function.Function<String, FileQueryResult<FileMetadata>> metadata) {
-        String current = path.startsWith("/") ? "/" : ".";
-        FileMetadata facts = require(metadata.apply(current), current);
+        Walked walked = walk(path, true, true, credentials, emulator, check, metadata, 0);
+        if (walked.trailingDirectory) requireDirectory(walked.facts, walked.path);
+        access(walked.facts, walked.path, mode, credentials, emulator, check);
+    }
+
+    static String followLinkTargets(String path, boolean followFinal,
+                                    java.util.function.Function<String, FileQueryResult<FileMetadata>> metadata) {
+        if (path.isEmpty()) return path;
+        String resolved = walk(path, followFinal, false, null, 0, 0, metadata, 0).path;
+        if (resolved.length() > 1 && resolved.endsWith("/")) return resolved.substring(0, resolved.length() - 1);
+        return resolved;
+    }
+
+    private static Walked walk(String path, boolean followFinal, boolean enforceSearch, GuestCredentials credentials,
+                               int emulator, long check,
+                               java.util.function.Function<String, FileQueryResult<FileMetadata>> metadata, int followed) {
+        boolean absolute = path.startsWith("/");
+        boolean trailing = path.endsWith("/") && !"/".equals(path);
+        Deque<String> pending = new ArrayDeque<>(components(path));
+        List<String> stack = new ArrayList<>();
+        String directory = absolute ? "/" : ".";
+        FileMetadata facts = enforceSearch ? require(metadata.apply(directory), directory) : null;
+        while (!pending.isEmpty()) {
+            String component = pending.removeFirst();
+            if (".".equals(component) || "..".equals(component)) {
+                if (enforceSearch) {
+                    requireDirectory(facts, directory);
+                    access(facts, directory, 1, credentials, emulator, check);
+                }
+                if ("..".equals(component)) {
+                    if (!stack.isEmpty() && !"..".equals(stack.get(stack.size() - 1))) stack.remove(stack.size() - 1);
+                    else if (!absolute) stack.add("..");
+                    directory = join(absolute, stack);
+                    if (enforceSearch) facts = require(metadata.apply(directory), directory);
+                }
+                continue;
+            }
+            if (enforceSearch) {
+                requireDirectory(facts, directory);
+                access(facts, directory, 1, credentials, emulator, check);
+            }
+            boolean last = pending.isEmpty();
+            stack.add(component);
+            directory = join(absolute, stack);
+            FileQueryResult<FileMetadata> result = metadata.apply(directory);
+            facts = enforceSearch ? require(result, directory) : result != null && result.isSuccess() ? result.value : null;
+            if (facts == null || !isSymlink(facts)) continue;
+            if (last && !followFinal) {
+                log.debug("event=file_symlink_rejected path={} reason=nofollow errno={}", directory, ELOOP);
+                throw new LinuxErrnoException(ELOOP);
+            }
+            if (!facts.linkTarget.isPresent()) throw unavailable(directory, "symlink target and search ancestors");
+            if (++followed > 40) {
+                log.debug("event=file_symlink_rejected path={} reason=loop errno={}", directory, ELOOP);
+                throw new LinuxErrnoException(ELOOP);
+            }
+            String target = facts.linkTarget.get();
+            log.debug("event=file_symlink_followed path={} target={}", directory, target);
+            stack.remove(stack.size() - 1);
+            String continued = compose(join(absolute, stack), target, remainder(pending, trailing));
+            return walk(continued, followFinal, enforceSearch, credentials, emulator, check, metadata, followed);
+        }
+        return new Walked(directory, facts, trailing);
+    }
+
+    private static List<String> components(String path) {
+        List<String> components = new ArrayList<>();
         int offset = 0;
         while (offset < path.length()) {
             while (offset < path.length() && path.charAt(offset) == '/') offset++;
             if (offset == path.length()) break;
-            requireDirectory(facts, current);
-            access(facts, current, 1, credentials, emulator, check);
             int end = path.indexOf('/', offset);
             if (end < 0) end = path.length();
-            String component = path.substring(offset, end);
-            current = current.equals("/") ? current + component
-                    : current.equals(".") && offset == 0 ? component : current + "/" + component;
-            facts = require(metadata.apply(current), current);
-            if (facts.mode.isPresent() && (facts.mode.getAsInt() & 0170000) == 0120000) {
-                throw unavailable(current, "symlink target and search ancestors");
-            }
+            components.add(path.substring(offset, end));
             offset = end;
         }
-        if (path.endsWith("/")) requireDirectory(facts, current);
-        access(facts, current, mode, credentials, emulator, check);
+        return components;
+    }
+
+    private static String join(boolean absolute, List<String> stack) {
+        if (stack.isEmpty()) return absolute ? "/" : ".";
+        String body = String.join("/", stack);
+        return absolute ? "/" + body : body;
+    }
+
+    private static String remainder(Deque<String> pending, boolean trailing) {
+        String rest = pending.isEmpty() ? "" : "/" + String.join("/", pending);
+        return trailing ? rest + "/" : rest;
+    }
+
+    private static String compose(String parent, String target, String rest) {
+        String base = target.startsWith("/") ? target
+                : "/".equals(parent) ? "/" + target
+                : ".".equals(parent) ? target : parent + "/" + target;
+        return rest.isEmpty() ? base : base + rest;
+    }
+
+    private static boolean isSymlink(FileMetadata facts) {
+        return facts.mode.isPresent() && (facts.mode.getAsInt() & S_IFMT) == S_IFLNK;
+    }
+
+    private static final class Walked {
+        private final String path;
+        private final FileMetadata facts;
+        private final boolean trailingDirectory;
+
+        private Walked(String path, FileMetadata facts, boolean trailingDirectory) {
+            this.path = path;
+            this.facts = facts;
+            this.trailingDirectory = trailingDirectory;
+        }
     }
 
     private static void requireDirectory(FileMetadata facts, String path) {
         if (!facts.mode.isPresent()) throw unavailable(path, "mode");
-        if ((facts.mode.getAsInt() & 0170000) != 0040000) throw new LinuxErrnoException(UnixEmulator.ENOTDIR);
+        if ((facts.mode.getAsInt() & S_IFMT) != S_IFDIR) throw new LinuxErrnoException(UnixEmulator.ENOTDIR);
     }
 
     private static void access(FileMetadata facts, String path, int mode, GuestCredentials credentials, int emulator, long check) {

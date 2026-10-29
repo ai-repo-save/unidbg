@@ -3,6 +3,7 @@ package com.github.unidbg.linux;
 import com.github.unidbg.AndroidEmulator;
 import com.github.unidbg.Emulator;
 import com.github.unidbg.arm.backend.Unicorn2Factory;
+import com.github.unidbg.file.FileIO;
 import com.github.unidbg.file.FileMetadata;
 import com.github.unidbg.file.FileQueryResult;
 import com.github.unidbg.file.FileResult;
@@ -54,6 +55,12 @@ public class SymlinkTargetIntegrationTest {
                     assertTrue(fd >= 0);
                     assertEquals(TARGET.length, calls.call(wide ? 63 : 3, fd, buffer.peer + 64, TARGET.length));
                     assertArrayEquals(TARGET, buffer.getByteArray(64, TARGET.length));
+                    buffer.setString(0, "/proc/self/fd/" + fd + "/../" + fd);
+                    int reopened = calls.call(wide ? 56 : 322, IO.AT_FDCWD, buffer.peer, 0, 0);
+                    assertTrue(reopened >= 0);
+                    assertEquals(TARGET.length, calls.call(wide ? 63 : 3, reopened, buffer.peer + 64, TARGET.length));
+                    assertArrayEquals(TARGET, buffer.getByteArray(64, TARGET.length));
+                    assertEquals(0, calls.call(wide ? 57 : 6, reopened));
                     assertEquals(0, calls.call(wide ? 57 : 6, fd));
                     assertThrows(UnsupportedOperationException.class,
                             () -> handler.checkAccessAt(emulator, IO.AT_FDCWD, "/notarget/secret", 0));
@@ -69,7 +76,7 @@ public class SymlinkTargetIntegrationTest {
     private static final class TargetFacts implements IOResolver<AndroidFileIO> {
         @Override
         public FileResult<AndroidFileIO> resolve(Emulator<AndroidFileIO> emulator, String path, int oflags) {
-            if ("/vault/secret".equals(path)) return FileResult.success(new ByteArrayFileIO(oflags, path, TARGET));
+            if ("/vault/secret".equals(path)) return FileResult.success(new ReopenableBytes(oflags, path, TARGET));
             if ("/secret".equals(path) || "/link/../secret".equals(path) || "/link".equals(path)) {
                 return FileResult.success(new ByteArrayFileIO(oflags, path, DECOY));
             }
@@ -100,6 +107,17 @@ public class SymlinkTargetIntegrationTest {
         public FileQueryResult<java.util.List<com.github.unidbg.file.DirectoryEntry>> queryDirectory(
                 Emulator<AndroidFileIO> emulator, String path) {
             return null;
+        }
+    }
+
+    private static final class ReopenableBytes extends ByteArrayFileIO {
+        ReopenableBytes(int oflags, String path, byte[] bytes) {
+            super(oflags, path, bytes);
+        }
+
+        @Override
+        public FileIO reopen(int flags) {
+            return new ReopenableBytes(flags, path, bytes);
         }
     }
 

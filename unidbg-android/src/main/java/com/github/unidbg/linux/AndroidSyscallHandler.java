@@ -229,9 +229,12 @@ public abstract class AndroidSyscallHandler extends UnixSyscallHandler<AndroidFi
     @Override
     protected final FileResult<AndroidFileIO> resolve(Emulator<AndroidFileIO> emulator, String pathname, int oflags) {
         try {
-            if (procFdPath(emulator, pathname) == null) {
+            String collapsed = FileQuerySupport.collapseDotComponents(pathname);
+            if (procFdPath(emulator, collapsed) == null) {
                 pathname = FileQuerySupport.followLinkTargets(pathname, (oflags & IOConstants.O_NOFOLLOW) == 0,
                         component -> queryMetadata(emulator, component, false));
+            } else {
+                pathname = collapsed;
             }
             return super.resolve(emulator, pathname, oflags);
         } catch (LinuxErrnoException failure) {

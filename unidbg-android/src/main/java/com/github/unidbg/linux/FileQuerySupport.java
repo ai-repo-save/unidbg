@@ -92,6 +92,10 @@ public final class FileQuerySupport {
         access(walked.facts, walked.path, mode, credentials, emulator, check);
     }
 
+    static String collapseDotComponents(String path) {
+        return followLinkTargets(path, true, component -> null);
+    }
+
     static String followLinkTargets(String path, boolean followFinal,
                                     java.util.function.Function<String, FileQueryResult<FileMetadata>> metadata) {
         if (path.isEmpty()) return path;

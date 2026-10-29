@@ -82,8 +82,7 @@ final class FileQuerySupport {
             current = current.equals("/") ? current + component
                     : current.equals(".") && offset == 0 ? component : current + "/" + component;
             facts = require(metadata.apply(current), current);
-            if (!facts.mode.isPresent()) throw unavailable(current, "mode");
-            if ((facts.mode.getAsInt() & 0170000) == 0120000) {
+            if (facts.mode.isPresent() && (facts.mode.getAsInt() & 0170000) == 0120000) {
                 throw unavailable(current, "symlink target and search ancestors");
             }
             offset = end;

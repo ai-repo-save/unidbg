@@ -30,6 +30,9 @@ import java.util.jar.JarFile;
 
 public final class HostFileFacts {
     public static FileQueryResult<FileMetadata> metadata(File file, boolean followLinks) {
+        if (Platform.isLinux() && Platform.isIntel() && Platform.is64Bit()) {
+            return LinuxFileMetadata.query(file.toPath(), followLinks);
+        }
         LinkOption[] options = followLinks ? new LinkOption[0] : new LinkOption[] {LinkOption.NOFOLLOW_LINKS};
         try {
             FileMetadata.Builder facts = FileMetadata.builder();
@@ -44,11 +47,6 @@ public final class HostFileFacts {
             } else {
                 BasicFileAttributes attributes = Files.readAttributes(file.toPath(), BasicFileAttributes.class, options);
                 facts.size(attributes.size()).atime(attributes.lastAccessTime()).mtime(attributes.lastModifiedTime());
-            }
-            if (Platform.isLinux() && Platform.isIntel() && Platform.is64Bit()) {
-                FileQueryResult<FileMetadata> nativeFacts = LinuxFileMetadata.query(file.toPath(), followLinks);
-                if (!nativeFacts.isSuccess()) return nativeFacts;
-                facts.blksize(nativeFacts.value.blksize.getAsInt()).blocks(nativeFacts.value.blocks.getAsLong());
             }
             return FileQueryResult.success(facts.build());
         } catch (NoSuchFileException error) {

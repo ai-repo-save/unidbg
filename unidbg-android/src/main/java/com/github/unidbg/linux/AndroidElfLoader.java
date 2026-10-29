@@ -61,6 +61,7 @@ import java.util.Map;
 public class AndroidElfLoader extends AbstractLoader<AndroidFileIO> implements Memory, Loader {
 
     private static final Logger log = LoggerFactory.getLogger(AndroidElfLoader.class);
+    private static final Logger symbolLog = LoggerFactory.getLogger(AndroidElfLoader.class.getName() + ".symbols");
 
     private Symbol malloc, free;
 
@@ -262,8 +263,9 @@ public class AndroidElfLoader extends AbstractLoader<AndroidFileIO> implements M
 
     @Override
     public Symbol dlsym(long handle, String symbolName) {
+        String caller = symbolLog.isDebugEnabled() ? String.valueOf(emulator.getContext().getLRPointer()) : null;
         if ("environ".equals(symbolName)) {
-            return new VirtualSymbol(symbolName, null, environ.toUIntPeer());
+            return logDlsymResult(handle, symbolName, new VirtualSymbol(symbolName, null, environ.toUIntPeer()), caller, "environ");
         }
         Module sm = null;
         Symbol ret = null;
@@ -290,10 +292,19 @@ public class AndroidElfLoader extends AbstractLoader<AndroidFileIO> implements M
         for (HookListener listener : hookListeners) {
             long hook = listener.hook(emulator.getSvcMemory(), sm == null ? null : sm.name, symbolName, ret == null ? 0L : ret.getAddress());
             if (hook != 0) {
-                return new VirtualSymbol(symbolName, null, hook);
+                return logDlsymResult(handle, symbolName, new VirtualSymbol(symbolName, null, hook), caller, "hook");
             }
         }
-        return ret;
+        return logDlsymResult(handle, symbolName, ret, caller, ret == null ? "unresolved" : "module");
+    }
+
+    private Symbol logDlsymResult(long handle, String symbolName, Symbol result, String caller, String source) {
+        if (symbolLog.isDebugEnabled()) {
+            symbolLog.debug("event=dlsym_result emulator_id={} guest_pid={} handle=0x{} symbol={} address=0x{} caller_lr={} source={}",
+                    Integer.toHexString(System.identityHashCode(emulator)), emulator.getPid(), Long.toHexString(handle),
+                    symbolName, Long.toHexString(result == null ? 0L : result.getAddress()), caller, source);
+        }
+        return result;
     }
 
     @Override

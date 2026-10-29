@@ -74,6 +74,7 @@
                         <exclude>**/ByteArrayPointerIntegrationTest.java</exclude>
                         <exclude>**/IpaResolverIntegrationTest.java</exclude>
                         <exclude>**/HookSvcLifecycleIntegrationTest.java</exclude>
+                        <exclude>**/DlsymScopeIntegrationTest.java</exclude>
                         <exclude>**/CodeTracePauseIntegrationTest.java</exclude>
                         <exclude>**/JniNonvirtualConstructionIntegrationTest.java</exclude>
                     </excludes>

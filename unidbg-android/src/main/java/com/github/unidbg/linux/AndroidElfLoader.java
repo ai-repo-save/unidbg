@@ -259,7 +259,9 @@ public class AndroidElfLoader extends AbstractLoader<AndroidFileIO> implements M
 
     private final UnidbgPointer environ;
 
-    private static final int RTLD_DEFAULT = -1;
+    private static final long RTLD_NEXT_LP64 = -1L;
+    private static final long RTLD_DEFAULT_LP32 = 0xffffffffL;
+    private static final long RTLD_NEXT_LP32 = 0xfffffffeL;
 
     @Override
     public Symbol dlsym(long handle, String symbolName) {
@@ -269,23 +271,53 @@ public class AndroidElfLoader extends AbstractLoader<AndroidFileIO> implements M
         }
         Module sm = null;
         Symbol ret = null;
-        for (LinuxModule module : modules.values()) {
-            if (module.base == handle) { // virtual module may have same base address
-                Symbol symbol = module.findSymbolByName(symbolName, false);
-                if (symbol != null) {
-                    ret = symbol;
-                    sm = module;
-                    break;
+        String source = "unresolved";
+        if (isRtldNext(handle)) {
+            UnidbgPointer lr = emulator.getContext().getLRPointer();
+            Module callerModule = lr == null ? null : findModuleByAddress(lr.peer);
+            boolean afterCaller = false;
+            if (callerModule != null) {
+                for (LinuxModule module : modules.values()) {
+                    if (!afterCaller) {
+                        if (module == callerModule) {
+                            afterCaller = true;
+                        }
+                        continue;
+                    }
+                    Symbol symbol = module.findSymbolByName(symbolName, false);
+                    if (symbol != null) {
+                        ret = symbol;
+                        sm = module;
+                        break;
+                    }
                 }
             }
-        }
-        if (ret == null && ((int) handle == RTLD_DEFAULT || handle == 0L)) {
-            for (Module module : modules.values()) {
-                Symbol symbol = module.findSymbolByName(symbolName, false);
-                if (symbol != null) {
-                    ret = symbol;
-                    sm = module;
-                    break;
+            if (ret != null) {
+                source = "rtld_next";
+            } else if (callerModule == null || !afterCaller) {
+                source = "rtld_next_no_caller";
+            }
+        } else {
+            for (LinuxModule module : modules.values()) {
+                if (module.base == handle) { // virtual module may have same base address
+                    Symbol symbol = module.findSymbolByName(symbolName, false);
+                    if (symbol != null) {
+                        ret = symbol;
+                        sm = module;
+                        source = "module";
+                        break;
+                    }
+                }
+            }
+            if (ret == null && isRtldDefault(handle)) {
+                for (Module module : modules.values()) {
+                    Symbol symbol = module.findSymbolByName(symbolName, false);
+                    if (symbol != null) {
+                        ret = symbol;
+                        sm = module;
+                        source = "module";
+                        break;
+                    }
                 }
             }
         }
@@ -295,7 +327,21 @@ public class AndroidElfLoader extends AbstractLoader<AndroidFileIO> implements M
                 return logDlsymResult(handle, symbolName, new VirtualSymbol(symbolName, null, hook), caller, "hook");
             }
         }
-        return logDlsymResult(handle, symbolName, ret, caller, ret == null ? "unresolved" : "module");
+        return logDlsymResult(handle, symbolName, ret, caller, source);
+    }
+
+    private boolean isRtldNext(long handle) {
+        if (emulator.is64Bit()) {
+            return handle == RTLD_NEXT_LP64;
+        }
+        return (handle & 0xffffffffL) == RTLD_NEXT_LP32;
+    }
+
+    private boolean isRtldDefault(long handle) {
+        if (handle == 0L) {
+            return true;
+        }
+        return !emulator.is64Bit() && (handle & 0xffffffffL) == RTLD_DEFAULT_LP32;
     }
 
     private Symbol logDlsymResult(long handle, String symbolName, Symbol result, String caller, String source) {

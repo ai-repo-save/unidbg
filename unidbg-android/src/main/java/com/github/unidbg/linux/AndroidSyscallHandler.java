@@ -253,11 +253,21 @@ public abstract class AndroidSyscallHandler extends UnixSyscallHandler<AndroidFi
 
     public final void checkAccessAt(Emulator<AndroidFileIO> emulator, int dirfd, String path, int mode) {
         long check = ACCESS_CHECKS.incrementAndGet();
+        log.debug("event=file_access_started emulator={} check={} handler={} dirfd={} path={} mode={}",
+                System.identityHashCode(emulator), check, System.identityHashCode(this), dirfd, path, mode);
         try {
             if ((mode & ~7) != 0) throw new LinuxErrnoException(UnixEmulator.EINVAL);
             String pathname = queryPath(emulator, dirfd, path);
-            FileQuerySupport.accessPath(pathname, mode, credentials,
-                    component -> queryMetadata(emulator, component, false));
+            FileQuerySupport.accessPath(pathname, mode, credentials, System.identityHashCode(emulator), check,
+                    component -> {
+                        FileQueryResult<FileMetadata> result = queryMetadata(emulator, component, false);
+                        FileMetadata facts = result.isSuccess() ? result.value : null;
+                        log.debug("event=file_access_metadata_queried emulator={} check={} path={} status={} errno={} mode_octal={} uid={} gid={}",
+                                System.identityHashCode(emulator), check, component, result.status(), result.errno,
+                                facts != null && facts.mode.isPresent() ? Integer.toOctalString(facts.mode.getAsInt()) : "unknown",
+                                facts != null ? facts.uid : "unknown", facts != null ? facts.gid : "unknown");
+                        return result;
+                    });
             log.debug("event=file_access_checked emulator={} check={} dirfd={} path={} mode={} status=allowed errno=0",
                     System.identityHashCode(emulator), check, dirfd, path, mode);
         } catch (LinuxErrnoException failure) {

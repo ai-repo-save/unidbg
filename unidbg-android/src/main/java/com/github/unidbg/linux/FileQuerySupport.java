@@ -9,12 +9,16 @@ import com.github.unidbg.linux.struct.Stat32;
 import com.github.unidbg.linux.struct.Stat64;
 import com.github.unidbg.pointer.UnidbgStructure;
 import com.github.unidbg.unix.UnixEmulator;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.nio.file.attribute.FileTime;
 import java.util.ArrayList;
 import java.util.List;
 
 final class FileQuerySupport {
+    private static final Logger log = LoggerFactory.getLogger(FileQuerySupport.class);
+
     static <V> V require(FileQueryResult<V> result, String path) {
         if (result.isSuccess()) return result.value;
         if (result.status() == FileQueryResult.Status.ERROR) throw new LinuxErrnoException(result.errno);
@@ -62,7 +66,7 @@ final class FileQuerySupport {
         setter.accept(Math.addExact(Math.multiplyExact(instant.getEpochSecond(), 1000), instant.getNano() / 1000000), (long) instant.getNano());
     }
 
-    static void accessPath(String path, int mode, GuestCredentials credentials,
+    static void accessPath(String path, int mode, GuestCredentials credentials, int emulator, long check,
                            java.util.function.Function<String, FileQueryResult<FileMetadata>> metadata) {
         String current = path.startsWith("/") ? "/" : ".";
         FileMetadata facts = require(metadata.apply(current), current);
@@ -71,7 +75,7 @@ final class FileQuerySupport {
             while (offset < path.length() && path.charAt(offset) == '/') offset++;
             if (offset == path.length()) break;
             requireDirectory(facts, current);
-            access(facts, current, 1, credentials);
+            access(facts, current, 1, credentials, emulator, check);
             int end = path.indexOf('/', offset);
             if (end < 0) end = path.length();
             String component = path.substring(offset, end);
@@ -85,7 +89,7 @@ final class FileQuerySupport {
             offset = end;
         }
         if (path.endsWith("/")) requireDirectory(facts, current);
-        access(facts, current, mode, credentials);
+        access(facts, current, mode, credentials, emulator, check);
     }
 
     private static void requireDirectory(FileMetadata facts, String path) {
@@ -93,21 +97,29 @@ final class FileQuerySupport {
         if ((facts.mode.getAsInt() & 0170000) != 0040000) throw new LinuxErrnoException(UnixEmulator.ENOTDIR);
     }
 
-    static void access(FileMetadata facts, String path, int mode, GuestCredentials credentials) {
-        if (mode == 0) return;
+    private static void access(FileMetadata facts, String path, int mode, GuestCredentials credentials, int emulator, long check) {
+        if (mode == 0) {
+            requireAccess(true, path, mode, "existence", emulator, check);
+            return;
+        }
         if (facts.mode.isPresent()) {
             int permissions = facts.mode.getAsInt();
             if (((permissions >> 6) & mode) == mode && ((permissions >> 3) & mode) == mode
-                    && (permissions & mode) == mode) return;
+                    && (permissions & mode) == mode) {
+                requireAccess(true, path, mode, "all_classes", emulator, check);
+                return;
+            }
         }
         int uid = credentials.requireRealUid();
-        if (uid == 0 && (mode & 1) == 0) return;
+        if (uid == 0 && (mode & 1) == 0) {
+            requireAccess(true, path, mode, "root", emulator, check);
+            return;
+        }
         if (!facts.mode.isPresent()) throw unavailable(path, "mode");
         int permissions = facts.mode.getAsInt();
         if (uid == 0) {
-            if ((permissions & 0170000) != 0040000 && (permissions & 0111) == 0) {
-                throw new LinuxErrnoException(UnixEmulator.EACCES);
-            }
+            requireAccess((permissions & 0170000) == 0040000 || (permissions & 0111) != 0,
+                    path, mode, "root", emulator, check);
             return;
         }
         int owner = (permissions >> 6) & 7;
@@ -117,31 +129,36 @@ final class FileQuerySupport {
         boolean groupAllows = (group & mode) == mode;
         boolean otherAllows = (other & mode) == mode;
         if (ownerAllows == groupAllows && groupAllows == otherAllows) {
-            requireAccess(ownerAllows);
+            requireAccess(ownerAllows, path, mode, "all_classes", emulator, check);
             return;
         }
         if (!facts.uid.isPresent()) throw unavailable(path, "uid");
         if (uid == facts.uid.getAsInt()) {
-            requireAccess(ownerAllows);
+            requireAccess(ownerAllows, path, mode, "owner", emulator, check);
             return;
         }
         if (groupAllows == otherAllows) {
-            requireAccess(groupAllows);
+            requireAccess(groupAllows, path, mode, "group_and_other", emulator, check);
             return;
         }
         if (!facts.gid.isPresent()) throw unavailable(path, "gid");
         int gid = facts.gid.getAsInt();
-        if ((credentials.realGid.isPresent() && credentials.realGid.getAsInt() == gid)
-                || (credentials.supplementaryGroups.isPresent() && credentials.supplementaryGroups.get().contains(gid))) {
-            requireAccess(groupAllows);
+        if (credentials.realGid.isPresent() && credentials.realGid.getAsInt() == gid) {
+            requireAccess(groupAllows, path, mode, "real_group", emulator, check);
+            return;
+        }
+        if (credentials.supplementaryGroups.isPresent() && credentials.supplementaryGroups.get().contains(gid)) {
+            requireAccess(groupAllows, path, mode, "supplementary_group", emulator, check);
             return;
         }
         if (!credentials.realGid.isPresent()) throw unavailable(path, "realGid");
         if (!credentials.supplementaryGroups.isPresent()) throw unavailable(path, "supplementaryGroups");
-        requireAccess(otherAllows);
+        requireAccess(otherAllows, path, mode, "other", emulator, check);
     }
 
-    private static void requireAccess(boolean allowed) {
+    private static void requireAccess(boolean allowed, String path, int mode, String permissionClass, int emulator, long check) {
+        log.debug("event=file_access_dac_checked emulator={} check={} path={} mode={} permission_class={} status={}",
+                emulator, check, path, mode, permissionClass, allowed ? "allowed" : "denied");
         if (!allowed) throw new LinuxErrnoException(UnixEmulator.EACCES);
     }
 

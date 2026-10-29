@@ -54,7 +54,7 @@ public abstract class AbstractEmulator<T extends NewFileIO> implements Emulator<
 
     protected final Backend backend;
 
-    private final int pid;
+    private int pid;
 
     protected long timeout = DEFAULT_TIMEOUT;
 
@@ -195,6 +195,12 @@ public abstract class AbstractEmulator<T extends NewFileIO> implements Emulator<
     @Override
     public int getPid() {
         return pid;
+    }
+
+    @Override
+    public void setPid(int pid) {
+        if (pid < 1) throw new IllegalArgumentException("pid must be positive: " + pid);
+        this.pid = pid;
     }
 
     @Override

@@ -98,6 +98,9 @@ public interface Emulator<T extends NewFileIO> extends Closeable, ArmDisassemble
 
     int getPid();
 
+    /** Replaces the host-process default with the target process id from the same status facts the guest reads. */
+    void setPid(int pid);
+
     String getProcessName();
 
     Debugger attach();

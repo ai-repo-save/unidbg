@@ -7,6 +7,7 @@ import com.sun.jna.Pointer;
 import com.sun.jna.Structure;
 import org.apache.commons.codec.binary.Hex;
 
+import java.io.UnsupportedEncodingException;
 import java.lang.reflect.Array;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
@@ -67,6 +68,19 @@ public abstract class UnidbgStructure extends Structure implements PointerArg {
         public void write(long offset, byte[] bytes, int index, int size) {
             checkRange(offset, size);
             System.arraycopy(bytes, index, data, start + (int) offset, size);
+        }
+
+        @Override
+        public String getString(long offset, String encoding) {
+            int size = 0;
+            while (getByte(offset + size) != 0) {
+                size++;
+            }
+            try {
+                return new String(getByteArray(offset, size), encoding);
+            } catch (UnsupportedEncodingException e) {
+                throw new IllegalStateException(e);
+            }
         }
 
         @Override

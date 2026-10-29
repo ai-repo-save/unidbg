@@ -3,19 +3,38 @@ package com.github.unidbg.linux.file;
 import com.github.unidbg.Emulator;
 import com.github.unidbg.arm.backend.Backend;
 import com.github.unidbg.file.FileIO;
+import com.github.unidbg.file.FileMetadata;
+import com.github.unidbg.file.FileQueryResult;
 import com.github.unidbg.file.linux.AndroidFileIO;
 import com.github.unidbg.file.linux.BaseAndroidFileIO;
+import com.github.unidbg.linux.FileQuerySupport;
 import com.sun.jna.Pointer;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.Arrays;
+import java.util.function.Supplier;
 
 public class Stdin extends BaseAndroidFileIO implements AndroidFileIO {
+
+    private Supplier<InputStream> input = () -> System.in;
+    private Supplier<FileQueryResult<FileMetadata>> metadata = FileQueryResult::unknown;
 
     public Stdin(int oflags) {
         super(oflags);
 
         stdio = true;
+    }
+
+    /** The caller supplies facts for the same input and retains ownership of the stream. */
+    public void setInput(InputStream source, Supplier<FileQueryResult<FileMetadata>> metadata) {
+        this.input = () -> source;
+        this.metadata = metadata;
+    }
+
+    @Override
+    public FileQueryResult<FileMetadata> queryMetadata() {
+        return metadata.get();
     }
 
     @Override
@@ -31,7 +50,7 @@ public class Stdin extends BaseAndroidFileIO implements AndroidFileIO {
     public int read(Backend backend, Pointer buffer, int count) {
         try {
             byte[] data = new byte[count];
-            int read = System.in.read(data, 0, count);
+            int read = input.get().read(data, 0, count);
             if (read <= 0) {
                 return 0;
             }
@@ -45,10 +64,7 @@ public class Stdin extends BaseAndroidFileIO implements AndroidFileIO {
 
     @Override
     public int fstat(Emulator<?> emulator, com.github.unidbg.file.linux.StatStructure stat) {
-        stat.st_mode = 0x0;
-        stat.st_size = 0;
-        stat.pack();
-        return 0;
+        return FileQuerySupport.writeStat(queryMetadata(), stat, "stdin");
     }
 
     @Override

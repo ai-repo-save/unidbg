@@ -16,7 +16,7 @@ import java.nio.file.attribute.FileTime;
 import java.util.ArrayList;
 import java.util.List;
 
-final class FileQuerySupport {
+public final class FileQuerySupport {
     private static final Logger log = LoggerFactory.getLogger(FileQuerySupport.class);
 
     static <V> V require(FileQueryResult<V> result, String path) {
@@ -25,7 +25,24 @@ final class FileQuerySupport {
         throw new UnsupportedOperationException("File facts unavailable: " + path);
     }
 
+    public static int writeStat(FileQueryResult<FileMetadata> result, StatStructure target, String source) {
+        try {
+            fillStat(require(result, source), target, source);
+            return 0;
+        } catch (LinuxErrnoException failure) {
+            return -failure.getErrno();
+        }
+    }
+
     static StatStructure snapshot(Emulator<AndroidFileIO> emulator, FileMetadata facts, String path) {
+        StatStructure stat = emulator.is64Bit()
+                ? new Stat64(new byte[UnidbgStructure.calculateSize(Stat64.class)])
+                : new Stat32(new byte[UnidbgStructure.calculateSize(Stat32.class)]);
+        fillStat(facts, stat, path);
+        return stat;
+    }
+
+    private static void fillStat(FileMetadata facts, StatStructure stat, String path) {
         List<String> missing = new ArrayList<>();
         if (!facts.mode.isPresent()) missing.add("mode");
         if (!facts.uid.isPresent()) missing.add("uid");
@@ -41,9 +58,6 @@ final class FileQuerySupport {
         if (!facts.mtime.isPresent()) missing.add("mtime");
         if (!facts.ctime.isPresent()) missing.add("ctime");
         if (!missing.isEmpty()) throw new UnsupportedOperationException("File facts unavailable: " + path + ", missing=" + missing);
-        StatStructure stat = emulator.is64Bit()
-                ? new Stat64(new byte[UnidbgStructure.calculateSize(Stat64.class)])
-                : new Stat32(new byte[UnidbgStructure.calculateSize(Stat32.class)]);
         stat.st_mode = facts.mode.getAsInt();
         stat.st_uid = facts.uid.getAsInt();
         stat.st_gid = facts.gid.getAsInt();
@@ -58,7 +72,6 @@ final class FileQuerySupport {
         setTime(facts.mtime.get(), stat::setSt_mtim);
         setTime(facts.ctime.get(), stat::setSt_ctim);
         stat.pack();
-        return stat;
     }
 
     private static void setTime(FileTime time, java.util.function.BiConsumer<Long, Long> setter) {

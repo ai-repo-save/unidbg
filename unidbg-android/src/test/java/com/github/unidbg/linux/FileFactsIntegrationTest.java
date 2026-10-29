@@ -16,10 +16,13 @@ import com.github.unidbg.linux.android.AndroidEmulatorBuilder;
 import com.github.unidbg.linux.file.ByteArrayFileIO;
 import com.github.unidbg.linux.file.DirectoryFileIO;
 import com.github.unidbg.linux.file.SimpleFileIO;
+import com.github.unidbg.linux.file.Stdin;
 import com.github.unidbg.linux.struct.Stat32;
 import com.github.unidbg.linux.struct.Stat64;
 import com.github.unidbg.memory.MemoryBlock;
+import com.github.unidbg.memory.mapping.LinuxFileMetadata;
 import com.github.unidbg.pointer.UnidbgPointer;
+import com.github.unidbg.pointer.UnidbgStructure;
 import com.github.unidbg.unix.IO;
 import com.sun.jna.Library;
 import com.sun.jna.Memory;
@@ -27,6 +30,8 @@ import com.sun.jna.Native;
 import com.sun.jna.Pointer;
 import org.junit.Test;
 
+import java.io.ByteArrayInputStream;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -75,6 +80,7 @@ public class FileFactsIntegrationTest {
                 handler.addIOResolver(new ReplayFiles("/queried", facts));
                 MemoryBlock scratch = emulator.getMemory().malloc(4096, true);
                 try (RawSyscalls calls = new RawSyscalls(emulator)) {
+                    verifyStdin(emulator, handler, calls, scratch.getPointer(), root);
                     verifyPathResolution(emulator, handler, calls, scratch.getPointer(), root);
                     List<byte[]> baseline = replay(emulator, handler, calls, scratch.getPointer(), "/baseline", false);
                     List<byte[]> queried = replay(emulator, handler, calls, scratch.getPointer(), "/queried", true);
@@ -174,6 +180,77 @@ public class FileFactsIntegrationTest {
         int access(String path, int mode);
         int open(String path, int flags);
         int close(int fd);
+        int pipe(int[] fds);
+        long write(int fd, byte[] bytes, long size);
+        int faccessat(int fd, String path, int mode, int flags);
+    }
+
+    private static void verifyStdin(AndroidEmulator emulator, AndroidSyscallHandler handler,
+                                    RawSyscalls calls, UnidbgPointer buffer, Path root) throws Exception {
+        LinuxLibC libc = LinuxLibC.INSTANCE;
+        byte[] bytes = {10, 20, 30, 40};
+        Path regular = root.resolve("stdin-source");
+        Files.write(regular, bytes);
+        int[] pipe = new int[2];
+        assertEquals(0, libc.pipe(pipe));
+        int file = libc.open(regular.toString(), 0);
+        int device = libc.open("/dev/null", 0);
+        InputStream original = System.in;
+        try {
+            assertEquals(bytes.length, libc.write(pipe[1], bytes, bytes.length));
+            Stdin dynamic = new Stdin(0);
+            System.setIn(new ByteArrayInputStream(new byte[] {99}));
+            assertEquals(FileQueryResult.Status.UNKNOWN, dynamic.queryMetadata().status());
+            assertThrows(UnsupportedOperationException.class,
+                    () -> dynamic.fstat(emulator, new Stat64(new byte[UnidbgStructure.calculateSize(Stat64.class)])));
+            int dynamicFd = handler.addFileIO(dynamic);
+            assertEquals(1, calls.call(emulator.is64Bit() ? 63 : 3, dynamicFd, buffer.peer, 1));
+            assertArrayEquals(new byte[] {99}, buffer.getByteArray(0, 1));
+            assertEquals(0, calls.call(emulator.is64Bit() ? 57 : 6, dynamicFd));
+            for (int hostFd : new int[] {file, pipe[0], device}) {
+                Path held = Paths.get("/proc/self/fd/" + hostFd);
+                try (InputStream source = Files.newInputStream(held)) {
+                    Stdin stdin = new Stdin(0);
+                    stdin.setInput(source, () -> LinuxFileMetadata.query(hostFd));
+                    int fd = handler.addFileIO(stdin);
+                    System.setIn(new ByteArrayInputStream(new byte[] {88}));
+                    Map<String, Object> expected = Files.readAttributes(held, "unix:*");
+                    FileMetadata facts = handler.queryMetadataAt(emulator, fd, "", 0x1000).value;
+                    assertEquals(((Number) expected.get("mode")).intValue(), facts.mode.getAsInt());
+                    assertEquals(((Number) expected.get("ino")).longValue(), facts.ino.getAsLong());
+                    assertEquals(((Number) expected.get("size")).longValue(), facts.size.getAsLong());
+                    assertEquals(0, calls.call(emulator.is64Bit() ? 80 : 197, fd, buffer.peer + 512));
+                    StatStructure stat = emulator.is64Bit() ? new Stat64(buffer.share(512)) : new Stat32(buffer.share(512));
+                    stat.unpack();
+                    assertEquals(((Number) expected.get("mode")).intValue(), stat.st_mode);
+                    assertEquals(((Number) expected.get("ino")).longValue(), stat.st_ino);
+                    assertEquals(((Number) expected.get("dev")).longValue(), stat.st_dev);
+                    assertEquals(((Number) expected.get("rdev")).longValue(), stat.st_rdev);
+                    assertEquals(((Number) expected.get("size")).longValue(), stat.st_size);
+                    assertEquals(((Number) expected.get("uid")).intValue(), stat.st_uid);
+                    assertEquals(((Number) expected.get("gid")).intValue(), stat.st_gid);
+                    assertEquals(((Number) expected.get("nlink")).intValue(), stat.st_nlink);
+                    for (String path : new String[] {"relative/child", "null/cache"}) {
+                        assertEquals(-1, libc.faccessat(hostFd, path, 0, 0));
+                        assertEquals(20, Native.getLastError());
+                        buffer.setString(0, path);
+                        assertEquals(-20, calls.call(emulator.is64Bit() ? 48 : 334, fd, buffer.peer, 0));
+                    }
+                    int length = hostFd == device ? 0 : 3;
+                    assertEquals(length, calls.call(emulator.is64Bit() ? 63 : 3, fd, buffer.peer, 3));
+                    assertArrayEquals(Arrays.copyOf(bytes, length), buffer.getByteArray(0, length));
+                    assertEquals(88, System.in.read());
+                    assertEquals(0, calls.call(emulator.is64Bit() ? 57 : 6, fd));
+                    assertEquals(hostFd == device ? -1 : 40, source.read());
+                }
+            }
+        } finally {
+            System.setIn(original);
+            assertEquals(0, libc.close(file));
+            assertEquals(0, libc.close(device));
+            assertEquals(0, libc.close(pipe[0]));
+            assertEquals(0, libc.close(pipe[1]));
+        }
     }
 
     private static void verifyPathResolution(AndroidEmulator emulator, AndroidSyscallHandler handler,

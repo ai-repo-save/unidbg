@@ -42,6 +42,7 @@ public class ArmLD extends Dlfcn {
     private static final Logger log = LoggerFactory.getLogger(ArmLD.class);
 
     private final Backend backend;
+    private final HookSvcEntries entries = new HookSvcEntries();
 
     ArmLD(Backend backend, SvcMemory svcMemory) {
         super(svcMemory);
@@ -56,7 +57,7 @@ public class ArmLD extends Dlfcn {
             }
             switch (symbolName) {
                 case "dl_iterate_phdr":
-                    return svcMemory.registerSvc(new ArmSvc() {
+                    return entries.getOrCreate(svcMemory, symbolName, old, () -> svcMemory.registerSvc(new ArmSvc() {
                         private MemoryBlock block;
                         @Override
                         public UnidbgPointer onRegister(SvcMemory svcMemory, int svcNumber) {
@@ -166,16 +167,16 @@ public class ArmLD extends Dlfcn {
                             block.free();
                             block = null;
                         }
-                    }).peer;
+                    }).peer);
                 case "dlerror":
-                    return svcMemory.registerSvc(new ArmSvc() {
+                    return entries.getOrCreate(svcMemory, symbolName, old, () -> svcMemory.registerSvc(new ArmSvc() {
                         @Override
                         public long handle(Emulator<?> emulator) {
                             return error.peer;
                         }
-                    }).peer;
+                    }).peer);
                 case "dlclose":
-                    return svcMemory.registerSvc(new ArmSvc() {
+                    return entries.getOrCreate(svcMemory, symbolName, old, () -> svcMemory.registerSvc(new ArmSvc() {
                         @Override
                         public long handle(Emulator<?> emulator) {
                             RegisterContext context = emulator.getContext();
@@ -185,9 +186,9 @@ public class ArmLD extends Dlfcn {
                             }
                             return dlclose(emulator.getMemory(), handle);
                         }
-                    }).peer;
+                    }).peer);
                 case "dlopen":
-                    return svcMemory.registerSvc(new ArmSvc() {
+                    return entries.getOrCreate(svcMemory, symbolName, old, () -> svcMemory.registerSvc(new ArmSvc() {
                         @Override
                         public UnidbgPointer onRegister(SvcMemory svcMemory, int svcNumber) {
                             ByteBuffer buffer = ByteBuffer.allocate(28);
@@ -225,9 +226,9 @@ public class ArmLD extends Dlfcn {
                             }
                             return dlopen(emulator.getMemory(), filename, emulator);
                         }
-                    }).peer;
+                    }).peer);
                 case "dladdr":
-                    return svcMemory.registerSvc(new ArmSvc() {
+                    return entries.getOrCreate(svcMemory, symbolName, old, () -> svcMemory.registerSvc(new ArmSvc() {
                         @Override
                         public long handle(Emulator<?> emulator) {
                             RegisterContext context = emulator.getContext();
@@ -253,9 +254,9 @@ public class ArmLD extends Dlfcn {
                             dlInfo.pack();
                             return 1;
                         }
-                    }).peer;
+                    }).peer);
                 case "dlsym":
-                    return svcMemory.registerSvc(new ArmSvc() {
+                    return entries.getOrCreate(svcMemory, symbolName, old, () -> svcMemory.registerSvc(new ArmSvc() {
                         @Override
                         public long handle(Emulator<?> emulator) {
                             RegisterContext context = emulator.getContext();
@@ -266,9 +267,9 @@ public class ArmLD extends Dlfcn {
                             }
                             return dlsym(emulator, (handle & 0xffffffffL), symbol.getString(0));
                         }
-                    }).peer;
+                    }).peer);
                 case "dl_unwind_find_exidx":
-                    return svcMemory.registerSvc(new ArmSvc() {
+                    return entries.getOrCreate(svcMemory, symbolName, old, () -> svcMemory.registerSvc(new ArmSvc() {
                         @Override
                         public long handle(Emulator<?> emulator) {
                             RegisterContext context = emulator.getContext();
@@ -277,14 +278,14 @@ public class ArmLD extends Dlfcn {
                             log.info("dl_unwind_find_exidx pc={}, pcount={}", pc, pcount);
                             return 0;
                         }
-                    }).peer;
+                    }).peer);
                 case "android_get_application_target_sdk_version":
-                    return svcMemory.registerSvc(new ArmHook() {
+                    return entries.getOrCreate(svcMemory, symbolName, old, () -> svcMemory.registerSvc(new ArmHook() {
                         @Override
                         protected HookStatus hook(Emulator<?> emulator) {
                             return HookStatus.LR(emulator, 0);
                         }
-                    }).peer;
+                    }).peer);
             }
         }
         return 0;

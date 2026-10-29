@@ -24,6 +24,7 @@ public class SystemPropertyHook implements HookListener {
     public static final int PROP_VALUE_MAX = 92;
 
     private final Emulator<?> emulator;
+    private final HookSvcEntries entries = new HookSvcEntries();
 
     public SystemPropertyHook(Emulator<?> emulator) {
         this.emulator = emulator;
@@ -35,7 +36,7 @@ public class SystemPropertyHook implements HookListener {
             if ("__system_property_get".equals(symbolName)) {
                 log.debug("Hook {}", symbolName);
                 if (emulator.is64Bit()) {
-                    return svcMemory.registerSvc(new Arm64Hook() {
+                    return entries.getOrCreate(svcMemory, symbolName, old, () -> svcMemory.registerSvc(new Arm64Hook() {
                         @Override
                         protected HookStatus hook(Emulator<?> emulator) {
                             RegisterContext context = emulator.getContext();
@@ -44,9 +45,9 @@ public class SystemPropertyHook implements HookListener {
                             String key = pointer.getString(0);
                             return __system_property_get(old, key, index);
                         }
-                    }).peer;
+                    }).peer);
                 } else {
-                    return svcMemory.registerSvc(new ArmHook() {
+                    return entries.getOrCreate(svcMemory, symbolName, old, () -> svcMemory.registerSvc(new ArmHook() {
                         @Override
                         protected HookStatus hook(Emulator<?> emulator) {
                             RegisterContext context = emulator.getContext();
@@ -55,13 +56,13 @@ public class SystemPropertyHook implements HookListener {
                             String key = pointer.getString(0);
                             return __system_property_get(old, key, index);
                         }
-                    }).peer;
+                    }).peer);
                 }
             }
             if ("__system_property_read".equals(symbolName)) {
                 log.debug("Hook {}", symbolName);
                 if (emulator.is64Bit()) {
-                    return svcMemory.registerSvc(new Arm64Hook() {
+                    return entries.getOrCreate(svcMemory, symbolName, old, () -> svcMemory.registerSvc(new Arm64Hook() {
                         @Override
                         protected HookStatus hook(Emulator<?> emulator) {
                             RegisterContext context = emulator.getContext();
@@ -69,9 +70,9 @@ public class SystemPropertyHook implements HookListener {
                             String key = pi.share(PROP_VALUE_MAX + 4).getString(0);
                             return __system_property_get(old, key, 1);
                         }
-                    }).peer;
+                    }).peer);
                 } else {
-                    return svcMemory.registerSvc(new ArmHook() {
+                    return entries.getOrCreate(svcMemory, symbolName, old, () -> svcMemory.registerSvc(new ArmHook() {
                         @Override
                         protected HookStatus hook(Emulator<?> emulator) {
                             RegisterContext context = emulator.getContext();
@@ -79,13 +80,13 @@ public class SystemPropertyHook implements HookListener {
                             String key = pi.share(PROP_VALUE_MAX + 4).getString(0);
                             return __system_property_get(old, key, 1);
                         }
-                    }).peer;
+                    }).peer);
                 }
             }
             if ("__system_property_find".equals(symbolName)) {
                 log.debug("Hook {}", symbolName);
                 if (emulator.is64Bit()) {
-                    return svcMemory.registerSvc(new Arm64Hook(true) {
+                    return entries.getOrCreate(svcMemory, symbolName, old, () -> svcMemory.registerSvc(new Arm64Hook(true) {
                         private String name;
                         @Override
                         protected HookStatus hook(Emulator<?> emulator) {
@@ -115,9 +116,9 @@ public class SystemPropertyHook implements HookListener {
                                 }
                             }
                         }
-                    }).peer;
+                    }).peer);
                 } else {
-                    return svcMemory.registerSvc(new ArmHook() {
+                    return entries.getOrCreate(svcMemory, symbolName, old, () -> svcMemory.registerSvc(new ArmHook() {
                         @Override
                         protected HookStatus hook(Emulator<?> emulator) {
                             RegisterContext context = emulator.getContext();
@@ -130,7 +131,7 @@ public class SystemPropertyHook implements HookListener {
                             }
                             return HookStatus.RET(emulator, old);
                         }
-                    }).peer;
+                    }).peer);
                 }
             }
         }

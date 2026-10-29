@@ -128,6 +128,7 @@
 !/unidbg-ios/src/test/java/com/github/unidbg/ios/ipa/IpaResolverIntegrationTest.java
 !/unidbg-android/src/main/java/com/github/unidbg/linux/android/HookSvcEntries.java
 !/unidbg-android/src/test/java/com/github/unidbg/linux/android/HookSvcLifecycleIntegrationTest.java
+!/unidbg-android/src/test/java/com/github/unidbg/linux/android/CodeTracePauseIntegrationTest.java
 !/unidbg-android/src/test/java/com/github/unidbg/linux/android/dvm/JniThreadAttachmentIntegrationTest.java
 !/unidbg-android/src/test/java/com/github/unidbg/linux/android/dvm/JniNativeTailCallIntegrationTest.java
 !/unidbg-android/src/test/native/android/jni-argument-abi.c

@@ -163,6 +163,10 @@ public class LinuxModule extends Module {
             if (elfSymbol != null && !elfSymbol.isUndef()) {
                 return new LinuxSymbol(this, elfSymbol);
             }
+            Long registered = hookMap.get(name);
+            if (registered != null) {
+                return new VirtualSymbol(name, this, registered);
+            }
 
             if (withDependencies) {
                 return findDependencySymbolByName(name);
@@ -179,6 +183,10 @@ public class LinuxModule extends Module {
 
     @Override
     public Symbol findClosestSymbolByAddress(long address, boolean fast) {
+        Symbol hooked = findHookSymbolByAddress(address);
+        if (hooked != null) {
+            return hooked;
+        }
         try {
             long soaddr = address - base;
             if (soaddr <= 0) {
@@ -270,6 +278,24 @@ public class LinuxModule extends Module {
     }
 
     final Map<String, Long> hookMap = new HashMap<>();
+    private final Map<Long, Symbol> hookSymbols = new HashMap<>();
+
+    void recordHookSymbol(String name, long address) {
+        hookSymbols.put(address, new VirtualSymbol(name, this, address));
+    }
+
+    public Symbol findHookSymbolByAddress(long address) {
+        Symbol symbol = hookSymbols.get(address);
+        if (symbol != null) {
+            return symbol;
+        }
+        for (Map.Entry<String, Long> entry : hookMap.entrySet()) {
+            if (entry.getValue() == address) {
+                return new VirtualSymbol(entry.getKey(), this, address);
+            }
+        }
+        return null;
+    }
 
     @Override
     public void registerSymbol(String symbolName, long address) {

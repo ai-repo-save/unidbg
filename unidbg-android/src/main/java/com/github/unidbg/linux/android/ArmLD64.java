@@ -8,6 +8,7 @@ import com.github.unidbg.arm.Arm64Svc;
 import com.github.unidbg.arm.backend.Backend;
 import com.github.unidbg.arm.context.RegisterContext;
 import com.github.unidbg.linux.LinuxModule;
+import com.github.unidbg.linux.AndroidElfLoader;
 import com.github.unidbg.linux.struct.dl_phdr_info64;
 import com.github.unidbg.memory.Memory;
 import com.github.unidbg.memory.MemoryBlock;
@@ -257,7 +258,7 @@ public class ArmLD64 extends Dlfcn {
                             if (log.isDebugEnabled()) {
                                 log.debug("dladdr addr=0x{}, info={}, LR={}", Long.toHexString(addr), info, context.getLRPointer());
                             }
-                            Module module = emulator.getMemory().findModuleByAddress(addr);
+                            Module module = ((AndroidElfLoader) emulator.getMemory()).findModuleForDladdr(addr);
                             if (module == null) {
                                 return 0;
                             }

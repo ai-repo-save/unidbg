@@ -10,6 +10,7 @@ import com.github.unidbg.arm.HookStatus;
 import com.github.unidbg.arm.backend.Backend;
 import com.github.unidbg.arm.context.RegisterContext;
 import com.github.unidbg.linux.LinuxModule;
+import com.github.unidbg.linux.AndroidElfLoader;
 import com.github.unidbg.linux.struct.dl_phdr_info32;
 import com.github.unidbg.memory.Memory;
 import com.github.unidbg.memory.MemoryBlock;
@@ -232,12 +233,12 @@ public class ArmLD extends Dlfcn {
                         @Override
                         public long handle(Emulator<?> emulator) {
                             RegisterContext context = emulator.getContext();
-                            int addr = context.getIntArg(0);
+                            long addr = context.getIntArg(0) & 0xffffffffL;
                             Pointer info = context.getPointerArg(1);
                             if (log.isDebugEnabled()) {
                                 log.debug("dladdr addr=0x{}, info={}, LR={}", Long.toHexString(addr), info, context.getLRPointer());
                             }
-                            Module module = emulator.getMemory().findModuleByAddress(addr);
+                            Module module = ((AndroidElfLoader) emulator.getMemory()).findModuleForDladdr(addr);
                             if (module == null) {
                                 return 0;
                             }

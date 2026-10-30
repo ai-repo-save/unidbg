@@ -294,8 +294,22 @@ public class AndroidElfLoader extends AbstractLoader<AndroidFileIO> implements M
             }
             if (ret != null) {
                 source = "rtld_next";
-            } else if (callerModule == null || !afterCaller) {
-                source = "rtld_next_no_caller";
+            } else {
+                for (Module module : modules.values()) {
+                    if (module == callerModule) {
+                        continue;
+                    }
+                    Symbol symbol = module.findSymbolByName(symbolName, false);
+                    if (symbol != null) {
+                        ret = symbol;
+                        sm = module;
+                        source = "rtld_next_global";
+                        break;
+                    }
+                }
+                if (ret == null && (callerModule == null || !afterCaller)) {
+                    source = "rtld_next_no_caller";
+                }
             }
         } else {
             for (LinuxModule module : modules.values()) {
@@ -324,10 +338,22 @@ public class AndroidElfLoader extends AbstractLoader<AndroidFileIO> implements M
         for (HookListener listener : hookListeners) {
             long hook = listener.hook(emulator.getSvcMemory(), sm == null ? null : sm.name, symbolName, ret == null ? 0L : ret.getAddress());
             if (hook != 0) {
-                return logDlsymResult(handle, symbolName, new VirtualSymbol(symbolName, null, hook), caller, "hook");
+                if (sm != null) {
+                    ((LinuxModule) sm).recordHookSymbol(symbolName, hook);
+                }
+                return logDlsymResult(handle, symbolName, new VirtualSymbol(symbolName, sm, hook), caller, "hook");
             }
         }
         return logDlsymResult(handle, symbolName, ret, caller, source);
+    }
+
+    public Module findModuleForDladdr(long address) {
+        for (LinuxModule module : modules.values()) {
+            if (module.findHookSymbolByAddress(address) != null) {
+                return module;
+            }
+        }
+        return findModuleByAddress(address);
     }
 
     private boolean isRtldNext(long handle) {
@@ -716,6 +742,12 @@ public class AndroidElfLoader extends AbstractLoader<AndroidFileIO> implements M
         if ("libc.so".equals(soName)) { // libc
             malloc = module.findSymbolByName("malloc", false);
             free = module.findSymbolByName("free", false);
+            if (module.findSymbolByName("__system_property_read_callback", false) == null) {
+                Symbol propertyGet = module.findSymbolByName("__system_property_get", false);
+                if (propertyGet != null) {
+                    module.registerSymbol("__system_property_read_callback", propertyGet.getAddress());
+                }
+            }
         }
 
         modules.put(soName, module);

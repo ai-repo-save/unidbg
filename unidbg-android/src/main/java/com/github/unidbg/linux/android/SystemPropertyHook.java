@@ -5,6 +5,7 @@ import com.github.unidbg.arm.Arm64Hook;
 import com.github.unidbg.arm.ArmHook;
 import com.github.unidbg.arm.HookStatus;
 import com.github.unidbg.arm.backend.BackendException;
+import com.github.unidbg.arm.context.EditableArm32RegisterContext;
 import com.github.unidbg.arm.context.EditableArm64RegisterContext;
 import com.github.unidbg.arm.context.RegisterContext;
 import com.github.unidbg.hook.HookListener;
@@ -82,6 +83,39 @@ public class SystemPropertyHook implements HookListener {
                         }
                     }).peer);
                 }
+            }
+            if ("__system_property_read_callback".equals(symbolName)) {
+                log.debug("Hook {}", symbolName);
+                if (emulator.is64Bit()) {
+                    return entries.getOrCreate(svcMemory, symbolName, old, () -> svcMemory.registerSvc(new Arm64Hook() {
+                        @Override
+                        public HookStatus hook(Emulator<?> emulator) {
+                            EditableArm64RegisterContext context = emulator.getContext();
+                            Pointer propertyInfo = context.getPointerArg(0);
+                            Pointer callback = context.getPointerArg(1);
+                            Pointer cookie = context.getPointerArg(2);
+                            context.setXLong(0, UnidbgPointer.nativeValue(cookie));
+                            context.setXLong(1, UnidbgPointer.nativeValue(propertyInfo.share(PROP_VALUE_MAX + 4)));
+                            context.setXLong(2, UnidbgPointer.nativeValue(propertyInfo.share(4)));
+                            context.setXLong(3, propertyInfo.getInt(0));
+                            return HookStatus.RET(emulator, UnidbgPointer.nativeValue(callback));
+                        }
+                    }).peer);
+                }
+                return entries.getOrCreate(svcMemory, symbolName, old, () -> svcMemory.registerSvc(new ArmHook() {
+                    @Override
+                    protected HookStatus hook(Emulator<?> emulator) {
+                        EditableArm32RegisterContext context = emulator.getContext();
+                        Pointer propertyInfo = context.getPointerArg(0);
+                        Pointer callback = context.getPointerArg(1);
+                        Pointer cookie = context.getPointerArg(2);
+                        context.setR0((int) UnidbgPointer.nativeValue(cookie));
+                        context.setR1((int) UnidbgPointer.nativeValue(propertyInfo.share(PROP_VALUE_MAX + 4)));
+                        context.setR2((int) UnidbgPointer.nativeValue(propertyInfo.share(4)));
+                        context.setR3(propertyInfo.getInt(0));
+                        return HookStatus.RET(emulator, UnidbgPointer.nativeValue(callback));
+                    }
+                }).peer);
             }
             if ("__system_property_find".equals(symbolName)) {
                 log.debug("Hook {}", symbolName);

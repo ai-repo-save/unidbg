@@ -33,6 +33,11 @@ final class JniStringSupport {
                 for (int index = 0; index < length; index++) units[index] = (char) (input.getShort(index * 2L) & 0xffff);
                 value = new String(units);
             }
+            if (Boolean.getBoolean("unidbg.traceMethodCalls")
+                    || "1".equals(System.getenv("UNIDBG_TRACE_METHOD_CALLS"))) {
+                System.out.println("event=guest_string length=" + value.length() + " value="
+                        + (value.length() > 80 ? value.substring(0, 80) : value));
+            }
             return vm.addLocalObject(new StringObject(vm, value));
         });
     }

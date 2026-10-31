@@ -69,6 +69,7 @@ public class DalvikVM64 extends BaseVM implements VM {
                     }
                 }
 
+                log.info("event=guest_find_class name={} notFound={}", name, notFound);
                 if (notFound) {
                     throwException(resolveClass("java/lang/NoClassDefFoundError").newObject(name));
                     return 0;
@@ -270,6 +271,9 @@ public class DalvikVM64 extends BaseVM implements VM {
                     throw new BackendException();
                 } else {
                     int hash = dvmClass.getMethodID(name, args);
+                    if (hash == 0) {
+                        log.info("event=guest_method_missing class={} name={} args={}", dvmClass.getClassName(), name, args);
+                    }
                     if (verbose && hash != 0) {
                         System.out.printf("JNIEnv->GetMethodID(%s.%s%s) => 0x%x was called from %s%n", dvmClass.getClassName(), name, args, hash & 0xffffffffL, context.getLRPointer());
                     }
@@ -415,6 +419,9 @@ public class DalvikVM64 extends BaseVM implements VM {
                     throw new BackendException();
                 } else {
                     int hash = dvmClass.getFieldID(name, args);
+                    if (hash == 0) {
+                        log.info("event=guest_field_missing class={} name={} args={}", dvmClass.getClassName(), name, args);
+                    }
                     if (verbose && hash != 0) {
                         System.out.printf("JNIEnv->GetFieldID(%s.%s %s) => 0x%x was called from %s%n", dvmClass.getClassName(), name, args, hash & 0xffffffffL, context.getLRPointer());
                     }
@@ -476,6 +483,9 @@ public class DalvikVM64 extends BaseVM implements VM {
                     throw new BackendException();
                 } else {
                     int hash = dvmClass.getStaticMethodID(name, args);
+                    if (hash == 0) {
+                        log.info("event=guest_static_method_missing class={} name={} args={}", dvmClass.getClassName(), name, args);
+                    }
                     if (verbose && hash != 0) {
                         System.out.printf("JNIEnv->GetStaticMethodID(%s.%s%s) => 0x%x was called from %s%n", dvmClass.getClassName(), name, args, hash & 0xffffffffL, context.getLRPointer());
                     }

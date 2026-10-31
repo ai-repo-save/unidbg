@@ -41,7 +41,9 @@ public class DalvikVM64 extends BaseVM implements VM {
         Pointer _GetVersion = svcMemory.registerSvc(new Arm64Svc() {
             @Override
             public long handle(Emulator<?> emulator) {
-                return JNI_VERSION_1_8;
+                // ART answers JNI_VERSION_1_6 (the 32-bit implementation here does too);
+                // a guest that branches on the JNI version must not see a newer one.
+                return JNI_VERSION_1_6;
             }
         });
 

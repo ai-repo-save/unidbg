@@ -74,7 +74,8 @@ final class JniInvocationSupport {
     private static long dispatch(Emulator<?> emulator, BaseVM vm, Jni provider, char resultType, String member,
                          Binding binding, Function<Jni, Object> backend) {
         if (methodCallTrace()) {
-            System.out.println("event=guest_call signature=" + member);
+            System.out.println("event=guest_call emulator=" + System.identityHashCode(emulator)
+                    + " signature=" + member);
         }
         return invoke(emulator, vm, member, completion -> provider instanceof HostJni
                         ? binding.invoke((HostJni) provider, backend, completion) : backend.apply(provider),

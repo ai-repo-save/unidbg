@@ -50,10 +50,13 @@ public abstract class AbstractJni implements Jni {
      * Prints every Java method the guest invokes, which the targeted per-function logs cannot
      * show. Enabled with -Dunidbg.traceMethodCalls=true.
      */
-    private static final boolean METHOD_CALL_TRACE = Boolean.getBoolean("unidbg.traceMethodCalls");
+    private static boolean methodCallTrace() {
+        return Boolean.getBoolean("unidbg.traceMethodCalls")
+                || "1".equals(System.getenv("UNIDBG_TRACE_METHOD_CALLS"));
+    }
 
     protected static void traceMethodCall(String signature) {
-        if (METHOD_CALL_TRACE) {
+        if (methodCallTrace()) {
             System.out.println("event=guest_call signature=" + signature);
         }
     }

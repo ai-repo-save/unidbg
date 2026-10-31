@@ -46,6 +46,19 @@ import java.util.UUID;
 
 public abstract class AbstractJni implements Jni {
 
+    /**
+     * Prints every Java method the guest invokes, which the targeted per-function logs cannot
+     * show. Enabled with -Dunidbg.traceMethodCalls=true.
+     */
+    private static final boolean METHOD_CALL_TRACE = Boolean.getBoolean("unidbg.traceMethodCalls");
+
+    protected static void traceMethodCall(String signature) {
+        if (METHOD_CALL_TRACE) {
+            System.out.println("event=guest_call signature=" + signature);
+        }
+    }
+
+
     private static final Logger log = LoggerFactory.getLogger(AbstractJni.class);
 
     @Override
@@ -178,6 +191,7 @@ public abstract class AbstractJni implements Jni {
 
     @Override
     public boolean callStaticBooleanMethod(BaseVM vm, DvmClass dvmClass, String signature, VarArg varArg) {
+        traceMethodCall(signature);
         throw new UnsupportedOperationException(signature);
     }
 
@@ -198,6 +212,7 @@ public abstract class AbstractJni implements Jni {
 
     @Override
     public int callStaticIntMethod(BaseVM vm, DvmClass dvmClass, String signature, VarArg varArg) {
+        traceMethodCall(signature);
         throw new UnsupportedOperationException(signature);
     }
 
@@ -218,6 +233,7 @@ public abstract class AbstractJni implements Jni {
 
     @Override
     public long callLongMethod(BaseVM vm, DvmObject<?> dvmObject, String signature, VarArg varArg) {
+        traceMethodCall(signature);
         if ("java/lang/Long->longValue()J".equals(signature)) {
             DvmLong val = (DvmLong) dvmObject;
             return val.value;
@@ -424,6 +440,7 @@ public abstract class AbstractJni implements Jni {
 
     @Override
     public DvmObject<?> callStaticObjectMethod(BaseVM vm, DvmClass dvmClass, String signature, VarArg varArg) {
+        traceMethodCall(signature);
         if ("android/app/ActivityThread->currentPackageName()Ljava/lang/String;".equals(signature)) {
             String packageName = vm.getPackageName();
             if (packageName != null) {
@@ -570,6 +587,7 @@ public abstract class AbstractJni implements Jni {
 
     @Override
     public long callStaticLongMethod(BaseVM vm, DvmClass dvmClass, String signature, VarArg varArg) {
+        traceMethodCall(signature);
         throw new UnsupportedOperationException(signature);
     }
 
@@ -590,6 +608,7 @@ public abstract class AbstractJni implements Jni {
 
     @Override
     public boolean callBooleanMethod(BaseVM vm, DvmObject<?> dvmObject, String signature, VarArg varArg) {
+        traceMethodCall(signature);
         if ("java/lang/Boolean->booleanValue()Z".equals(signature)) {
             DvmBoolean dvmBoolean = (DvmBoolean) dvmObject;
             return dvmBoolean.value;
@@ -675,6 +694,7 @@ public abstract class AbstractJni implements Jni {
 
     @Override
     public float callStaticFloatMethod(BaseVM vm, DvmClass dvmClass, String signature, VarArg varArg) {
+        traceMethodCall(signature);
         throw new UnsupportedOperationException(signature);
     }
 
@@ -685,6 +705,7 @@ public abstract class AbstractJni implements Jni {
 
     @Override
     public double callStaticDoubleMethod(BaseVM vm, DvmClass dvmClass, String signature, VarArg varArg) {
+        traceMethodCall(signature);
         throw new UnsupportedOperationException(signature);
     }
 
@@ -695,6 +716,7 @@ public abstract class AbstractJni implements Jni {
 
     @Override
     public void callStaticVoidMethod(BaseVM vm, DvmClass dvmClass, String signature, VarArg varArg) {
+        traceMethodCall(signature);
         throw new UnsupportedOperationException(signature);
     }
 
@@ -869,6 +891,7 @@ public abstract class AbstractJni implements Jni {
 
     @Override
     public DvmObject<?> callObjectMethod(BaseVM vm, DvmObject<?> dvmObject, String signature, VarArg varArg) {
+        traceMethodCall(signature);
         switch (signature) {
             case "java/lang/String->getBytes(Ljava/lang/String;)[B": {
                 StringObject string = (StringObject) dvmObject;
@@ -940,6 +963,7 @@ public abstract class AbstractJni implements Jni {
 
     @Override
     public int callIntMethod(BaseVM vm, DvmObject<?> dvmObject, String signature, VarArg varArg) {
+        traceMethodCall(signature);
         switch (signature) {
             case "java/lang/Integer->intValue()I":
                 DvmInteger integer = (DvmInteger) dvmObject;
@@ -972,6 +996,7 @@ public abstract class AbstractJni implements Jni {
 
     @Override
     public double callDoubleMethod(BaseVM vm, DvmObject<?> dvmObject, String signature, VarArg varArg) {
+        traceMethodCall(signature);
         throw new UnsupportedOperationException(signature);
     }
 
@@ -982,6 +1007,7 @@ public abstract class AbstractJni implements Jni {
 
     @Override
     public void callVoidMethod(BaseVM vm, DvmObject<?> dvmObject, String signature, VarArg varArg) {
+        traceMethodCall(signature);
         throw new UnsupportedOperationException(signature);
     }
 
@@ -1284,6 +1310,7 @@ public abstract class AbstractJni implements Jni {
     }
     @Override
     public byte callByteMethod(BaseVM vm, DvmObject<?> dvmObject, String signature, VarArg varArg) {
+        traceMethodCall(signature);
         throw new UnsupportedOperationException(signature);
     }
 
@@ -1293,6 +1320,7 @@ public abstract class AbstractJni implements Jni {
     }
     @Override
     public char callCharMethod(BaseVM vm, DvmObject<?> dvmObject, String signature, VarArg varArg) {
+        traceMethodCall(signature);
         throw new UnsupportedOperationException(signature);
     }
 
@@ -1302,6 +1330,7 @@ public abstract class AbstractJni implements Jni {
     }
     @Override
     public short callShortMethod(BaseVM vm, DvmObject<?> dvmObject, String signature, VarArg varArg) {
+        traceMethodCall(signature);
         throw new UnsupportedOperationException(signature);
     }
 
@@ -1311,6 +1340,7 @@ public abstract class AbstractJni implements Jni {
     }
     @Override
     public float callFloatMethod(BaseVM vm, DvmObject<?> dvmObject, String signature, VarArg varArg) {
+        traceMethodCall(signature);
         throw new UnsupportedOperationException(signature);
     }
 
@@ -1320,6 +1350,7 @@ public abstract class AbstractJni implements Jni {
     }
     @Override
     public byte callStaticByteMethod(BaseVM vm, DvmClass dvmClass, String signature, VarArg varArg) {
+        traceMethodCall(signature);
         throw new UnsupportedOperationException(signature);
     }
 
@@ -1329,6 +1360,7 @@ public abstract class AbstractJni implements Jni {
     }
     @Override
     public char callStaticCharMethod(BaseVM vm, DvmClass dvmClass, String signature, VarArg varArg) {
+        traceMethodCall(signature);
         throw new UnsupportedOperationException(signature);
     }
 
@@ -1338,6 +1370,7 @@ public abstract class AbstractJni implements Jni {
     }
     @Override
     public short callStaticShortMethod(BaseVM vm, DvmClass dvmClass, String signature, VarArg varArg) {
+        traceMethodCall(signature);
         throw new UnsupportedOperationException(signature);
     }
 }

@@ -238,7 +238,11 @@ public abstract class BaseVM implements VM, DvmClassFactory, JniThreadResources 
 
     @Override
     public final DvmClass findClass(String className) {
-        return classMap.get(this.hash(className));
+        DvmClass found = classMap.get(this.hash(className));
+        if (found == null && log.isInfoEnabled()) {
+            log.info("event=dvm_find_class_missing name={}", className);
+        }
+        return found;
     }
 
     final void deleteLocalRefs() {

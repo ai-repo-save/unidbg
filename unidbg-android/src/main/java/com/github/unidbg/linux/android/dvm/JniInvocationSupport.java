@@ -65,8 +65,17 @@ final class JniInvocationSupport {
         return emulator.is64Bit() ? new VaList64(emulator, vm, pointer, method) : new VaList32(emulator, vm, pointer, method);
     }
 
+    /** Prints every Java method the guest invokes; the targeted logs only cover a few functions. */
+    private static boolean methodCallTrace() {
+        return Boolean.getBoolean("unidbg.traceMethodCalls")
+                || "1".equals(System.getenv("UNIDBG_TRACE_METHOD_CALLS"));
+    }
+
     private static long dispatch(Emulator<?> emulator, BaseVM vm, Jni provider, char resultType, String member,
                          Binding binding, Function<Jni, Object> backend) {
+        if (methodCallTrace()) {
+            System.out.println("event=guest_call signature=" + member);
+        }
         return invoke(emulator, vm, member, completion -> provider instanceof HostJni
                         ? binding.invoke((HostJni) provider, backend, completion) : backend.apply(provider),
                 value -> result(emulator, vm, resultType, value),

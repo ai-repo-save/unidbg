@@ -40,7 +40,10 @@ public class DvmObject<T> extends Hashable {
     }
 
     protected boolean isInstanceOf(DvmClass dvmClass) {
-        return objectType != null && objectType.isInstance(dvmClass);
+        // A DvmClass reports its own type: java.lang.Class has no objectType field, and
+        // getObjectType() is the accessor every other JNI entry point uses.
+        DvmClass type = getObjectType();
+        return type != null && type.isInstance(dvmClass);
     }
 
     @SuppressWarnings("unused")

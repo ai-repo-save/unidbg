@@ -23,14 +23,13 @@ typedef signed char jbyte;
 #endif
 JNIEOF
 
-ARG UNICORN_VERSION
-RUN test -n "$UNICORN_VERSION" && \
-    git clone --depth 1 -b "$UNICORN_VERSION" https://github.com/unicorn-engine/unicorn /build/unicorn
+# The unicorn source is the project fork (~/git/unicorn), archived by build.sh: upstream
+# 2.1.4 plus the Apple JIT state fix and the instruction fetch coherency model.
+COPY unicorn-src.tar /build/unicorn.tar
+RUN mkdir -p /build/unicorn && tar xf /build/unicorn.tar -C /build/unicorn
 
-COPY patches /build/patches
 WORKDIR /build/unicorn
-RUN git apply /build/patches/*.patch
-RUN mkdir build && cd build && \
+RUN mkdir -p build && cd build && \
     cmake .. -DCMAKE_BUILD_TYPE=Release \
              -DCMAKE_TOOLCHAIN_FILE=../cmake/mingw-w64.cmake \
              -DCMAKE_POSITION_INDEPENDENT_CODE=ON \

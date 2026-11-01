@@ -3,9 +3,12 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 RESOURCES_DIR="$SCRIPT_DIR/../resources/natives"
-UNICORN_VERSION="2.1.4"
-UNICORN_REPO="https://github.com/unicorn-engine/unicorn"
-UNICORN_HOME="${UNICORN_HOME:-$HOME/git/unicorn-$UNICORN_VERSION}"
+# The backend builds against the project's unicorn fork: upstream tag 2.1.4 plus
+#   fix(apple): keep the jit write protection correct across hooks in a foreign runtime
+#   feat(tcg): give instruction fetch its own view of executable memory
+# The second commit is what UC_CTL_INSN_FETCH_COHERENCY (used by Unicorn2Backend) needs.
+UNICORN_HOME="${UNICORN_HOME:-$HOME/git/unicorn}"
+UNICORN_MARKER="UC_CTL_INSN_FETCH_COHERENCY"
 IMAGE_NAME="unidbg-unicorn2-builder"
 NPROC=$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)
 
@@ -22,39 +25,22 @@ cd "$SCRIPT_DIR"
 # --- Prepare upstream unicorn source ---
 
 prepare_unicorn_source() {
-    if [ ! -d "$UNICORN_HOME" ]; then
-        echo "  Cloning unicorn $UNICORN_VERSION into $UNICORN_HOME ..."
-        git clone --depth 1 -b "$UNICORN_VERSION" "$UNICORN_REPO" "$UNICORN_HOME"
-    fi
-
-    if ! git -C "$UNICORN_HOME" tag --points-at HEAD | grep -qx "$UNICORN_VERSION"; then
-        echo "ERROR: $UNICORN_HOME is not checked out at upstream tag $UNICORN_VERSION" >&2
-        echo "  HEAD: $(git -C "$UNICORN_HOME" log -1 --format='%h %d %s' 2>&1)" >&2
+    if [ ! -d "$UNICORN_HOME/.git" ]; then
+        echo "ERROR: the unicorn fork is not at $UNICORN_HOME (override with UNICORN_HOME=...)" >&2
+        echo "  clone https://github.com/unicorn-engine/unicorn at tag 2.1.4 and apply the fork commits" >&2
         exit 1
     fi
-    if git -C "$UNICORN_HOME" diff --quiet HEAD; then
-        echo "  Applying patches to unicorn $UNICORN_VERSION ..."
-        git -C "$UNICORN_HOME" apply "$SCRIPT_DIR"/patches/*.patch
-    fi
-
-    # The tree must be exactly upstream + patches/: compare it against a scratch index
-    # holding HEAD with the patches applied.
-    local tmp_dir
-    tmp_dir=$(mktemp -d)
-    local patched=true
-    GIT_INDEX_FILE="$tmp_dir/index" git -C "$UNICORN_HOME" read-tree HEAD
-    GIT_INDEX_FILE="$tmp_dir/index" git -C "$UNICORN_HOME" apply --cached "$SCRIPT_DIR"/patches/*.patch || patched=false
-    if $patched; then
-        GIT_INDEX_FILE="$tmp_dir/index" git -C "$UNICORN_HOME" update-index -q --refresh || true
-        GIT_INDEX_FILE="$tmp_dir/index" git -C "$UNICORN_HOME" diff --quiet || patched=false
-    fi
-    if ! $patched; then
-        echo "ERROR: $UNICORN_HOME differs from upstream $UNICORN_VERSION + patches/:" >&2
-        GIT_INDEX_FILE="$tmp_dir/index" git -C "$UNICORN_HOME" diff --stat >&2 || true
-        rm -rf "$tmp_dir"
+    if ! git -C "$UNICORN_HOME" diff --quiet HEAD || ! git -C "$UNICORN_HOME" diff --cached --quiet HEAD; then
+        echo "ERROR: $UNICORN_HOME has uncommitted changes; commit or stash them first" >&2
+        git -C "$UNICORN_HOME" status --short >&2
         exit 1
     fi
-    rm -rf "$tmp_dir"
+    if ! grep -q "$UNICORN_MARKER" "$UNICORN_HOME/include/unicorn/unicorn.h"; then
+        echo "ERROR: $UNICORN_HOME does not carry $UNICORN_MARKER" >&2
+        echo "  HEAD: $(git -C "$UNICORN_HOME" log -1 --format='%h %s' 2>&1)" >&2
+        exit 1
+    fi
+    echo "  unicorn fork: $(git -C "$UNICORN_HOME" log -1 --format='%h %s')"
 
     # qemu/configure aborts without it (it only probes for the binary), and cmake does not
     # propagate that failure: the build would then die later on unrelated compile errors.
@@ -62,6 +48,12 @@ prepare_unicorn_source() {
         echo "ERROR: '${PKG_CONFIG:-pkg-config}' not found, required by unicorn's qemu/configure (macOS: brew install pkgconf)" >&2
         exit 1
     fi
+}
+
+# Archive the fork for the Docker builds, which need the source inside the build context.
+archive_unicorn_source() {
+    prepare_unicorn_source
+    git -C "$UNICORN_HOME" archive --format=tar HEAD > "$SCRIPT_DIR/unicorn-src.tar"
 }
 
 # --- Build unicorn static library ---
@@ -158,9 +150,10 @@ build_linux() {
 
     echo "=== Building for $output_dir ($platform) ==="
 
-    local docker_args="--build-arg UNICORN_VERSION=$UNICORN_VERSION"
+    archive_unicorn_source
+    local docker_args=""
     if $CLEAN; then
-        docker_args="$docker_args --no-cache"
+        docker_args="--no-cache"
     fi
 
     docker build --platform "$platform" $docker_args -t "${IMAGE_NAME}-${output_dir}" .
@@ -179,9 +172,10 @@ build_linux() {
 build_windows() {
     echo "=== Building for windows_64 (MinGW cross-compilation) ==="
 
-    local docker_args="--build-arg UNICORN_VERSION=$UNICORN_VERSION"
+    archive_unicorn_source
+    local docker_args=""
     if $CLEAN; then
-        docker_args="$docker_args --no-cache"
+        docker_args="--no-cache"
     fi
 
     docker build $docker_args -f Dockerfile.windows -t "${IMAGE_NAME}-windows_64" .
@@ -194,6 +188,34 @@ build_windows() {
 
     echo "Done: $RESOURCES_DIR/windows_64/unicorn.dll"
     ls -l "$RESOURCES_DIR/windows_64/unicorn.dll"
+    echo
+}
+
+# --- Native linux x86_64 build (the platform this project runs the emulator on) ---
+
+build_linux_64() {
+    echo "=== Building for linux_64 (native) ==="
+
+    build_unicorn_lib "$UNICORN_HOME/build" ""
+
+    local jni_build="$SCRIPT_DIR/.build-jni-linux-64"
+    if $CLEAN && [ -d "$jni_build" ]; then
+        rm -rf "$jni_build"
+    fi
+    mkdir -p "$jni_build"
+    (cd "$jni_build" && cmake "$SCRIPT_DIR" -DUNICORN_HOME="$UNICORN_HOME" > /dev/null && make)
+
+    mkdir -p "$RESOURCES_DIR/linux_64"
+    mv "$jni_build/libunicorn.so" "$RESOURCES_DIR/linux_64/"
+
+    # The published jar takes linux_64/libunicorn.so from target/generated-resources
+    # (src/main/resources excludes it), the same place scripts/release.py stages it.
+    local generated="$SCRIPT_DIR/../../../target/generated-resources/natives/linux_64"
+    mkdir -p "$generated"
+    cp "$RESOURCES_DIR/linux_64/libunicorn.so" "$generated/"
+
+    echo "Done: $RESOURCES_DIR/linux_64/libunicorn.so"
+    ls -l "$RESOURCES_DIR/linux_64/libunicorn.so" "$generated/libunicorn.so"
     echo
 }
 
@@ -216,7 +238,7 @@ case "$TARGET" in
         build_linux linux/arm64 linux_arm64
         ;;
     linux_64)
-        build_linux linux/amd64 linux_64
+        build_linux_64
         ;;
     windows_64)
         build_windows
@@ -234,7 +256,7 @@ case "$TARGET" in
         build_windows
         ;;
     *)
-        echo "Usage: $0 [--clean] [osx_arm64|osx_64|osx|linux_arm64|linux_64|windows_64|docker|all]"
+        echo "Usage: $0 [--clean] [osx_arm64|osx_64|osx|linux_64|linux_arm64|windows_64|docker|all]"
         echo ""
         echo "Options:"
         echo "  --clean     Clean build (remove build dirs and rebuild from scratch)"

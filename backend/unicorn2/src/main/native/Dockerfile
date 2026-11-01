@@ -13,14 +13,13 @@ RUN curl -sSfL "https://github.com/Kitware/CMake/releases/download/v3.22.6/cmake
 
 ENV JAVA_HOME=/usr/lib/jvm/java-1.8.0-openjdk
 
-ARG UNICORN_VERSION
-RUN test -n "$UNICORN_VERSION" && \
-    git clone --depth 1 -b "$UNICORN_VERSION" https://github.com/unicorn-engine/unicorn /build/unicorn
+# The unicorn source is the project fork (~/git/unicorn), archived by build.sh: upstream
+# 2.1.4 plus the Apple JIT state fix and the instruction fetch coherency model.
+COPY unicorn-src.tar /build/unicorn.tar
+RUN mkdir -p /build/unicorn && tar xf /build/unicorn.tar -C /build/unicorn
 
-COPY patches /build/patches
 WORKDIR /build/unicorn
-RUN git apply /build/patches/*.patch
-RUN mkdir build && cd build && \
+RUN mkdir -p build && cd build && \
     cmake3 .. -DCMAKE_BUILD_TYPE=Release \
               -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
               -DUNICORN_ARCH="arm;aarch64" \

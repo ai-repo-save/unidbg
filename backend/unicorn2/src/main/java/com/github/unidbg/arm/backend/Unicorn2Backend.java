@@ -4,6 +4,8 @@ import com.github.unidbg.Emulator;
 import com.github.unidbg.arm.backend.unicorn.Unicorn;
 import com.github.unidbg.debugger.BreakPoint;
 import com.github.unidbg.debugger.BreakPointCallback;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import unicorn.UnicornConst;
 import unicorn.UnicornException;
 
@@ -12,9 +14,23 @@ import java.util.Map;
 
 class Unicorn2Backend extends AbstractBackend implements Backend, HostMemoryBackend {
 
+    private static final Logger log = LoggerFactory.getLogger(Unicorn2Backend.class);
+
     private final Emulator<?> emulator;
     private final boolean is64Bit;
     private final Unicorn unicorn;
+
+    /**
+     * ARM requires cache maintenance before a store to executable memory is guaranteed to be
+     * seen by instruction fetch: a self-modifying snippet observes the bytes as of its line's
+     * fill, not the bytes a previous store just wrote. Off by default, which is upstream
+     * behaviour (the next instruction fetch sees the store); enabled with
+     * -Dunidbg.insnFetchCoherency=true or UNIDBG_INSN_FETCH_COHERENCY=1.
+     */
+    private static boolean insnFetchCoherency() {
+        return Boolean.getBoolean("unidbg.insnFetchCoherency")
+                || "1".equals(System.getenv("UNIDBG_INSN_FETCH_COHERENCY"));
+    }
 
     Unicorn2Backend(Emulator<?> emulator, boolean is64Bit) throws BackendException {
         this.emulator = emulator;
@@ -25,6 +41,11 @@ class Unicorn2Backend extends AbstractBackend implements Backend, HostMemoryBack
             } else {
                 this.unicorn = new Unicorn(UnicornConst.UC_ARCH_ARM, UnicornConst.UC_MODE_ARM);
             }
+            boolean coherency = insnFetchCoherency();
+            this.unicorn.setInsnFetchCoherency(coherency);
+            log.info("event=instruction_fetch_coherency enabled={} line_size=64"
+                    + " publish=dc_cvau_cvac_civac_ivac invalidate=ic_ivau_iallu",
+                    coherency);
         } catch (UnicornException e) {
             throw new BackendException(e);
         }

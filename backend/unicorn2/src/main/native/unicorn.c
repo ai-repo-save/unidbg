@@ -122,6 +122,23 @@ JNIEXPORT jlong JNICALL Java_com_github_unidbg_arm_backend_unicorn_Unicorn_nativ
 
 /*
  * Class:     com_github_unidbg_arm_backend_unicorn_Unicorn
+ * Method:    setInsnFetchCoherency
+ * Signature: (JZ)Z
+ */
+JNIEXPORT jboolean JNICALL Java_com_github_unidbg_arm_backend_unicorn_Unicorn_setInsnFetchCoherency
+  (JNIEnv *env, jclass cls, jlong handle, jboolean enable) {
+  t_unicorn unicorn = (t_unicorn) handle;
+  uc_engine *eng = unicorn->uc;
+  uc_err err = uc_ctl_insn_fetch_coherency(eng, enable == JNI_TRUE);
+  if (err != UC_ERR_OK) {
+    throwException(env, err);
+    return JNI_FALSE;
+  }
+  return enable;
+}
+
+/*
+ * Class:     com_github_unidbg_arm_backend_unicorn_Unicorn
  * Method:    mem_map
  * Signature: (JJJI)V
  */

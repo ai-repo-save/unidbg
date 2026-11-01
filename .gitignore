@@ -139,3 +139,5 @@
 !/unidbg-android/src/main/java/com/github/unidbg/linux/file/DirectoryIdentity.java
 !/unidbg-android/src/test/java/com/github/unidbg/linux/DirfdIdentityIntegrationTest.java
 !/unidbg-android/src/test/java/com/github/unidbg/linux/SymlinkTargetIntegrationTest.java
+/backend/unicorn2/src/main/native/unicorn-src.tar
+/backend/unicorn2/src/main/native/.build-jni-linux-64/

@@ -141,6 +141,19 @@ public class Unicorn {
     private static native void hook_del(long handle) throws UnicornException;
 
     /**
+     * Model the guest's instruction view of executable memory separately from data memory:
+     * an ordinary store is not visible to instruction fetch until the guest performs cache
+     * maintenance (dc cvau/civac, ic ivau/iallu). See UC_CTL_INSN_FETCH_COHERENCY.
+     *
+     * @param  enable  whether the model is on
+     */
+    public boolean setInsnFetchCoherency(boolean enable) throws UnicornException {
+        return setInsnFetchCoherency(nativeHandle, enable);
+    }
+
+    private static native boolean setInsnFetchCoherency(long handle, boolean enable) throws UnicornException;
+
+    /**
      * Read register value.
      *
      * @param regid  Register ID that is to be retrieved.

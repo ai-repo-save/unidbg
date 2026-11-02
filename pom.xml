@@ -17,7 +17,6 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.test.skip>true</maven.test.skip>
-        <aiLocalRepository>${env.HOME}/git/ai-repo-save-repo</aiLocalRepository>
     </properties>
     <name>unidbg</name>
     <description>Independent unidbg fork for Android ARM32 and ARM64 native emulation</description>
@@ -172,31 +171,4 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
-    <profiles>
-        <!-- Publishes this fork into the shared local artifact repository the downstream
-             Gradle builds consume. Central publishing is skipped for that path. -->
-        <profile>
-            <id>ai-local</id>
-            <build>
-                <plugins>
-                    <plugin>
-                        <groupId>org.sonatype.central</groupId>
-                        <artifactId>central-publishing-maven-plugin</artifactId>
-                        <version>0.8.0</version>
-                        <configuration>
-                            <skip>true</skip>
-                        </configuration>
-                    </plugin>
-                    <plugin>
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-deploy-plugin</artifactId>
-                        <version>3.1.4</version>
-                        <configuration>
-                            <altDeploymentRepository>ai-local::default::file://${aiLocalRepository}</altDeploymentRepository>
-                        </configuration>
-                    </plugin>
-                </plugins>
-            </build>
-        </profile>
-    </profiles>
 </project>

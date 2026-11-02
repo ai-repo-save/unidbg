@@ -13,8 +13,17 @@ import com.github.unidbg.linux.android.dvm.array.DoubleArray;
 import com.github.unidbg.linux.android.dvm.array.FloatArray;
 import com.github.unidbg.linux.android.dvm.array.IntArray;
 import com.github.unidbg.linux.android.dvm.array.ShortArray;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.lang.reflect.Array;
+import java.lang.reflect.Member;
+import java.util.ArrayList;
+import java.util.List;
 
 public class ProxyDvmObject extends DvmObject<Object> {
+
+    private static final Logger log = LoggerFactory.getLogger(ProxyDvmObject.class);
 
     private static DvmClass getObjectType(VM vm, Class<?> clazz) {
         Class<?> superClass = clazz.getSuperclass();
@@ -94,10 +103,35 @@ public class ProxyDvmObject extends DvmObject<Object> {
             }
             Object[] array = (Object[]) value;
             DvmClass element = getObjectType(vm, clazz.getComponentType());
+            if (value instanceof Member[]) {
+                array = withoutInjectedMembers(vm, (Member[]) value);
+            }
             return new ProxyArrayObject(vm, ArrayObject.typeOf(vm, element), array);
         }
 
         return new ProxyDvmObject(vm, value);
+    }
+
+    /**
+     * Robolectric instruments the platform classes it shadows and injects bookkeeping members into them:
+     * a {@code __robo_data__} field and {@code $$robo$$...} shim methods. Platform classes on a device
+     * declare no such members, so the guest only sees the members the platform declares.
+     */
+    private static Object[] withoutInjectedMembers(VM vm, Member[] members) {
+        List<Member> visible = new ArrayList<>(members.length);
+        for (Member member : members) {
+            String name = member.getName();
+            if (name.startsWith("__robo") || name.startsWith("$$robo")) {
+                log.debug("event=jni_host_member_hidden emulator_id={} declaring_class={} member={}",
+                        System.identityHashCode(vm.getEmulator()), member.getDeclaringClass().getName(), name);
+            } else {
+                visible.add(member);
+            }
+        }
+        if (visible.size() == members.length) {
+            return members;
+        }
+        return visible.toArray((Object[]) Array.newInstance(members.getClass().getComponentType(), visible.size()));
     }
 
     /**

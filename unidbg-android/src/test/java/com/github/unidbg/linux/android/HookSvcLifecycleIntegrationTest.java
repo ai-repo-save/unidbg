@@ -132,6 +132,7 @@ public class HookSvcLifecycleIntegrationTest {
             for (String name : new String[] {"dlsym", "dladdr", "dlopen", "dlclose", "dlerror",
                     "dl_iterate_phdr", "dl_unwind_find_exidx"}) {
                 long entry = stable(name);
+                verifyDladdr(entry, "libdl.so", name);
                 if ("dlsym".equals(name)) {
                     assertEquals(dlsym, entry);
                 } else if ("dladdr".equals(name)) {
@@ -143,6 +144,9 @@ public class HookSvcLifecycleIntegrationTest {
                 long get = stable("__system_property_get");
                 long read = stable("__system_property_read");
                 long find = stable("__system_property_find");
+                verifyDladdr(get, "libc.so", "__system_property_get");
+                verifyDladdr(read, "libc.so", "__system_property_read");
+                verifyDladdr(find, "libc.so", "__system_property_find");
                 provider.value = label + "-provider";
                 verifyValue(get, read, index, provider.value);
                 provider.value = label + "-updated";
@@ -167,6 +171,17 @@ public class HookSvcLifecycleIntegrationTest {
                 assertEquals(get, stable("__system_property_get"));
                 verifyValue(get, read, index, nativeValue(index));
             }
+        }
+
+        private void verifyDladdr(long address, String library, String symbol) {
+            int pointerSize = wide ? 8 : 4;
+            long entry = stable("dladdr");
+            assertEquals(1, call(entry, UnidbgPointer.pointer(emulator, address), output).intValue());
+            assertEquals(library, output.getPointer(0).getString(0));
+            assertEquals(emulator.getMemory().findModule(library).base,
+                    UnidbgPointer.nativeValue(output.getPointer(pointerSize)));
+            assertEquals(symbol, output.getPointer(2L * pointerSize).getString(0));
+            assertEquals(address, UnidbgPointer.nativeValue(output.getPointer(3L * pointerSize)));
         }
 
         private void verifyValue(long get, long read, int index, String expected) {

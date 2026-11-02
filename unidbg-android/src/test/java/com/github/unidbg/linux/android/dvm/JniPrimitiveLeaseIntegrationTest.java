@@ -63,6 +63,18 @@ public class JniPrimitiveLeaseIntegrationTest {
                         }
                         assertArrayEquals(before, mappings(emulator));
                     }
+                    long[] stringBaseline = mappings(emulator);
+                    StringObject string = new StringObject(vm, "A\u0000\u4e2d\ud83d\ude03");
+                    Pointer first = string.borrow(emulator, null, true);
+                    Pointer second = string.borrow(emulator, null, true);
+                    string.release(first, true);
+                    assertArrayEquals(new byte[] {0x41, (byte) 0xc0, (byte) 0x80, (byte) 0xe4, (byte) 0xb8, (byte) 0xad,
+                            (byte) 0xed, (byte) 0xa0, (byte) 0xbd, (byte) 0xed, (byte) 0xb8, (byte) 0x83}, second.getByteArray(0, 12));
+                    string.release(second, true);
+                    assertArrayEquals(stringBaseline, mappings(emulator));
+                    Pointer reclaimedAtClose = string.borrow(emulator, null, false);
+                    assertArrayEquals(new byte[] {0x41, 0, 0, 0, 0x2d, 0x4e, 0x3d, (byte) 0xd8, 3, (byte) 0xde},
+                            reclaimedAtClose.getByteArray(0, 10));
                 } finally {
                     guard.free();
                 }

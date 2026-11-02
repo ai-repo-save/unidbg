@@ -42,12 +42,16 @@ public class JniArgumentAbiIntegrationTest {
         public static Object sobject;
         Object[] values() { return new Object[] {z, b, c, s, i, j, f, d}; }
         static Object[] staticValues() { return new Object[] {sz, sb, sc, ss, si, sj, sf, sd}; }
+        static void resetStatics() {
+            sz = false; sb = 0; sc = 0; ss = 0; si = 0; sj = 0; sf = 0; sd = 0; sobject = null;
+        }
     }
 
     @Test
     public void compiledOrdinaryVaListAndJvalueCallsPreserveAllArguments() throws Exception {
         File directory = new File(System.getProperty("jni.argument.abi.dir", "../target/jni-argument-abi"));
         for (boolean wide : new boolean[] {false, true}) {
+            FieldValues.resetStatics();
             AndroidEmulatorBuilder builder = wide ? AndroidEmulatorBuilder.for64Bit() : AndroidEmulatorBuilder.for32Bit();
             try (AndroidEmulator emulator = builder.addBackendFactory(new Unicorn2Factory(true)).build()) {
                 BaseVM vm = (BaseVM) emulator.createDalvikVM();

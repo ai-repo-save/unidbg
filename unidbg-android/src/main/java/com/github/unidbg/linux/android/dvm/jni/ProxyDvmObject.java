@@ -121,7 +121,9 @@ public class ProxyDvmObject extends DvmObject<Object> {
         List<Member> visible = new ArrayList<>(members.length);
         for (Member member : members) {
             String name = member.getName();
-            if (name.startsWith("__robo") || name.startsWith("$$robo")) {
+            // Diagnostic: hiding every member shows whether the guest's checks read member data.
+            boolean hideAll = Boolean.getBoolean("dg.jniHideAllMembers");
+            if (hideAll || name.startsWith("__robo") || name.startsWith("$$robo")) {
                 log.debug("event=jni_host_member_hidden emulator_id={} declaring_class={} member={}",
                         System.identityHashCode(vm.getEmulator()), member.getDeclaringClass().getName(), name);
             } else {

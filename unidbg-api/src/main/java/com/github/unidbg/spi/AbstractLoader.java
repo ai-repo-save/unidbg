@@ -196,17 +196,26 @@ public abstract class AbstractLoader<T extends NewFileIO> implements Memory, Loa
     }
 
     @Override
-    public boolean nameAnonymousRange(long address, long length, String name) {
+    public int nameAnonymousRange(long address, long length, String name) {
         long start = address;
         long end = address + length;
         List<MemoryMap> affected = new ArrayList<>();
+        MemoryMap first = null;
+        long covered = start;
         for (MemoryMap map : memoryMap.values()) {
-            if (start < map.base + map.size && end > map.base) {
-                if (map.backing != null) return false;
-                affected.add(map);
+            if (covered >= end) break;
+            long mapEnd = map.base + map.size;
+            if (mapEnd <= covered) continue;
+            if (map.base > covered) return refuseRangeName(start, length, "unmapped", UnixEmulator.ENOMEM);
+            if (map.backing != null) return refuseRangeName(start, length, "backed", UnixEmulator.EBADF);
+            if (first != null && (map.prot != first.prot || map.flags != first.flags)) {
+                return refuseRangeName(start, length, "kind", UnixEmulator.EINVAL);
             }
+            first = map;
+            affected.add(map);
+            covered = Math.min(mapEnd, end);
         }
-        if (affected.isEmpty()) return false;
+        if (covered < end) return refuseRangeName(start, length, "unmapped", UnixEmulator.ENOMEM);
         for (MemoryMap map : affected) {
             long mapEnd = map.base + map.size;
             memoryMap.remove(map.base);
@@ -217,12 +226,18 @@ public abstract class AbstractLoader<T extends NewFileIO> implements Memory, Loa
                 memoryMap.put(end, map.slice(end, mapEnd - end, map.prot));
             }
         }
-        MemoryMap named = affected.get(0).slice(start, end - start, affected.get(0).prot);
+        MemoryMap named = first.slice(start, end - start, first.prot);
         named.name = name;
         memoryMap.put(start, named);
         log.debug("event=memory_range_named address=0x{} length={} name={}", Long.toHexString(start),
                 length, name);
-        return true;
+        return 0;
+    }
+
+    private int refuseRangeName(long start, long length, String reason, int errno) {
+        log.debug("event=memory_range_name_refused address=0x{} length={} reason={} errno={}",
+                Long.toHexString(start), length, reason, errno);
+        return memoryError(errno);
     }
 
     private int unmapInternal(long start, int length) {

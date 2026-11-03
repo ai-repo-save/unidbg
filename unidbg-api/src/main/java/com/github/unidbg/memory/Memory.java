@@ -56,12 +56,14 @@ public interface Memory extends IO, Loader, StackMemory {
 
     /**
      * Names an anonymous range of the address space, which {@code /proc/self/maps} reports after
-     * the range. The kernel splits the range out of the mappings it lies in, so a named range
-     * answers with its own line and its own extent.
+     * the range. A named range answers with its own line and its own extent, cut out of the
+     * mapping it lies in. The runtime names one extent of one kind of mapping, so a range the
+     * mappings do not cover, a range of file-backed memory, and a range whose mappings differ in
+     * protection or flags are refused.
      *
-     * @return whether the range is anonymous memory of this address space
+     * @return the errno of the refusal, or 0 when the range is named
      */
-    boolean nameAnonymousRange(long address, long length, String name);
+    int nameAnonymousRange(long address, long length, String name);
 
     void setMMapListener(MMapListener listener);
 

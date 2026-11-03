@@ -29,16 +29,11 @@ public final class AnonymousName {
         }
         String name = null;
         if (namePointer != 0) {
-            UnidbgPointer pointer = UnidbgPointer.pointer(emulator, namePointer);
-            if (pointer == null) return -UnixEmulator.EFAULT;
-            name = pointer.getString(0);
+            name = UnidbgPointer.pointer(emulator, namePointer).getString(0);
             if (name.length() > MAX_LENGTH) return -UnixEmulator.EINVAL;
             if (name.isEmpty()) name = null;
         }
-        if (!emulator.getMemory().nameAnonymousRange(address, length, name)) {
-            return -UnixEmulator.EBADF;
-        }
-        return 0;
+        return emulator.getMemory().nameAnonymousRange(address, length, name);
     }
 
     private AnonymousName() {

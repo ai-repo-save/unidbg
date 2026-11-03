@@ -126,10 +126,10 @@ public final class ProcfsFiles {
      */
     private static final int PROC_BLOCK_SIZE = 1024;
     /**
-     * A generated file stores no bytes: the kernel reports zero for every {@code /proc} entry it
-     * renders on read, so the length of the declaration is not what a stat reports.
+     * The size procfs reports for a file it renders on read: the kernel stores no bytes of it, so
+     * the length of a declaration is not what a stat reports.
      */
-    private static final long FILE_SIZE = 0;
+    private static final long PROC_FILE_SIZE = 0;
     private static final long FILE_BLOCKS = 0;
     /**
      * The instant a generated file reports. The kernel stamps a file when it creates it, and the
@@ -280,10 +280,10 @@ public final class ProcfsFiles {
      * The facts of a generated file: a read-only regular file of the file system that renders it.
      * Nothing about it is recorded, so the same path answers the same facts in every run: procfs
      * files belong to the process that reads them and report the block size procfs reports, sysfs
-     * files belong to the kernel, the device is the one the mount table gives the mount that holds
-     * the path, the inode comes from the path, and the times are one fixed instant, because the
-     * runtime keeps no creation history for what it generates and a replay must not depend on
-     * when it ran.
+     * files belong to the kernel and report the page as their block size and as their size, the
+     * device is the one the mount table gives the mount that holds the path, the inode comes from
+     * the path, and the times are one fixed instant, because the runtime keeps no creation history
+     * for what it generates and a replay must not depend on when it ran.
      */
     public FileMetadata facts(Emulator<AndroidFileIO> emulator, String pathname) {
         GuestCredentials credentials = credentials(emulator);
@@ -299,7 +299,7 @@ public final class ProcfsFiles {
                 .dev(device(path))
                 .ino(hashed(path))
                 .rdev(0)
-                .size(FILE_SIZE)
+                .size(sysfs ? emulator.getPageAlign() : PROC_FILE_SIZE)
                 .blocks(FILE_BLOCKS)
                 .atime(GENERATED_AT)
                 .mtime(GENERATED_AT)

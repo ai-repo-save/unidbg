@@ -206,7 +206,9 @@ public class RecordedLayoutIntegrationTest {
         assertEquals(0, sysfs.gid.getAsInt());
         assertEquals(1, sysfs.nlink.getAsInt());
         assertEquals(emulator.getPageAlign(), sysfs.blksize.getAsInt());
-        assertEquals(0L, sysfs.size.getAsLong());
+        // sysfs reports the page as the size of a file it renders on read, as the recorded device
+        // does, and stores no blocks of it.
+        assertEquals(emulator.getPageAlign(), sysfs.size.getAsLong());
         assertEquals(0L, sysfs.blocks.getAsLong());
         assertEquals(19L, sysfs.dev.getAsLong());
         assertEquals(GENERATED_AT, sysfs.atime.get());
@@ -216,8 +218,8 @@ public class RecordedLayoutIntegrationTest {
         assertTrue(sysfs.ino.getAsLong()
                 != files.queryMetadata("/sys/block/loop0/removable", true).value.ino.getAsLong());
 
-        // procfs files belong to the process that reads them and report the block size procfs
-        // reports, so one rule answers both file systems from the path alone.
+        // procfs files belong to the process that reads them, report the block size procfs
+        // reports and store no bytes, so the path answers both file systems' facts.
         FileMetadata procfs = files.queryMetadata("/proc/self/fdinfo/0", true).value;
         assertEquals(IO.S_IFREG, procfs.mode.getAsInt() & 0170000);
         assertEquals(0444, procfs.mode.getAsInt() & 0777);

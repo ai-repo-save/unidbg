@@ -55,7 +55,19 @@ public class LinuxFileSystem extends BaseFileSystem<AndroidFileIO> implements Fi
             return FileResult.success(new NullFileIO(pathname));
         }
         ProcfsFiles.Item item = resolve(pathname);
-        return item != null ? openItem(pathname, item, oflags) : super.open(processPath(pathname), oflags);
+        if (item != null) return openItem(pathname, item, oflags);
+        // A directory the view renders keeps the names it renders even when the root directory
+        // holds a recording of the same path: the recording supplies the names it holds, not the
+        // whole listing.
+        ProcfsFiles.Item rendered = procfs.rendered(emulator, processPath(pathname));
+        if (rendered != null && rendered.kind == ProcfsFiles.Item.Kind.DIRECTORY) {
+            FileQueryResult<List<DirectoryEntry>> listing = queryDirectory(pathname);
+            if (listing.isSuccess()) {
+                return FileResult.success(new DirectoryFileIO(oflags, pathname,
+                        listing.value.toArray(new DirectoryEntry[0])));
+            }
+        }
+        return super.open(processPath(pathname), oflags);
     }
 
     private FileResult<AndroidFileIO> openItem(String pathname, ProcfsFiles.Item item, int oflags) {

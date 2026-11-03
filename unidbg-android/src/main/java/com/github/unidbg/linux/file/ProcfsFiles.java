@@ -12,6 +12,8 @@ import com.github.unidbg.unix.IO;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.attribute.FileTime;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -32,6 +34,10 @@ import java.util.Map;
  * A declaration for another pid ({@code /proc/1/stat}) belongs to that process and is never
  * aliased onto this one: the runtime knows nothing about a parent, so it serves only what an
  * observer recorded for it.
+ *
+ * The facts of a file in this view are the view's own: {@link #facts} answers them from the
+ * path, the process credentials and the file's kind, whether the bytes came from a declaration,
+ * a render or the root directory, so the guest sees one answer for one path.
  */
 public final class ProcfsFiles {
 
@@ -55,13 +61,26 @@ public final class ProcfsFiles {
     private static final String MOUNTINFO_TEXT =
             "1 0 0:1 / / rw - rootfs rootfs rw\n2 1 0:2 / /proc rw,relatime - proc proc rw\n";
 
+    /** A generated file is read-only: the guest reads it and the runtime answers it. */
+    private static final int FILE_MODE = IO.S_IFREG | 0444;
+    /** The block size the runtime reports, which is the page size it maps with. */
+    private static final int FILE_BLOCK_SIZE = 4096;
     /**
-     * One file, directory or link of the process view. {@code metadata} holds the facts an
-     * observer recorded and is {@code null} when nobody recorded them: the runtime knows its own
-     * state, not the facts a file system reports.
+     * A generated file stores no bytes: the kernel reports zero for every {@code /proc} entry it
+     * renders on read, so the length of the declaration is not what a stat reports.
+     */
+    private static final long FILE_SIZE = 0;
+    private static final long FILE_BLOCKS = 0;
+    /** The instant a generated file reports; a replay must not depend on when it ran. */
+    private static final FileTime GENERATED_AT = FileTime.from(Instant.EPOCH);
+
+    /**
+     * One file, directory or link of the process view. A directory carries the facts of a
+     * directory; a file's facts come from {@link #facts} and a link's from its target. An absent
+     * entry states that the process has nothing at that path.
      */
     public static final class Item {
-        public enum Kind { FILE, DIRECTORY, LINK }
+        public enum Kind { FILE, DIRECTORY, LINK, ABSENT }
 
         public final Kind kind;
         public final byte[] content;
@@ -93,9 +112,14 @@ public final class ProcfsFiles {
         this.exe = path;
     }
 
-    /** Replaces the recorded bytes and facts of one file, which may name this process. */
-    public void declare(long pid, String path, byte[] content, FileMetadata metadata) {
-        declared.put(canonical(pid, path), new Item(Item.Kind.FILE, content, metadata, null, null));
+    /** Replaces the bytes of one file, which may name this process. */
+    public void declare(long pid, String path, byte[] content) {
+        declared.put(canonical(pid, path), new Item(Item.Kind.FILE, content, null, null, null));
+    }
+
+    /** States that the process has no file at this path, whatever the root directory holds. */
+    public void declareAbsent(long pid, String path) {
+        declared.put(canonical(pid, path), new Item(Item.Kind.ABSENT, null, null, null, null));
     }
 
     /** Replaces the target of one symbolic link, which may name this process. */
@@ -159,14 +183,62 @@ public final class ProcfsFiles {
         }
     }
 
-    /** Mode and size are what the runtime knows of a file it renders. */
-    public static FileMetadata renderedFacts(byte[] content) {
-        return FileMetadata.builder().mode(IO.S_IFREG | 0444).size(content.length).build();
-    }
-
     /** The directory facts of a rendered directory. */
     public static FileMetadata directoryFacts() {
         return FileMetadata.builder().mode(IO.S_IFDIR | 0555).build();
+    }
+
+    /**
+     * Whether the process view answers this path, whoever holds its bytes. A caller may hand the
+     * view a file's content or lay it out under the root directory; the facts of the file are the
+     * view's in both cases.
+     */
+    public static boolean serves(String pathname) {
+        return pathname != null && (pathname.equals(PROC) || pathname.startsWith(PROC + "/"));
+    }
+
+    /**
+     * The facts of a generated file: a read-only regular file the process may read under the
+     * credentials it runs with. Nothing about it is recorded, so the same path answers the same
+     * facts in every run: the device and inode come from the path, and the times are one fixed
+     * instant, because the runtime keeps no creation history for what it generates and a replay
+     * must not depend on when it ran.
+     */
+    public static FileMetadata facts(Emulator<AndroidFileIO> emulator, String pathname) {
+        GuestCredentials credentials = credentials(emulator);
+        // Every name of one file answers the same numbers, so the view resolves the path first.
+        String path = canonical(emulator.getPid(), pathname);
+        return FileMetadata.builder()
+                .mode(FILE_MODE)
+                .uid(credentials.realUid.orElse(0))
+                .gid(credentials.realGid.orElse(0))
+                .nlink(1)
+                .blksize(FILE_BLOCK_SIZE)
+                .dev(hashed(mountOf(path)))
+                .ino(hashed(path))
+                .rdev(0)
+                .size(FILE_SIZE)
+                .blocks(FILE_BLOCKS)
+                .atime(GENERATED_AT)
+                .mtime(GENERATED_AT)
+                .ctime(GENERATED_AT)
+                .build();
+    }
+
+    /** The generated file system a path belongs to: every file of one tree shares its device. */
+    private static String mountOf(String path) {
+        int slash = path.indexOf('/', 1);
+        return slash < 0 ? path : path.substring(0, slash);
+    }
+
+    /** FNV-1a over the UTF-8 bytes, so a path keeps its numbers across runs and processes. */
+    private static long hashed(String value) {
+        long hash = 0xcbf29ce484222325L;
+        for (byte b : value.getBytes(StandardCharsets.UTF_8)) {
+            hash ^= b & 0xff;
+            hash *= 0x100000001b3L;
+        }
+        return hash;
     }
 
     private static Item link(String target) {
@@ -233,7 +305,9 @@ public final class ProcfsFiles {
         for (String name : RENDERED) {
             if (rendered(emulator, SELF + "/" + name) != null && !names.contains(name)) names.add(name);
         }
-        for (String path : declared.keySet()) {
+        for (Map.Entry<String, Item> entry : declared.entrySet()) {
+            if (entry.getValue().kind == Item.Kind.ABSENT) continue;
+            String path = entry.getKey();
             if (!path.startsWith(SELF + "/")) continue;
             String name = path.substring(SELF.length() + 1);
             if (!names.contains(name)) names.add(name);
@@ -246,8 +320,10 @@ public final class ProcfsFiles {
         return item != null ? item : rendered(emulator, path);
     }
 
+
     private static DirectoryEntry.DirentType type(Item item) {
         if (item == null) return DirectoryEntry.DirentType.DT_UNKNOWN;
+        if (item.kind == Item.Kind.ABSENT) return DirectoryEntry.DirentType.DT_UNKNOWN;
         switch (item.kind) {
             case DIRECTORY: return DirectoryEntry.DirentType.DT_DIR;
             case LINK: return DirectoryEntry.DirentType.DT_LNK;

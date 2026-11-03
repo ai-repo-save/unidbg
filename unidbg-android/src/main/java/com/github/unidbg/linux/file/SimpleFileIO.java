@@ -67,7 +67,7 @@ public class SimpleFileIO extends BaseAndroidFileIO implements NewFileIO {
         stdio = original.stdio;
     }
 
-    private SimpleFileIO(SimpleFileIO original, int flags) {
+    protected SimpleFileIO(SimpleFileIO original, int flags) {
         super(flags);
         if (original.closed) throw new LinuxErrnoException(UnixEmulator.EBADF);
         file = original.file;

@@ -4,6 +4,7 @@ import com.github.unidbg.AndroidEmulator;
 import com.github.unidbg.arm.backend.Unicorn2Factory;
 import com.github.unidbg.file.DirectoryEntry;
 import com.github.unidbg.file.FileMetadata;
+import com.github.unidbg.file.FileQueryResult;
 import com.github.unidbg.file.linux.LinuxFileSystem;
 import com.github.unidbg.linux.android.AndroidEmulatorBuilder;
 import com.github.unidbg.linux.file.ProcfsFiles;
@@ -20,9 +21,10 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.nio.file.attribute.FileTime;
+import java.time.Instant;
 import java.util.List;
 import java.util.OptionalInt;
-import java.util.OptionalLong;
 import java.util.Set;
 
 import static org.junit.Assert.assertArrayEquals;
@@ -69,7 +71,7 @@ public class ProcfsFilesIntegrationTest {
                 UnidbgPointer buffer = scratch.getPointer();
                 verifyRendered(emulator, files, calls, buffer);
                 verifyAlias(emulator, calls, buffer);
-                verifyLayoutPrecedence(root, calls, buffer);
+                verifyLayoutPrecedence(emulator, root, calls, buffer);
                 verifyRecordedDeclarations(emulator, calls, buffer);
                 verifyAncestry(calls, buffer);
             } finally {
@@ -108,9 +110,8 @@ public class ProcfsFilesIntegrationTest {
         assertSingleMapping(maps, SVC_TRAP, SVC_TRAP + emulator.getPageAlign(), "r-xp");
         assertEquals("/system/bin/app_process64", calls.readlink("/proc/self/exe", buffer));
 
-        FileMetadata facts = files.queryMetadata("/proc/self/status", true).value;
-        assertEquals(IO.S_IFREG, facts.mode.getAsInt() & 0170000);
-        assertEquals(OptionalLong.of(status.length()), facts.size);
+        assertGeneratedFacts(files, "/proc/self/status");
+        assertGeneratedFacts(files, "/proc/self/maps");
 
         List<Entry> entries = directories(calls, buffer, "/proc/" + PID);
         assertEquals(Arrays.asList(".", "..", "cmdline", "comm", "exe", "maps", "mountinfo", "mounts", "stat",
@@ -147,7 +148,8 @@ public class ProcfsFilesIntegrationTest {
                 emulator.getFileSystem().queryMetadata("/proc/" + PID + "/status", true).value.mode);
     }
 
-    private static void verifyLayoutPrecedence(Path root, RawSyscalls calls, UnidbgPointer buffer) throws Exception {
+    private static void verifyLayoutPrecedence(AndroidEmulator emulator, Path root, RawSyscalls calls,
+                                               UnidbgPointer buffer) throws Exception {
         Files.createDirectories(root.resolve("proc/self"));
         Files.write(root.resolve("proc/self/stat"), LAYOUT_STAT);
         assertArrayEquals(LAYOUT_STAT, read(calls, buffer, "/proc/self/stat"));
@@ -160,21 +162,49 @@ public class ProcfsFilesIntegrationTest {
         Files.createSymbolicLink(root.resolve("proc/self/exe"), Paths.get("/system/bin/logd"));
         assertEquals("/system/bin/logd", calls.readlink("/proc/self/exe", buffer));
         assertEquals("/system/bin/logd", calls.readlink("/proc/" + PID + "/exe", buffer));
+        // The file system holding the bytes does not describe them: the view answers the facts.
+        LinuxFileSystem files = (LinuxFileSystem) emulator.getFileSystem();
+        assertGeneratedFacts(files, "/proc/self/stat");
+        assertGeneratedFacts(files, "/proc/self/status");
     }
 
     private static void verifyRecordedDeclarations(AndroidEmulator emulator, RawSyscalls calls, UnidbgPointer buffer) {
         LinuxFileSystem files = (LinuxFileSystem) emulator.getFileSystem();
-        FileMetadata recorded = FileMetadata.builder().mode(IO.S_IFREG | 0444).uid(10123).gid(10123).nlink(1)
-                .blksize(4096).dev(4).ino(6107669).rdev(0).size(RECORDED_STATUS.length).blocks(0).build();
-        files.procfs().declare(PID, "/proc/self/status", RECORDED_STATUS, recorded);
+        files.procfs().declare(PID, "/proc/self/status", RECORDED_STATUS);
         assertArrayEquals(RECORDED_STATUS, read(calls, buffer, "/proc/self/status"));
         assertArrayEquals(RECORDED_STATUS, read(calls, buffer, "/proc/" + PID + "/status"));
-        assertEquals(OptionalInt.of(IO.S_IFREG | 0444), files.queryMetadata("/proc/" + PID + "/status", true).value.mode);
-        assertEquals(OptionalLong.of(RECORDED_STATUS.length), files.queryMetadata("/proc/self/status", true).value.size);
+        assertGeneratedFacts(files, "/proc/self/status");
 
-        files.procfs().declare(PID, "/proc/self/attr/current", RECORDED_ATTR, null);
+        files.procfs().declare(PID, "/proc/self/attr/current", RECORDED_ATTR);
         assertArrayEquals(RECORDED_ATTR, read(calls, buffer, "/proc/self/attr/current"));
         assertEquals(Arrays.asList(".", "..", "current"), sorted(directories(calls, buffer, "/proc/self/attr")));
+
+        // A path a caller states absent has nothing there, not even the render.
+        files.procfs().declareAbsent(PID, "/proc/self/comm");
+        assertEquals(-2, calls.open("/proc/self/comm", 0));
+        assertEquals(FileQueryResult.Status.ERROR, files.queryMetadata("/proc/self/comm", true).status());
+    }
+
+    /**
+     * The facts of a generated file: a read-only regular file with a usable block size, no stored
+     * bytes, the owner the process runs as, and numbers that depend on the path alone.
+     */
+    private static void assertGeneratedFacts(LinuxFileSystem files, String path) {
+        FileMetadata facts = files.queryMetadata(path, true).value;
+        assertEquals(path, IO.S_IFREG, facts.mode.getAsInt() & 0170000);
+        assertEquals(path, 0444, facts.mode.getAsInt() & 0777);
+        assertEquals(path, 4096, facts.blksize.getAsInt());
+        assertEquals(path, 0L, facts.size.getAsLong());
+        assertEquals(path, 0L, facts.blocks.getAsLong());
+        assertEquals(path, 1, facts.nlink.getAsInt());
+        assertEquals(path, 10123, facts.uid.getAsInt());
+        assertEquals(path, 10123, facts.gid.getAsInt());
+        assertEquals(path, FileTime.from(Instant.EPOCH), facts.mtime.get());
+        FileMetadata sibling = files.queryMetadata("/proc/self/cmdline", true).value;
+        assertEquals(path, facts.dev, sibling.dev);
+        assertTrue(path, facts.ino.getAsLong() != sibling.ino.getAsLong());
+        assertEquals(path, files.queryMetadata("/proc/" + PID + path.substring("/proc/self".length()), true).value.ino,
+                facts.ino);
     }
 
     private static void verifyAncestry(RawSyscalls calls, UnidbgPointer buffer) {
@@ -264,7 +294,7 @@ public class ProcfsFilesIntegrationTest {
             this.emulator = emulator;
             code = emulator.getMemory().mmap(8192, 7);
             path = emulator.getSvcMemory().allocate(256, "procfs-test-path");
-            for (int number : new int[] {56, 57, 61, 63, 78}) {
+            for (int number : new int[] {56, 57, 61, 63, 78, 172, 178}) {
                 long offset = number * 16L;
                 code.setInt(offset, 0xd2800008 | (number << 5));
                 code.setInt(offset + 4, 0xd4000001);
@@ -286,7 +316,7 @@ public class ProcfsFilesIntegrationTest {
 
         void declare(String name, byte[] content) {
             LinuxFileSystem files = (LinuxFileSystem) emulator.getFileSystem();
-            files.procfs().declare(emulator.getPid(), name, content, null);
+            files.procfs().declare(emulator.getPid(), name, content);
         }
 
         int call(int number, Number... arguments) {

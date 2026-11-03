@@ -12,6 +12,7 @@ import com.github.unidbg.linux.file.DirectoryFileIO;
 import com.github.unidbg.linux.file.NullFileIO;
 import com.github.unidbg.linux.file.ProcfsFileIO;
 import com.github.unidbg.linux.file.ProcfsFiles;
+import com.github.unidbg.linux.file.ProcfsLayoutFileIO;
 import com.github.unidbg.linux.file.SimpleFileIO;
 import com.github.unidbg.linux.file.Stdin;
 import com.github.unidbg.linux.file.Stdout;
@@ -27,6 +28,7 @@ import java.util.List;
 public class LinuxFileSystem extends BaseFileSystem<AndroidFileIO> implements FileSystem<AndroidFileIO>, IOConstants {
 
     private static final int MAX_LINK_HOPS = 8;
+    private static final int S_IFMT = 0xf000;
 
     private final ProcfsFiles procfs = new ProcfsFiles();
 
@@ -59,10 +61,13 @@ public class LinuxFileSystem extends BaseFileSystem<AndroidFileIO> implements Fi
     private FileResult<AndroidFileIO> openItem(String pathname, ProcfsFiles.Item item, int oflags) {
         switch (item.kind) {
             case FILE:
-                return FileResult.success(new ProcfsFileIO(oflags, pathname, item.content, item.metadata));
+                return FileResult.success(new ProcfsFileIO(oflags, pathname, item.content,
+                        ProcfsFiles.facts(emulator, pathname)));
             case DIRECTORY:
                 return FileResult.success(new DirectoryFileIO(oflags, pathname,
                         item.entries.toArray(new DirectoryEntry[0])));
+            case ABSENT:
+                return FileResult.failed(UnixEmulator.ENOENT);
             default:
                 // Opening a link reads its target, which resolves through the root directory.
                 return super.open(item.target, oflags);
@@ -77,10 +82,24 @@ public class LinuxFileSystem extends BaseFileSystem<AndroidFileIO> implements Fi
 
     private FileQueryResult<FileMetadata> metadata(String pathname, boolean followLinks, int hops) {
         ProcfsFiles.Item item = resolve(pathname);
-        if (item == null) return super.queryMetadata(processPath(pathname), followLinks);
+        if (item != null && item.kind == ProcfsFiles.Item.Kind.ABSENT) return FileQueryResult.failed(UnixEmulator.ENOENT);
+        if (item == null) {
+            FileQueryResult<FileMetadata> layout = super.queryMetadata(processPath(pathname), followLinks);
+            return keepsViewFacts(pathname, layout)
+                    ? FileQueryResult.success(ProcfsFiles.facts(emulator, pathname)) : layout;
+        }
         if (item.kind != ProcfsFiles.Item.Kind.FILE) return facts(item, followLinks, hops);
-        return FileQueryResult.success(item.metadata != null ? item.metadata
-                : ProcfsFiles.renderedFacts(item.content));
+        return FileQueryResult.success(ProcfsFiles.facts(emulator, pathname));
+    }
+
+    /**
+     * Whether a laid-out entry keeps the process view's facts: a regular file the view serves, so
+     * its recorded content is not described by the host file system that happens to hold it.
+     */
+    private static boolean keepsViewFacts(String pathname, FileQueryResult<FileMetadata> layout) {
+        if (!layout.isSuccess() || !ProcfsFiles.serves(pathname)) return false;
+        FileMetadata facts = layout.value;
+        return facts.mode.isPresent() && (facts.mode.getAsInt() & S_IFMT) == IO.S_IFREG;
     }
 
     private FileQueryResult<FileMetadata> facts(ProcfsFiles.Item item, boolean followLinks, int hops) {
@@ -99,6 +118,9 @@ public class LinuxFileSystem extends BaseFileSystem<AndroidFileIO> implements Fi
         String path = processPath(pathname);
         ProcfsFiles.Item rendered = procfs.rendered(emulator, path);
         ProcfsFiles.Item item = resolve(pathname);
+        if (item != null && item.kind == ProcfsFiles.Item.Kind.ABSENT) {
+            return FileQueryResult.failed(UnixEmulator.ENOENT);
+        }
         if (item != null && item.kind != ProcfsFiles.Item.Kind.DIRECTORY) {
             return FileQueryResult.failed(UnixEmulator.ENOTDIR);
         }
@@ -160,7 +182,9 @@ public class LinuxFileSystem extends BaseFileSystem<AndroidFileIO> implements Fi
 
     @Override
     public AndroidFileIO createSimpleFileIO(File file, int oflags, String path) {
-        return new SimpleFileIO(oflags, file, path);
+        return ProcfsFiles.serves(path)
+                ? new ProcfsLayoutFileIO(oflags, file, path, ProcfsFiles.facts(emulator, path))
+                : new SimpleFileIO(oflags, file, path);
     }
 
     @Override

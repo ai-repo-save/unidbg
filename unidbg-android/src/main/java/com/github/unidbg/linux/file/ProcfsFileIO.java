@@ -7,10 +7,10 @@ import com.github.unidbg.file.linux.StatStructure;
 import com.github.unidbg.linux.FileQuerySupport;
 
 /**
- * One file of the process view. A declaration answers its recorded facts; a render answers the
- * mode and size the runtime knows and leaves the remaining facts to the byte-array defaults.
+ * One file of the process view: the bytes a caller declared or the runtime rendered, with the
+ * facts {@code ProcfsFiles} answers for its path.
  */
-public final class ProcfsFileIO extends ByteArrayFileIO {
+public class ProcfsFileIO extends ByteArrayFileIO {
 
     private final FileMetadata metadata;
 
@@ -21,12 +21,11 @@ public final class ProcfsFileIO extends ByteArrayFileIO {
 
     @Override
     public FileQueryResult<FileMetadata> queryMetadata() {
-        return metadata != null ? FileQueryResult.success(metadata) : super.queryMetadata();
+        return FileQueryResult.success(metadata);
     }
 
     @Override
     public int fstat(Emulator<?> emulator, StatStructure stat) {
-        return metadata != null ? FileQuerySupport.writeStat(queryMetadata(), stat, path)
-                : super.fstat(emulator, stat);
+        return FileQuerySupport.writeStat(queryMetadata(), stat, path);
     }
 }

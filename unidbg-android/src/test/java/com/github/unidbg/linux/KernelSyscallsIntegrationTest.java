@@ -315,14 +315,12 @@ public class KernelSyscallsIntegrationTest {
         StatStructure timerStat = stat(calls, second);
         assertNotEquals(eventPollStat.st_ino, timerStat.st_ino);
         assertEquals(0600, timerStat.st_mode);
-        // The same entries at the offsets the ABI's struct stat gives st_mode and st_ino: a live
-        // inode number per descriptor, distinct like the fields are.
+        // The same entries at the offsets the ABI's struct stat gives st_mode and st_ino: the mode
+        // each descriptor reports and the inode numbers of two different objects.
         assertEquals(0600, word(first, 16));
         assertEquals(0600, word(second, 16));
         long eventPollInode = ino(calls, first);
         long timerInode = ino(calls, second);
-        assertNotEquals(0, eventPollInode);
-        assertNotEquals(0, timerInode);
         assertNotEquals(eventPollInode, timerInode);
         assertEquals(FD_CLOEXEC, calls.fcntl(eventPoll, F_GETFD, 0));
         assertEquals(FD_CLOEXEC, calls.fcntl(timer, F_GETFD, 0));

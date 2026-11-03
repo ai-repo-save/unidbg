@@ -15,6 +15,12 @@ public interface FileSystem<T extends NewFileIO> {
     FileQueryResult<java.util.List<DirectoryEntry>> queryDirectory(String pathname);
 
     /**
+     * @return the paths a recording answers with a refusal, which the file system gives for the
+     *         path instead of the bytes the root directory holds
+     */
+    PathRefusals refusals();
+
+    /**
      * @return the target of the symbolic link stored at the guest path under the root
      *         directory, or <code>null</code> when that path is no symbolic link
      */

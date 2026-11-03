@@ -18,6 +18,7 @@ public abstract class BaseFileSystem<T extends NewFileIO> implements FileSystem<
 
     protected final Emulator<T> emulator;
     protected final File rootDir;
+    private final PathRefusals refusals = new PathRefusals();
 
     public BaseFileSystem(Emulator<T> emulator, File rootDir) {
         this.emulator = emulator;
@@ -32,6 +33,26 @@ public abstract class BaseFileSystem<T extends NewFileIO> implements FileSystem<
 
     protected void initialize(File rootDir) throws IOException {
         FileUtils.forceMkdir(new File(rootDir, "tmp"));
+    }
+
+    @Override
+    public PathRefusals refusals() {
+        return refusals;
+    }
+
+    /**
+     * The first component above a path that exists and is not a directory, or {@code null} when
+     * every component above it can be searched. The kernel resolves a path one component at a
+     * time, so a path below a regular file answers {@code ENOTDIR} whether or not it exists, and
+     * a path below a directory that does not exist is a missing file like any other.
+     */
+    private File blockedComponent(String pathname) {
+        File file = new File(rootDir, pathname);
+        for (File parent = file.getParentFile(); parent != null; parent = parent.getParentFile()) {
+            if (!parent.exists()) continue;
+            return parent.isDirectory() ? null : parent;
+        }
+        return null;
     }
 
     /**
@@ -96,6 +117,13 @@ public abstract class BaseFileSystem<T extends NewFileIO> implements FileSystem<
         if (resolveFileInRootDir(pathname) == null) {
             return FileResult.failed(UnixEmulator.EACCES);
         }
+        int refused = refusals.refused(pathname);
+        if (refused != 0) {
+            return FileResult.failed(refused);
+        }
+        if (blockedComponent(pathname) != null) {
+            return FileResult.failed(UnixEmulator.ENOTDIR);
+        }
         return createFileIO(file, oflags, pathname);
     }
 
@@ -105,6 +133,7 @@ public abstract class BaseFileSystem<T extends NewFileIO> implements FileSystem<
         if (IO.STDIN.equals(pathname) || IO.STDOUT.equals(pathname) || IO.STDERR.equals(pathname)) {
             return FileQueryResult.unknown();
         }
+        if (blockedComponent(pathname) != null) return FileQueryResult.failed(UnixEmulator.ENOTDIR);
         File file = resolveFileInRootDir(pathname);
         return file == null ? FileQueryResult.failed(UnixEmulator.EACCES) : HostFileFacts.metadata(file, followLinks);
     }
@@ -112,6 +141,9 @@ public abstract class BaseFileSystem<T extends NewFileIO> implements FileSystem<
     @Override
     public FileQueryResult<java.util.List<DirectoryEntry>> queryDirectory(String pathname) {
         if (pathname.isEmpty()) return FileQueryResult.failed(UnixEmulator.ENOENT);
+        int refused = refusals.refused(pathname);
+        if (refused != 0) return FileQueryResult.failed(refused);
+        if (blockedComponent(pathname) != null) return FileQueryResult.failed(UnixEmulator.ENOTDIR);
         File file = resolveFileInRootDir(pathname);
         return file == null ? FileQueryResult.failed(UnixEmulator.EACCES) : HostFileFacts.directory(file);
     }

@@ -265,15 +265,6 @@ public final class ProcfsFiles {
     }
 
     /**
-     * Whether the process view answers this path, whoever holds its bytes. A caller may hand the
-     * view a file's content or lay it out under the root directory; the facts of the file are the
-     * view's in both cases.
-     */
-    public static boolean serves(String pathname) {
-        return pathname != null && (pathname.equals(PROC) || pathname.startsWith(PROC + "/"));
-    }
-
-    /**
      * Whether the kernel generates the file at this path on read. {@code /proc} and {@code /sys}
      * hold no stored bytes: the kernel renders a file when a process reads it, so the facts of one
      * come from its path and from the file system that renders it, whatever the root directory

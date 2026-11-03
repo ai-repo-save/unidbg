@@ -1136,7 +1136,9 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
     private static final int PR_SET_NO_NEW_PRIVS = 38;
     private static final int PR_GET_NO_NEW_PRIVS = 39;
     private static final int PR_SET_THP_DISABLE = 41;
-    private static final int SECCOMP_MODE_DISABLED = 0;
+    /** SECCOMP_MODE_FILTER: the mode zygote leaves behind. */
+    private static final int SECCOMP_MODE_FILTER = 2;
+    private static final int NO_NEW_PRIVS_SET = 1;
     private static final int BIONIC_PR_SET_VMA = 0x53564d41;
     private static final int PR_SET_PTRACER = 0x59616d61;
 
@@ -1172,13 +1174,15 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
             case PR_SET_THP_DISABLE:
                 return 0;
             case PR_GET_NO_NEW_PRIVS:
-                // Nothing in the emulation raises privileges for a child, so the process
-                // reports the flag unset, which is the state a fresh process starts in.
-                return 0;
+                // zygote sets no_new_privs on an app process before it installs the filter,
+                // so every app process reports the flag set. A shell process is not filtered
+                // and reports it unset; the emulated process is an app process.
+                return NO_NEW_PRIVS_SET;
             case PR_GET_SECCOMP:
-                // The emulating process itself runs without a seccomp filter, and the
-                // emulation installs none, so the guest sees SECCOMP_MODE_DISABLED.
-                return SECCOMP_MODE_DISABLED;
+                // zygote installs a seccomp filter in every app process and leaves it there.
+                // The emulation installs no filter, but the query answers what the platform
+                // leaves in the process, not what the emulator itself runs under.
+                return SECCOMP_MODE_FILTER;
             default:
                 // An option this handler does not model gets the answer the kernel gives an
                 // operation it does not know, so the guest receives -1 with errno ENOSYS

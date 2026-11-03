@@ -37,32 +37,30 @@ class Unicorn2Backend extends AbstractBackend implements Backend, HostMemoryBack
      * {@code unidbg.ctrEl0} and {@code unidbg.dczBlocksize}. The guest sizes its cache
      * maintenance from them, so a run that reports the values of the model the engine borrowed
      * maintains lines the copied machine does not have. Both reach the CPU model while it is
-     * built, so they are applied before the coherency model below initialises the engine; an
-     * absent key keeps the model's own value.
+     * built, so their values are read and checked before the engine is opened and applied to it
+     * right after; an absent key keeps the model's own value.
      */
-    private void applyCacheDescription() {
-        String ctrEl0 = System.getProperty("unidbg.ctrEl0");
-        String dczBlocksize = System.getProperty("unidbg.dczBlocksize");
-        if (ctrEl0 == null && dczBlocksize == null) return;
+    private void applyCacheDescription(Long ctrEl0, Long dczBlocksize) {
         if (ctrEl0 != null) {
-            long value = cacheValue("unidbg.ctrEl0", ctrEl0);
-            unicorn.setCtrEl0((int) value);
+            unicorn.setCtrEl0(ctrEl0.intValue());
             log.info("event=cache_description_provided register=CTR_EL0 value=0x{}",
-                    Long.toHexString(value));
+                    Integer.toHexString(ctrEl0.intValue()));
         }
         if (dczBlocksize != null) {
-            int value = (int) cacheValue("unidbg.dczBlocksize", dczBlocksize);
-            unicorn.setDczBlocksize(value);
-            log.info("event=cache_description_provided register=DCZID_EL0 bs={}", value);
+            unicorn.setDczBlocksize(dczBlocksize.intValue());
+            log.info("event=cache_description_provided register=DCZID_EL0 bs={}",
+                    dczBlocksize.intValue());
         }
     }
 
     /**
-     * One 32-bit register value of the cache description. Both registers are 32 bits wide, so a
-     * wider value names no register value the guest can read; narrowing it would report a
-     * machine other than the one the property states.
+     * One register value of the cache description, or {@code null} when the property states none.
+     * Both registers are 32 bits wide, so a wider value names no register value the guest can
+     * read; narrowing it would report a machine other than the one the property states.
      */
-    private static long cacheValue(String key, String text) {
+    private static Long cacheValue(String key) {
+        String text = System.getProperty(key);
+        if (text == null) return null;
         long value = Long.decode(text);
         if (value < 0 || value > 0xffffffffL) {
             throw new IllegalArgumentException(key + " must be a 32-bit unsigned value: " + text);
@@ -73,13 +71,17 @@ class Unicorn2Backend extends AbstractBackend implements Backend, HostMemoryBack
     Unicorn2Backend(Emulator<?> emulator, boolean is64Bit) throws BackendException {
         this.emulator = emulator;
         this.is64Bit = is64Bit;
+        // A register value the engine cannot hold is refused before the engine exists, so a
+        // refused backend leaves no open unicorn handle behind.
+        Long ctrEl0 = cacheValue("unidbg.ctrEl0");
+        Long dczBlocksize = cacheValue("unidbg.dczBlocksize");
         try {
             if (is64Bit) {
                 this.unicorn = new Unicorn(UnicornConst.UC_ARCH_ARM64, UnicornConst.UC_MODE_ARM);
             } else {
                 this.unicorn = new Unicorn(UnicornConst.UC_ARCH_ARM, UnicornConst.UC_MODE_ARM);
             }
-            applyCacheDescription();
+            applyCacheDescription(ctrEl0, dczBlocksize);
             boolean coherency = insnFetchCoherency();
             this.unicorn.setInsnFetchCoherency(coherency);
             log.info("event=instruction_fetch_coherency enabled={} line_size=64"

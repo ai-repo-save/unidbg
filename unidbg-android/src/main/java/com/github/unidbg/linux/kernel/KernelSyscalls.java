@@ -89,7 +89,15 @@ public final class KernelSyscalls {
         return 0;
     }
 
-    /** {@code getrusage(2)}: the CPU time and the mapped memory of the process. */
+    /**
+     * {@code getrusage(2)}: the CPU time and the maximum resident set of the process, its threads
+     * or its children.
+     *
+     * {@code ru_maxrss} is the largest resident set the measured entity held, which Linux reports
+     * in kilobytes. The runtime maps every page of the process and keeps it mapped, so the mapped
+     * bytes are the resident set of the process and of a thread that runs in it. The runtime holds
+     * no child of the process, so {@code RUSAGE_CHILDREN} answers no time and no resident set.
+     */
     public long getrusage(Emulator<AndroidFileIO> emulator, int who, Pointer usage) {
         long nanos;
         switch (who) {
@@ -112,7 +120,8 @@ public final class KernelSyscalls {
         // the runtime measures is user time and none of it is system time.
         values.ru_utime_sec = nanos / NANOS_PER_SECOND;
         values.ru_utime_usec = nanos % NANOS_PER_SECOND / NANOS_PER_MICROSECOND;
-        values.ru_maxrss = ProcessMemory.mappedBytes(emulator) / BYTES_PER_KILOBYTE;
+        values.ru_maxrss = who == RUSAGE_CHILDREN
+                ? 0 : ProcessMemory.mappedBytes(emulator) / BYTES_PER_KILOBYTE;
         values.pack();
         log.debug("event=rusage_answered who={} cpu_nanos={} maxrss={}", who, nanos, values.ru_maxrss);
         return 0;

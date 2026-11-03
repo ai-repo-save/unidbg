@@ -134,15 +134,18 @@ public class KernelSyscallsIntegrationTest {
         assertEquals(0, usage.getLong(24));
         assertEquals(mapped / 1024, usage.getLong(32));
 
-        // The runtime holds no child of the process, so no child spent CPU time.
+        // The runtime holds no child of the process, so no child spent CPU time and none held a
+        // resident set.
         assertEquals(0, calls.getrusage(RUSAGE_CHILDREN, usage.peer));
         assertTrue("children cpu", usage.getLong(0) == 0 && usage.getLong(8) == 0);
-        assertEquals(mapped / 1024, usage.getLong(32));
+        assertEquals(0, usage.getLong(32));
 
         // The thread clock counts only the dispatch it is read in, so the process clock read
-        // afterwards covers it.
+        // afterwards covers it. A thread runs in the address space of the process, so its resident
+        // set is the mapped bytes of that space.
         assertEquals(0, calls.getrusage(RUSAGE_THREAD, usage.peer));
         long threadNanos = usage.getLong(0) * 1_000_000_000L + usage.getLong(8) * 1_000L;
+        assertEquals(mapped / 1024, usage.getLong(32));
         assertEquals(0, calls.getrusage(RUSAGE_SELF, usage.peer));
         long laterNanos = usage.getLong(0) * 1_000_000_000L + usage.getLong(8) * 1_000L;
         assertTrue("thread=" + threadNanos + ", process=" + laterNanos, threadNanos <= laterNanos);

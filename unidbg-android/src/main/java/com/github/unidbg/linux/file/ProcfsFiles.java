@@ -6,8 +6,9 @@ import com.github.unidbg.file.FileMetadata;
 import com.github.unidbg.file.linux.AndroidFileIO;
 import com.github.unidbg.linux.AndroidSyscallHandler;
 import com.github.unidbg.linux.GuestCredentials;
+import com.github.unidbg.linux.kernel.ProcessCapabilities;
+import com.github.unidbg.linux.kernel.ProcessMemory;
 import com.github.unidbg.memory.Memory;
-import com.github.unidbg.memory.MemoryMap;
 import com.github.unidbg.unix.IO;
 
 import java.io.ByteArrayOutputStream;
@@ -450,7 +451,7 @@ public final class ProcfsFiles {
         int gid = credentials.realGid.orElse(0);
         int effectiveUid = credentials.effectiveUid.orElse(uid);
         int effectiveGid = credentials.effectiveGid.orElse(gid);
-        long mapped = mappedBytes(emulator) / 1024;
+        long mapped = ProcessMemory.mappedBytes(emulator) / 1024;
         StringBuilder builder = new StringBuilder();
         builder.append("Name:\t").append(comm(emulator)).append('\n');
         builder.append("State:\tS (sleeping)\n");
@@ -468,9 +469,15 @@ public final class ProcfsFiles {
             for (int group : credentials.supplementaryGroups.get()) builder.append('\t').append(group);
             builder.append('\n');
         }
+        ProcessCapabilities capabilities = ProcessCapabilities.of(credentials);
+        builder.append("CapInh:\t").append(capability(capabilities.inheritable)).append('\n');
+        builder.append("CapPrm:\t").append(capability(capabilities.permitted)).append('\n');
+        builder.append("CapEff:\t").append(capability(capabilities.effective)).append('\n');
+        builder.append("CapBnd:\t").append(capability(capabilities.bounding)).append('\n');
+        builder.append("CapAmb:\t").append(capability(capabilities.ambient)).append('\n');
         builder.append("VmSize:\t").append(mapped).append(" kB\n");
         builder.append("VmRSS:\t").append(mapped).append(" kB\n");
-        builder.append("VmStk:\t").append(stackBytes(emulator) / 1024).append(" kB\n");
+        builder.append("VmStk:\t").append(ProcessMemory.stackBytes(emulator) / 1024).append(" kB\n");
         // zygote installs the process's seccomp filter before the app runs, as prctl reports it.
         builder.append("Seccomp:\t2\n");
         return builder.toString();
@@ -481,7 +488,7 @@ public final class ProcfsFiles {
      * device has, so a recorded line replaces this one whenever an observer supplied it.
      */
     private String renderStat(Emulator<AndroidFileIO> emulator) {
-        long mapped = mappedBytes(emulator);
+        long mapped = ProcessMemory.mappedBytes(emulator);
         long[] fields = new long[52];
         fields[2] = 'S';                        // state
         fields[17] = 20;                        // priority
@@ -501,13 +508,8 @@ public final class ProcfsFiles {
         return builder.toString();
     }
 
-    private static long mappedBytes(Emulator<AndroidFileIO> emulator) {
-        long total = 0;
-        for (MemoryMap map : emulator.getMemory().getMemoryMap()) total += map.size;
-        return total;
-    }
-
-    private static long stackBytes(Emulator<AndroidFileIO> emulator) {
-        return (long) Memory.STACK_SIZE_OF_PAGE * emulator.getPageAlign();
+    /** One capability set of {@code status}, which the kernel renders as 16 hex digits. */
+    private static String capability(long set) {
+        return String.format("%016x", set);
     }
 }

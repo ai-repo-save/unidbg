@@ -140,8 +140,10 @@ public class LinuxFileSystem extends BaseFileSystem<AndroidFileIO> implements Fi
         return ProcfsFiles.canonical(emulator.getPid(), pathname);
     }
 
+    /** A layout may hold a symbolic link whose target the layout does not: the link is still there. */
     private boolean laidOut(String path) {
-        return new File(getRootDir(), path).exists();
+        File file = new File(getRootDir(), path);
+        return file.exists() || java.nio.file.Files.isSymbolicLink(file.toPath());
     }
 
     public LogCatHandler getLogCatHandler() {

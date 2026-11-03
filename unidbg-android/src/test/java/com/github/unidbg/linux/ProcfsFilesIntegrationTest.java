@@ -133,6 +133,10 @@ public class ProcfsFilesIntegrationTest {
         Files.write(root.resolve("proc/self/maps"), "recorded maps\n".getBytes(StandardCharsets.UTF_8));
         String maps = text(read(calls, buffer, "/proc/self/maps"));
         assertTrue(maps, maps.contains("[stack]"));
+        // A recorded link answers even when the layout does not hold its target.
+        Files.createSymbolicLink(root.resolve("proc/self/exe"), Paths.get("/system/bin/logd"));
+        assertEquals("/system/bin/logd", calls.readlink("/proc/self/exe", buffer));
+        assertEquals("/system/bin/logd", calls.readlink("/proc/" + PID + "/exe", buffer));
     }
 
     private static void verifyRecordedDeclarations(AndroidEmulator emulator, RawSyscalls calls, UnidbgPointer buffer) {

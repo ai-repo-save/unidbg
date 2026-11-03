@@ -13,6 +13,9 @@ import java.util.Map;
  * The CPU time the emulated process and each of its threads spent running, which answers
  * {@code CLOCK_PROCESS_CPUTIME_ID} and {@code CLOCK_THREAD_CPUTIME_ID}.
  *
+ * The process starts running with its first dispatch, which is also the instant the emulated
+ * monotonic timeline falls back to when no observer recorded one.
+ *
  * The emulator dispatches every guest thread on one host thread, so CPU time is attributed at
  * dispatch boundaries: {@link UniThreadDispatcher} opens a slice around each
  * {@link Task#dispatch} and the slice's host CPU time goes to the dispatching thread and to the
@@ -25,6 +28,8 @@ public final class CpuTimeSource {
     private static final String KEY = "unidbg.cpuTimeSource";
 
     private final ThreadMXBean threads = ManagementFactory.getThreadMXBean();
+    /** The instant the emulated process started running. */
+    private final long startNanos = System.nanoTime();
     /** CPU time of the slices that ended, which is the process's total so far. */
     private long processNanos;
     /** CPU time of the slices that ended, per guest thread id. */
@@ -44,6 +49,11 @@ public final class CpuTimeSource {
             emulator.set(KEY, source);
         }
         return source;
+    }
+
+    /** The instant the emulated process started running, which {@link ClockSource} counts from. */
+    public long startNanos() {
+        return startNanos;
     }
 
     /** Starts measuring the time {@code task} spends running. */

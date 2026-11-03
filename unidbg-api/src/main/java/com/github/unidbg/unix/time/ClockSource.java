@@ -37,16 +37,18 @@ public final class ClockSource {
     private final long[] monotonicReadings;
     private final long suspendNanos;
     private final long rawSkewNanos;
-    private final long hostMonotonicOrigin = System.nanoTime();
+    /** Where a timeline without recorded readings counts from. */
+    private final long hostMonotonicOrigin;
     private int realtimeReads;
     private int monotonicReads;
 
     private ClockSource(long[] realtimeReadings, long[] monotonicReadings, long suspendNanos,
-                        long rawSkewNanos) {
+                        long rawSkewNanos, long hostMonotonicOrigin) {
         this.realtimeReadings = realtimeReadings;
         this.monotonicReadings = monotonicReadings;
         this.suspendNanos = suspendNanos;
         this.rawSkewNanos = rawSkewNanos;
+        this.hostMonotonicOrigin = hostMonotonicOrigin;
     }
 
     /**
@@ -57,14 +59,19 @@ public final class ClockSource {
      */
     public static ClockSource of(long[] realtimeReadings, long[] monotonicReadings,
                                  long suspendNanos, long rawSkewNanos) {
-        return new ClockSource(realtimeReadings, monotonicReadings, suspendNanos, rawSkewNanos);
+        return new ClockSource(realtimeReadings, monotonicReadings, suspendNanos, rawSkewNanos,
+                System.nanoTime());
     }
 
-    /** The clocks of the emulated process, shared by every reader in it. */
+    /**
+     * The clocks of the emulated process, shared by every reader in it. A process whose timeline
+     * an observer did not record reads the host monotonic clock from the instant the process
+     * started running, which is where its CPU clocks count from as well.
+     */
     public static ClockSource of(Emulator<?> emulator) {
         ClockSource source = emulator.get(KEY);
         if (source == null) {
-            source = new ClockSource(null, null, 0, 0);
+            source = new ClockSource(null, null, 0, 0, CpuTimeSource.of(emulator).startNanos());
             emulator.set(KEY, source);
         }
         return source;

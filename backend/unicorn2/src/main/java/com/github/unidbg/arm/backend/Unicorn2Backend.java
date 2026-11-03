@@ -45,16 +45,29 @@ class Unicorn2Backend extends AbstractBackend implements Backend, HostMemoryBack
         String dczBlocksize = System.getProperty("unidbg.dczBlocksize");
         if (ctrEl0 == null && dczBlocksize == null) return;
         if (ctrEl0 != null) {
-            int value = (int) Long.decode(ctrEl0).longValue();
-            unicorn.setCtrEl0(value);
+            long value = cacheValue("unidbg.ctrEl0", ctrEl0);
+            unicorn.setCtrEl0((int) value);
             log.info("event=cache_description_provided register=CTR_EL0 value=0x{}",
-                    Integer.toHexString(value));
+                    Long.toHexString(value));
         }
         if (dczBlocksize != null) {
-            int value = (int) Long.decode(dczBlocksize).longValue();
+            int value = (int) cacheValue("unidbg.dczBlocksize", dczBlocksize);
             unicorn.setDczBlocksize(value);
             log.info("event=cache_description_provided register=DCZID_EL0 bs={}", value);
         }
+    }
+
+    /**
+     * One 32-bit register value of the cache description. Both registers are 32 bits wide, so a
+     * wider value names no register value the guest can read; narrowing it would report a
+     * machine other than the one the property states.
+     */
+    private static long cacheValue(String key, String text) {
+        long value = Long.decode(text);
+        if (value < 0 || value > 0xffffffffL) {
+            throw new IllegalArgumentException(key + " must be a 32-bit unsigned value: " + text);
+        }
+        return value;
     }
 
     Unicorn2Backend(Emulator<?> emulator, boolean is64Bit) throws BackendException {

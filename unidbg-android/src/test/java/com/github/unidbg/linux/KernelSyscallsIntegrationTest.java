@@ -72,6 +72,11 @@ public class KernelSyscallsIntegrationTest {
     private static final int PTRACE_TRACEME = 0;
     private static final int PTRACE_ATTACH = 16;
 
+    /** {@code personality(2)} answers the domain the process holds when it is queried. */
+    private static final long PERSONALITY_QUERY = 0xffffffffL;
+    private static final int PER_LINUX = 0x0000;
+    private static final int PER_LINUX32 = 0x0008;
+
     private static final int SEEK_SET = 0;
     private static final int F_GETFD = 1;
     private static final int FD_CLOEXEC = 1;
@@ -97,6 +102,7 @@ public class KernelSyscallsIntegrationTest {
                 verifyBarriers(calls);
                 verifyRootCapabilities(emulator, calls, first, second);
                 verifyRefusals(emulator, calls, first);
+                verifyPolicy(calls, first);
                 verifyUnprivilegedProcess(emulator, calls, first, second);
             } finally {
                 scratch.free();
@@ -301,6 +307,22 @@ public class KernelSyscallsIntegrationTest {
         assertEquals(-UnixEmulator.EPERM, calls.ptrace(PTRACE_TRACEME, 0));
     }
 
+    private static void verifyPolicy(RawSyscalls calls, UnidbgPointer first) {
+        // The runtime serves the mount table it holds, so a process may not change it.
+        first.setString(0, "none");
+        first.setString(16, "/");
+        first.setString(32, "none");
+        assertEquals(-UnixEmulator.EACCES, calls.mount(first.peer, first.share(16, 0).peer,
+                first.share(32, 0).peer, 0));
+
+        // A process starts in PER_LINUX and keeps the domain it was given.
+        assertEquals(PER_LINUX, calls.personality(PERSONALITY_QUERY));
+        assertEquals(PER_LINUX, calls.personality(PER_LINUX32));
+        assertEquals(PER_LINUX32, calls.personality(PERSONALITY_QUERY));
+        assertEquals(PER_LINUX32, calls.personality(PER_LINUX));
+        assertEquals(PER_LINUX, calls.personality(PERSONALITY_QUERY));
+    }
+
     private static void verifyUnprivilegedProcess(AndroidEmulator emulator, RawSyscalls calls, UnidbgPointer header,
                                                   UnidbgPointer data) {
         int uid = 10123;
@@ -334,6 +356,8 @@ public class KernelSyscallsIntegrationTest {
      */
     private static final class RawSyscalls implements AutoCloseable {
         private static final int EPOLL_CREATE1 = 20;
+        private static final int MOUNT = 40;
+        private static final int PERSONALITY = 92;
         private static final int FCNTL = 25;
         private static final int FTRUNCATE = 46;
         private static final int OPENAT = 56;
@@ -362,9 +386,9 @@ public class KernelSyscallsIntegrationTest {
             this.emulator = emulator;
             code = emulator.getMemory().mmap(8192, 7);
             name = emulator.getSvcMemory().allocate(256, "kernel-syscalls-test-path");
-            for (int number : new int[] {EPOLL_CREATE1, FCNTL, FTRUNCATE, OPENAT, CLOSE, LSEEK, READ, WRITE,
-                    FSTAT, TIMERFD_CREATE, CAPGET, PTRACE, GETRLIMIT, GETRUSAGE, GETCPU, SYSINFO,
-                    PERF_EVENT_OPEN, PRLIMIT64, MEMFD_CREATE, MEMBARRIER}) {
+            for (int number : new int[] {EPOLL_CREATE1, MOUNT, FCNTL, FTRUNCATE, OPENAT, CLOSE, LSEEK, READ,
+                    WRITE, FSTAT, TIMERFD_CREATE, CAPGET, PERSONALITY, PTRACE, GETRLIMIT, GETRUSAGE, GETCPU,
+                    SYSINFO, PERF_EVENT_OPEN, PRLIMIT64, MEMFD_CREATE, MEMBARRIER}) {
                 long offset = number * 16L;
                 code.setInt(offset, 0xd2800008 | (number << 5));
                 code.setInt(offset + 4, 0xd4000001);
@@ -386,6 +410,14 @@ public class KernelSyscallsIntegrationTest {
 
         int prlimit64(int pid, int resource, long requested, long limit) {
             return call(PRLIMIT64, pid, resource, requested, limit);
+        }
+
+        int mount(long source, long target, long type, long flags) {
+            return call(MOUNT, source, target, type, flags, 0);
+        }
+
+        int personality(long persona) {
+            return call(PERSONALITY, persona);
         }
 
         int epollCreate1(int flags) {

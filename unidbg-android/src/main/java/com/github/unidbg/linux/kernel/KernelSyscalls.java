@@ -179,7 +179,7 @@ public final class KernelSyscalls {
             return -UnixEmulator.EINVAL;
         }
         int fd = descriptors.addFileIO(new AnonInodeFileIO(EPOLL_INODE, flags));
-        log.debug("event=kernel_descriptor_created kind=epoll fd={} inode={}", fd, EPOLL_INODE);
+        log.debug("event=kernel_descriptor_created kind=epoll fd={} name={}", fd, EPOLL_INODE);
         return fd;
     }
 
@@ -195,7 +195,7 @@ public final class KernelSyscalls {
             return -UnixEmulator.EINVAL;
         }
         int fd = descriptors.addFileIO(new AnonInodeFileIO(TIMERFD_INODE, flags));
-        log.debug("event=kernel_descriptor_created kind=timerfd fd={} clock_id={} inode={}", fd, clockId,
+        log.debug("event=kernel_descriptor_created kind=timerfd fd={} clock_id={} name={}", fd, clockId,
                 TIMERFD_INODE);
         return fd;
     }
@@ -306,14 +306,38 @@ public final class KernelSyscalls {
     }
 
     /**
-     * {@code perf_event_open(2)}. The runtime counts no performance events, and the kernel answers an
-     * unprivileged caller that the platform's {@code perf_event_paranoid} setting refuses with
-     * {@code EACCES}; the emulated process runs without {@code CAP_PERFMON}.
+     * {@code perf_event_open(2)}. The runtime holds no performance counter, so it refuses the request
+     * rather than answer with a descriptor that measures nothing: a kernel refuses performance access
+     * to a process it does not authorize for it with {@code EACCES}, and the runtime authorizes none.
      */
     public long perfEventOpen(int type, long config, int pid, int cpu, int groupFd) {
         log.debug("event=perf_event_refused type={} config=0x{} pid={} cpu={} group_fd={} errno={}", type,
                 Long.toHexString(config), pid, cpu, groupFd, UnixEmulator.EACCES);
         return -UnixEmulator.EACCES;
+    }
+
+    /**
+     * {@code mount(2)}. The mount table the runtime serves is the one an observer recorded or the
+     * two entries the view renders, and no process may change it: the platform denies the operation.
+     */
+    public long mount(String source, String target, String type, long flags) {
+        log.debug("event=mount_refused source={} target={} type={} flags=0x{} errno={}", source, target, type,
+                Long.toHexString(flags), UnixEmulator.EACCES);
+        return -UnixEmulator.EACCES;
+    }
+
+    /** {@code personality(2)}: the execution domain of the process. */
+    public long personality(Emulator<?> emulator, long requested) {
+        ProcessPersona persona = ProcessPersona.of(emulator);
+        if (requested == ProcessPersona.QUERY) {
+            int current = persona.current();
+            log.debug("event=personality_answered persona=0x{}", Integer.toHexString(current));
+            return current;
+        }
+        int previous = persona.replace((int) requested);
+        log.debug("event=personality_replaced persona=0x{} previous=0x{}", Integer.toHexString((int) requested),
+                Integer.toHexString(previous));
+        return previous;
     }
 
     /**

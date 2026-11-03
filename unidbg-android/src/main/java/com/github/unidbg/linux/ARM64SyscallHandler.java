@@ -210,6 +210,13 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
                 case 24:
                     backend.reg_write(Arm64Const.UC_ARM64_REG_X0, dup3(emulator));
                     return;
+                case 40:
+                    backend.reg_write(Arm64Const.UC_ARM64_REG_X0, kernel.mount(
+                            emulator.getContext().getPointerArg(0).getString(0),
+                            emulator.getContext().getPointerArg(1).getString(0),
+                            emulator.getContext().getPointerArg(2).getString(0),
+                            emulator.getContext().getLongArg(3)));
+                    return;
                 case 43: {
                     RegisterContext context = emulator.getContext();
                     Pointer pathPointer = context.getPointerArg(0);
@@ -379,6 +386,10 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
                 case 90:
                     backend.reg_write(Arm64Const.UC_ARM64_REG_X0, kernel.capget(emulator,
                             emulator.getContext().getPointerArg(0), emulator.getContext().getPointerArg(1)));
+                    return;
+                case 92:
+                    backend.reg_write(Arm64Const.UC_ARM64_REG_X0,
+                            kernel.personality(emulator, emulator.getContext().getLongArg(0)));
                     return;
                 case 93:
                     exit(emulator);

@@ -16,6 +16,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.attribute.FileTime;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -29,12 +31,15 @@ import static org.junit.Assert.assertTrue;
 
 /**
  * The answers a recording gives for the files a device laid out under the root directory: which
- * paths a read is refused and what a path below a regular file answers.
+ * paths a read is refused, what a path below a regular file answers, and what the kernel's
+ * generated files report about themselves.
  *
- * A root directory holds files and nothing else, so a refusal is the runtime's answer:
- * {@code /sys/class/net/wlan0/address} holds the bytes another context read while the process this
- * recording was taken from is refused them, and a name below a file answers {@code ENOTDIR}
- * because the kernel resolves one component at a time.
+ * A root directory holds files and nothing else, so a refusal and the facts of a generated file
+ * are the runtime's answers: {@code /sys/class/net/wlan0/address} holds the bytes another context
+ * read while the process this recording was taken from is refused them, a name below a file
+ * answers {@code ENOTDIR} because the kernel resolves one component at a time, and a sysfs file
+ * reports the facts of the file system that renders it rather than those of the host file that
+ * stores the recorded bytes.
  */
 public class RecordedLayoutIntegrationTest {
     private static final int PID = 6302;
@@ -44,6 +49,8 @@ public class RecordedLayoutIntegrationTest {
     private static final byte[] RECORDED_MOUNTINFO = ("1 0 0:1 / / rw - rootfs rootfs rw\n"
             + "2 1 0:4 / /proc rw - proc proc rw\n"
             + "3 1 0:19 / /sys rw - sysfs sysfs rw\n").getBytes(StandardCharsets.UTF_8);
+    /** The instant a generated file reports, which is the same in every run. */
+    private static final FileTime GENERATED_AT = FileTime.from(Instant.parse("2020-01-01T00:00:00Z"));
     private static final int AT_FDCWD = IO.AT_FDCWD;
     private static final int O_DIRECTORY = 0x10000;
 
@@ -75,6 +82,40 @@ public class RecordedLayoutIntegrationTest {
                     verifyRefusedReads(files, calls, scratch.getPointer());
                     verifyNonDirectoryComponents(files, calls, scratch.getPointer());
                     verifyEnumeration(calls, scratch.getPointer());
+                } finally {
+                    scratch.free();
+                }
+            }
+        }
+    }
+
+    /**
+     * The facts of a generated file come from its path and the file system that renders it: a
+     * sysfs file belongs to the kernel, reports the block size sysfs reports, and carries the
+     * device of the sysfs mount, whatever owner and device the host file system gives the file
+     * that stores the recorded bytes. {@code fstat} on the open descriptor answers the same.
+     */
+    @Test
+    public void generatedFilesReportTheirOwnFacts() throws Exception {
+        Path parent = Paths.get("target/recorded-layout");
+        Files.createDirectories(parent);
+        for (boolean wide : new boolean[] {false, true}) {
+            Path root = Files.createTempDirectory(parent, wide ? "arm64-" : "arm32-").toAbsolutePath();
+            layOut(root);
+            try (AndroidEmulator emulator = (wide ? AndroidEmulatorBuilder.for64Bit()
+                    : AndroidEmulatorBuilder.for32Bit())
+                    .setRootDir(root.toFile()).setProcessName(NAME)
+                    .addBackendFactory(new Unicorn2Factory(true)).build();
+                 RawSyscalls calls = new RawSyscalls(emulator)) {
+                emulator.setPid(PID);
+                ((AndroidSyscallHandler) emulator.getSyscallHandler()).setGuestCredentials(
+                        new GuestCredentials(OptionalInt.of(UID), OptionalInt.of(UID),
+                                OptionalInt.of(UID), OptionalInt.of(UID), java.util.Optional.of(Set.of(1005))));
+                LinuxFileSystem files = (LinuxFileSystem) emulator.getFileSystem();
+                files.procfs().declare(PID, "/proc/self/mountinfo", RECORDED_MOUNTINFO);
+                MemoryBlock scratch = emulator.getMemory().malloc(8192, true);
+                try {
+                    verifyGeneratedFacts(emulator, files, calls, scratch.getPointer());
                 } finally {
                     scratch.free();
                 }
@@ -143,6 +184,49 @@ public class RecordedLayoutIntegrationTest {
                 calls.fstatatErrno("/sys/class/net/bonding_masters/address", buffer));
         assertEquals(UnixEmulator.ENOTDIR, files.queryMetadata("/sys/class/net/bonding_masters/address", true).errno);
         assertEquals(UnixEmulator.ENOTDIR, files.queryDirectory("/sys/class/net/bonding_masters/address").errno);
+    }
+
+    /**
+     * A generated file answers the facts of the file system that renders it, not those of the
+     * host file that stores the recorded bytes, and {@code fstat} on the descriptor answers the
+     * same record as {@code fstatat} on the path.
+     */
+    private static void verifyGeneratedFacts(AndroidEmulator emulator, LinuxFileSystem files,
+                                             RawSyscalls calls, UnidbgPointer buffer) {
+        int fd = calls.open("/sys/block/loop0/size", 0);
+        assertTrue("/sys/block/loop0/size: " + fd, fd >= 0);
+        byte[] fromDescriptor = calls.fstat(fd, buffer);
+        assertEquals(0, calls.call(57, fd));
+        assertArrayEquals(calls.fstatat("/sys/block/loop0/size", buffer), fromDescriptor);
+
+        FileMetadata sysfs = files.queryMetadata("/sys/block/loop0/size", true).value;
+        assertEquals(IO.S_IFREG, sysfs.mode.getAsInt() & 0170000);
+        assertEquals(0444, sysfs.mode.getAsInt() & 0777);
+        assertEquals(0, sysfs.uid.getAsInt());
+        assertEquals(0, sysfs.gid.getAsInt());
+        assertEquals(1, sysfs.nlink.getAsInt());
+        assertEquals(emulator.getPageAlign(), sysfs.blksize.getAsInt());
+        assertEquals(0L, sysfs.size.getAsLong());
+        assertEquals(0L, sysfs.blocks.getAsLong());
+        assertEquals(19L, sysfs.dev.getAsLong());
+        assertEquals(GENERATED_AT, sysfs.atime.get());
+        assertEquals(GENERATED_AT, sysfs.mtime.get());
+        assertEquals(GENERATED_AT, sysfs.ctime.get());
+        assertEquals(sysfs.ino, files.queryMetadata("/sys/block/loop0/size", true).value.ino);
+        assertTrue(sysfs.ino.getAsLong()
+                != files.queryMetadata("/sys/block/loop0/removable", true).value.ino.getAsLong());
+
+        // procfs files belong to the process that reads them and report the block size procfs
+        // reports, so one rule answers both file systems from the path alone.
+        FileMetadata procfs = files.queryMetadata("/proc/self/fdinfo/0", true).value;
+        assertEquals(IO.S_IFREG, procfs.mode.getAsInt() & 0170000);
+        assertEquals(0444, procfs.mode.getAsInt() & 0777);
+        assertEquals(UID, procfs.uid.getAsInt());
+        assertEquals(UID, procfs.gid.getAsInt());
+        assertEquals(1024, procfs.blksize.getAsInt());
+        assertEquals(0L, procfs.size.getAsLong());
+        assertEquals(4L, procfs.dev.getAsLong());
+        assertEquals(GENERATED_AT, procfs.mtime.get());
     }
 
     /** A class directory lists the entries the layout holds, and a refused directory lists none. */

@@ -212,13 +212,16 @@ public class ProcfsFilesIntegrationTest {
         FileMetadata facts = files.queryMetadata(path, true).value;
         assertEquals(path, IO.S_IFREG, facts.mode.getAsInt() & 0170000);
         assertEquals(path, 0444, facts.mode.getAsInt() & 0777);
-        assertEquals(path, 4096, facts.blksize.getAsInt());
+        // procfs reports the block size of a file system that stores nothing.
+        assertEquals(path, 1024, facts.blksize.getAsInt());
         assertEquals(path, 0L, facts.size.getAsLong());
         assertEquals(path, 0L, facts.blocks.getAsLong());
         assertEquals(path, 1, facts.nlink.getAsInt());
         assertEquals(path, 10123, facts.uid.getAsInt());
         assertEquals(path, 10123, facts.gid.getAsInt());
-        assertEquals(path, FileTime.from(Instant.EPOCH), facts.mtime.get());
+        // A file the kernel creates is never stamped with the epoch, and a replay answers one
+        // fixed instant, so two runs of the same path report the same time.
+        assertEquals(path, FileTime.from(Instant.parse("2020-01-01T00:00:00Z")), facts.mtime.get());
         FileMetadata sibling = files.queryMetadata("/proc/self/cmdline", true).value;
         assertEquals(path, facts.dev, sibling.dev);
         assertTrue(path, facts.ino.getAsLong() != sibling.ino.getAsLong());

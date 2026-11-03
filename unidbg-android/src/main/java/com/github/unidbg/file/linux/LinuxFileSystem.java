@@ -93,11 +93,12 @@ public class LinuxFileSystem extends BaseFileSystem<AndroidFileIO> implements Fi
     }
 
     /**
-     * Whether a laid-out entry keeps the process view's facts: a regular file the view serves, so
-     * its recorded content is not described by the host file system that happens to hold it.
+     * Whether a laid-out entry keeps the process view's facts: a regular file the kernel generates
+     * on read, so its recorded content is not described by the host file system that happens to
+     * hold it.
      */
     private static boolean keepsViewFacts(String pathname, FileQueryResult<FileMetadata> layout) {
-        if (!layout.isSuccess() || !ProcfsFiles.serves(pathname)) return false;
+        if (!layout.isSuccess() || !ProcfsFiles.generated(pathname)) return false;
         FileMetadata facts = layout.value;
         return facts.mode.isPresent() && (facts.mode.getAsInt() & S_IFMT) == IO.S_IFREG;
     }
@@ -182,7 +183,7 @@ public class LinuxFileSystem extends BaseFileSystem<AndroidFileIO> implements Fi
 
     @Override
     public AndroidFileIO createSimpleFileIO(File file, int oflags, String path) {
-        return ProcfsFiles.serves(path)
+        return ProcfsFiles.generated(path)
                 ? new ProcfsLayoutFileIO(oflags, file, path, procfs.facts(emulator, path))
                 : new SimpleFileIO(oflags, file, path);
     }

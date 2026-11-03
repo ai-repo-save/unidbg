@@ -44,6 +44,7 @@ public final class ProcfsFiles {
 
     private static final String PROC = "/proc";
     private static final String SELF = PROC + "/self";
+    private static final String SYS = "/sys";
     private static final String STATUS = "status";
     private static final String STAT = "stat";
     private static final String COMM = "comm";
@@ -64,16 +65,24 @@ public final class ProcfsFiles {
 
     /** A generated file is read-only: the guest reads it and the runtime answers it. */
     private static final int FILE_MODE = IO.S_IFREG | 0444;
-    /** The block size the runtime reports, which is the page size it maps with. */
-    private static final int FILE_BLOCK_SIZE = 4096;
+    /**
+     * The block size procfs reports. A generated file stores no bytes, so the kernel reports the
+     * block size of the file system that renders it: procfs reports 1024 and sysfs a page.
+     */
+    private static final int PROC_BLOCK_SIZE = 1024;
     /**
      * A generated file stores no bytes: the kernel reports zero for every {@code /proc} entry it
      * renders on read, so the length of the declaration is not what a stat reports.
      */
     private static final long FILE_SIZE = 0;
     private static final long FILE_BLOCKS = 0;
-    /** The instant a generated file reports; a replay must not depend on when it ran. */
-    private static final FileTime GENERATED_AT = FileTime.from(Instant.EPOCH);
+    /**
+     * The instant a generated file reports. The kernel stamps a file when it creates it, and the
+     * runtime keeps no creation history, so every generated file reports one fixed instant: the
+     * same path answers the same time in every run, and the epoch, which no kernel stamps, is not
+     * that instant.
+     */
+    private static final FileTime GENERATED_AT = FileTime.from(Instant.parse("2020-01-01T00:00:00Z"));
 
     /**
      * One file, directory or link of the process view. A directory carries the facts of a
@@ -203,10 +212,23 @@ public final class ProcfsFiles {
     }
 
     /**
-     * The facts of a generated file: a read-only regular file the process may read under the
-     * credentials it runs with. Nothing about it is recorded, so the same path answers the same
-     * facts in every run: the device is the one the mount table gives the mount that holds the
-     * path, the inode comes from the path, and the times are one fixed instant, because the
+     * Whether the kernel generates the file at this path on read. {@code /proc} and {@code /sys}
+     * hold no stored bytes: the kernel renders a file when a process reads it, so the facts of one
+     * come from its path and from the file system that renders it, whatever the root directory
+     * holds for it.
+     */
+    public static boolean generated(String pathname) {
+        if (pathname == null) return false;
+        return pathname.equals(PROC) || pathname.startsWith(PROC + "/")
+                || pathname.equals(SYS) || pathname.startsWith(SYS + "/");
+    }
+
+    /**
+     * The facts of a generated file: a read-only regular file of the file system that renders it.
+     * Nothing about it is recorded, so the same path answers the same facts in every run: procfs
+     * files belong to the process that reads them and report the block size procfs reports, sysfs
+     * files belong to the kernel, the device is the one the mount table gives the mount that holds
+     * the path, the inode comes from the path, and the times are one fixed instant, because the
      * runtime keeps no creation history for what it generates and a replay must not depend on
      * when it ran.
      */
@@ -214,12 +236,13 @@ public final class ProcfsFiles {
         GuestCredentials credentials = credentials(emulator);
         // Every name of one file answers the same numbers, so the view resolves the path first.
         String path = canonical(emulator.getPid(), pathname);
+        boolean sysfs = isSysfs(path);
         return FileMetadata.builder()
                 .mode(FILE_MODE)
-                .uid(credentials.realUid.orElse(0))
-                .gid(credentials.realGid.orElse(0))
+                .uid(sysfs ? 0 : credentials.realUid.orElse(0))
+                .gid(sysfs ? 0 : credentials.realGid.orElse(0))
                 .nlink(1)
-                .blksize(FILE_BLOCK_SIZE)
+                .blksize(sysfs ? emulator.getPageAlign() : PROC_BLOCK_SIZE)
                 .dev(device(path))
                 .ino(hashed(path))
                 .rdev(0)
@@ -229,6 +252,10 @@ public final class ProcfsFiles {
                 .mtime(GENERATED_AT)
                 .ctime(GENERATED_AT)
                 .build();
+    }
+
+    private static boolean isSysfs(String path) {
+        return path.equals(SYS) || path.startsWith(SYS + "/");
     }
 
     /**

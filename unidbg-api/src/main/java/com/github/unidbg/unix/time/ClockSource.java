@@ -13,15 +13,22 @@ import com.github.unidbg.Emulator;
  * time the device spent suspended, {@code CLOCK_MONOTONIC_RAW} is the monotonic timeline without
  * the NTP slew, {@code gettimeofday} reads the wall clock, and Android's
  * {@code SystemClock.uptimeMillis} is the millisecond reading of the monotonic timeline.
+ *
+ * {@code CLOCK_PROCESS_CPUTIME_ID} and {@code CLOCK_THREAD_CPUTIME_ID} count CPU time instead of
+ * elapsed time and come from {@link CpuTimeSource}: a process that sleeps burns neither.
  */
 public final class ClockSource {
 
     public static final int CLOCK_REALTIME = 0;
     public static final int CLOCK_MONOTONIC = 1;
+    public static final int CLOCK_PROCESS_CPUTIME_ID = 2;
     public static final int CLOCK_THREAD_CPUTIME_ID = 3;
     public static final int CLOCK_MONOTONIC_RAW = 4;
     public static final int CLOCK_MONOTONIC_COARSE = 6;
     public static final int CLOCK_BOOTTIME = 7;
+
+    /** The resolution {@code clock_getres} reports for every clock of the process. */
+    public static final long CLOCK_RESOLUTION_NANOS = 1;
 
     private static final String KEY = "unidbg.clockSource";
 
@@ -68,23 +75,44 @@ public final class ClockSource {
         emulator.set(KEY, source);
     }
 
-    /** One reading of the kernel's {@code clock_gettime}, in nanoseconds. */
-    public long clockNanos(int clockId) {
+    /**
+     * Whether the emulated process has this clock. The kernel answers a {@code clock_gettime} or
+     * {@code clock_getres} of a clock id it does not know with {@code EINVAL}, and so does the
+     * process for the clocks it does not model.
+     */
+    public static boolean isModeled(int clockId) {
         switch (clockId) {
             case CLOCK_REALTIME:
-                return realtimeNanos();
+            case CLOCK_MONOTONIC:
+            case CLOCK_PROCESS_CPUTIME_ID:
+            case CLOCK_THREAD_CPUTIME_ID:
+            case CLOCK_MONOTONIC_RAW:
+            case CLOCK_MONOTONIC_COARSE:
+            case CLOCK_BOOTTIME:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /** One reading of the kernel's {@code clock_gettime}, in nanoseconds. */
+    public static long clockNanos(Emulator<?> emulator, int clockId) {
+        switch (clockId) {
+            case CLOCK_REALTIME:
+                return of(emulator).realtimeNanos();
             case CLOCK_MONOTONIC:
             case CLOCK_MONOTONIC_COARSE:
-                return monotonicNanos();
+                return of(emulator).monotonicNanos();
             case CLOCK_MONOTONIC_RAW:
-                return monotonicRawNanos();
+                return of(emulator).monotonicRawNanos();
             case CLOCK_BOOTTIME:
+                return of(emulator).boottimeNanos();
+            case CLOCK_PROCESS_CPUTIME_ID:
+                return CpuTimeSource.of(emulator).processNanos();
             case CLOCK_THREAD_CPUTIME_ID:
-                // The emulation threads keep no CPU-time clock of their own, so the process's
-                // boot clock answers the query the way it always has.
-                return boottimeNanos();
+                return CpuTimeSource.of(emulator).threadNanos();
             default:
-                throw new UnsupportedOperationException("clk_id=" + clockId);
+                throw new IllegalArgumentException("clk_id=" + clockId);
         }
     }
 

@@ -421,6 +421,9 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
                 case 263:
                     backend.reg_write(ArmConst.UC_ARM_REG_R0, clock_gettime(backend, emulator));
                     return;
+                case 264:
+                    backend.reg_write(ArmConst.UC_ARM_REG_R0, clock_getres(backend, emulator));
+                    return;
                 case 266: {
                     RegisterContext context = emulator.getContext();
                     Pointer pathPointer = context.getPointerArg(0);
@@ -1549,34 +1552,37 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
         throw new UnsupportedOperationException("option=" + option);
     }
 
-    private static final int CLOCK_REALTIME = 0;
-    private static final int CLOCK_MONOTONIC = 1;
-    private static final int CLOCK_THREAD_CPUTIME_ID = 3;
-    private static final int CLOCK_MONOTONIC_RAW = 4;
-    private static final int CLOCK_MONOTONIC_COARSE = 6;
-    private static final int CLOCK_BOOTTIME = 7;
-
     protected int clock_gettime(Backend backend, Emulator<?> emulator) {
         int clk_id = backend.reg_read(ArmConst.UC_ARM_REG_R0).intValue();
         Pointer tp = UnidbgPointer.register(emulator, ArmConst.UC_ARM_REG_R1);
-        long offset = ClockSource.of(emulator).clockNanos(clk_id);
+        if (!ClockSource.isModeled(clk_id)) {
+            log.debug("clock_gettime clk_id={} is not a clock of the process", clk_id);
+            return -UnixEmulator.EINVAL;
+        }
+        long offset = ClockSource.clockNanos(emulator, clk_id);
         long tv_sec = offset / 1000000000L;
         long tv_nsec = offset % 1000000000L;
         if (log.isDebugEnabled()) {
             log.debug("clock_gettime clk_id={}, tp={}, offset={}, tv_sec={}, tv_nsec={}", clk_id, tp, offset, tv_sec, tv_nsec);
         }
-        switch (clk_id) {
-            case CLOCK_REALTIME:
-            case CLOCK_MONOTONIC:
-            case CLOCK_THREAD_CPUTIME_ID:
-            case CLOCK_MONOTONIC_RAW:
-            case CLOCK_MONOTONIC_COARSE:
-            case CLOCK_BOOTTIME:
-                tp.setInt(0, (int) tv_sec);
-                tp.setInt(4, (int) tv_nsec);
-                return 0;
+        tp.setInt(0, (int) tv_sec);
+        tp.setInt(4, (int) tv_nsec);
+        return 0;
+    }
+
+    protected int clock_getres(Backend backend, Emulator<?> emulator) {
+        int clk_id = backend.reg_read(ArmConst.UC_ARM_REG_R0).intValue();
+        Pointer res = UnidbgPointer.register(emulator, ArmConst.UC_ARM_REG_R1);
+        if (!ClockSource.isModeled(clk_id)) {
+            log.debug("clock_getres clk_id={} is not a clock of the process", clk_id);
+            return -UnixEmulator.EINVAL;
         }
-        throw new UnsupportedOperationException("clk_id=" + clk_id);
+        if (log.isDebugEnabled()) {
+            log.debug("clock_getres clk_id={}, res={}", clk_id, res);
+        }
+        res.setInt(0, 0);
+        res.setInt(4, (int) ClockSource.CLOCK_RESOLUTION_NANOS);
+        return 0;
     }
 
     private int fcntl(Backend backend, Emulator<?> emulator) {

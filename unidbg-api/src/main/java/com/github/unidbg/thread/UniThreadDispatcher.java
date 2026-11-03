@@ -6,6 +6,7 @@ import com.github.unidbg.signal.SigSet;
 import com.github.unidbg.signal.SignalOps;
 import com.github.unidbg.signal.SignalTask;
 import com.github.unidbg.signal.UnixSigSet;
+import com.github.unidbg.unix.time.CpuTimeSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -150,6 +151,7 @@ public class UniThreadDispatcher implements ThreadDispatcher {
             failure = collectFailure(failure, error);
         }
         stackPoints.remove(task);
+        CpuTimeSource.of(emulator).removeThread(task);
         for (SignalTask signalTask : task.getSignalTaskList()) {
             try {
                 signalTask.destroy(emulator);
@@ -440,7 +442,14 @@ public class UniThreadDispatcher implements ThreadDispatcher {
                             if (stack != null) {
                                 emulator.getMemory().setStackPoint(stack);
                             }
-                            Number ret = ((Task) active).dispatch(emulator);
+                            CpuTimeSource cpuTime = CpuTimeSource.of(emulator);
+                            Number ret;
+                            cpuTime.beginSlice((Task) active);
+                            try {
+                                ret = ((Task) active).dispatch(emulator);
+                            } finally {
+                                cpuTime.endSlice();
+                            }
                             log.debug("End dispatch task={}, ret={}", active, ret);
                             if (ret != null) {
                                 if (active != task) {

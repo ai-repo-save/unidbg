@@ -4,6 +4,7 @@ import com.github.unidbg.AndroidEmulator;
 import com.github.unidbg.arm.backend.Unicorn2Factory;
 import com.github.unidbg.file.linux.StatStructure;
 import com.github.unidbg.linux.android.AndroidEmulatorBuilder;
+import com.github.unidbg.linux.kernel.KernelSyscalls;
 import com.github.unidbg.linux.struct.RLimit32;
 import com.github.unidbg.linux.struct.RLimit64;
 import com.github.unidbg.linux.struct.Rusage32;
@@ -19,12 +20,18 @@ import com.github.unidbg.pointer.UnidbgPointer;
 import com.github.unidbg.pointer.UnidbgStructure;
 import com.github.unidbg.unix.UnixEmulator;
 import com.github.unidbg.unix.time.ClockSource;
+import org.apache.log4j.AppenderSkeleton;
+import org.apache.log4j.Level;
+import org.apache.log4j.Logger;
+import org.apache.log4j.spi.LoggingEvent;
 import org.junit.Test;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.OptionalInt;
 
 import static org.junit.Assert.assertArrayEquals;
@@ -121,12 +128,17 @@ public class KernelSyscallsIntegrationTest {
              KernelSyscallsGuest calls = new KernelSyscallsGuest(emulator)) {
             ClockSource.install(emulator, ClockSource.of(new long[] {WALL_NANOS}, new long[] {UPTIME_NANOS}, 0, 0));
             MemoryBlock scratch = emulator.getMemory().malloc(16384, true);
+            Logger kernel = Logger.getLogger(KernelSyscalls.class);
+            Level level = kernel.getLevel();
+            kernel.setLevel(Level.DEBUG);
+            Events events = new Events();
+            kernel.addAppender(events);
             try {
                 UnidbgPointer first = scratch.getPointer();
                 UnidbgPointer second = first.share(4096, 0);
                 verifySysinfo(calls, first);
                 verifyRusage(emulator, calls, first);
-                verifyLimits(emulator, calls, first, second);
+                verifyLimits(emulator, calls, events, first, second);
                 verifyDescriptors(calls, first, second);
                 verifyProcessor(calls, first);
                 verifyBarriers(calls);
@@ -135,6 +147,8 @@ public class KernelSyscallsIntegrationTest {
                 verifyPolicy(calls, first);
                 verifyUnprivilegedProcess(emulator, calls, first, second);
             } finally {
+                kernel.removeAppender(events);
+                kernel.setLevel(level);
                 scratch.free();
             }
         }
@@ -207,8 +221,8 @@ public class KernelSyscallsIntegrationTest {
         assertEquals(-UnixEmulator.EINVAL, calls.getrusage(2, usage.peer));
     }
 
-    private static void verifyLimits(AndroidEmulator emulator, KernelSyscallsGuest calls, UnidbgPointer limit,
-                                     UnidbgPointer requested) {
+    private static void verifyLimits(AndroidEmulator emulator, KernelSyscallsGuest calls, Events events,
+                                     UnidbgPointer limit, UnidbgPointer requested) {
         long stack = (long) Memory.STACK_SIZE_OF_PAGE * emulator.getPageAlign();
         assertEquals(0, calls.prlimit64(0, RLIMIT_STACK, 0, limit.peer));
         assertEquals(stack, limit64(limit, "rlim_cur"));
@@ -272,6 +286,13 @@ public class KernelSyscallsIntegrationTest {
         assertEquals(4096, limit64(limit, "rlim_max"));
 
         assertEquals(-UnixEmulator.EINVAL, calls.prlimit64(0, RESOURCE_COUNT, 0, limit.peer));
+        // One past the last resource is refused by both calls, and each call names its own event:
+        // the 32-bit ABI reaches getrlimit(2) as ugetrlimit(2).
+        long prlimitRefusals = events.count("prlimit_rejected");
+        long ugetrlimitRefusals = events.count("ugetrlimit_rejected");
+        assertEquals(-UnixEmulator.EINVAL, calls.getrlimit(RESOURCE_COUNT, limit.peer));
+        assertEquals(prlimitRefusals + (calls.is64Bit() ? 1 : 0), events.count("prlimit_rejected"));
+        assertEquals(ugetrlimitRefusals + (calls.is64Bit() ? 0 : 1), events.count("ugetrlimit_rejected"));
         assertEquals(-UnixEmulator.ESRCH, calls.prlimit64(emulator.getPid() + 1, RLIMIT_NOFILE, 0, limit.peer));
         assertEquals(0, calls.prlimit64(emulator.getPid(), RLIMIT_NOFILE, 0, limit.peer));
     }
@@ -506,5 +527,33 @@ public class KernelSyscallsIntegrationTest {
         Object value = values.readField(name);
         long number = ((Number) value).longValue();
         return value instanceof Integer ? number & 0xffffffffL : number;
+    }
+
+    /**
+     * The events one emulator's kernel logs, so a refusal can be attributed to the call that made
+     * it: {@code getrlimit(2)} of the 32-bit ABI and {@code prlimit64(2)} name their own events.
+     */
+    private static final class Events extends AppenderSkeleton {
+        private final List<String> messages = new ArrayList<>();
+
+        @Override
+        protected void append(LoggingEvent event) {
+            messages.add(event.getRenderedMessage());
+        }
+
+        /** The number of events logged under {@code name} with the arguments of the call. */
+        long count(String name) {
+            String prefix = "event=" + name + " ";
+            return messages.stream().filter(message -> message.startsWith(prefix)).count();
+        }
+
+        @Override
+        public void close() {
+        }
+
+        @Override
+        public boolean requiresLayout() {
+            return false;
+        }
     }
 }

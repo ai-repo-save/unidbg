@@ -94,9 +94,10 @@ public final class KernelSyscalls {
      * or its children.
      *
      * {@code ru_maxrss} is the largest resident set the measured entity held, which Linux reports
-     * in kilobytes. The runtime maps every page of the process and keeps it mapped, so the mapped
-     * bytes are the resident set of the process and of a thread that runs in it. The runtime holds
-     * no child of the process, so {@code RUSAGE_CHILDREN} answers no time and no resident set.
+     * in kilobytes. The runtime does not observe which mapped pages are resident, so it answers the
+     * bytes it mapped for the process, which a thread that runs in that address space shares. The
+     * runtime holds no child of the process, so {@code RUSAGE_CHILDREN} answers no time and no
+     * resident set.
      */
     public long getrusage(Emulator<AndroidFileIO> emulator, int who, Pointer usage) {
         long nanos;

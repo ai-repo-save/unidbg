@@ -17,6 +17,7 @@ public interface UnixEmulator {
     int ENOTTY = 25; /* Inappropriate ioctl for device */
     int ESPIPE = 29; /* Illegal seek */
     int ENOSYS = 38; /* Function not implemented */
+    int ELOOP = 40; /* Too many symbolic links encountered */
     int ENOATTR = 93; /* Attribute not found */
     int EOPNOTSUPP = 95; /* Operation not supported on transport endpoint */
     int EAFNOSUPPORT = 97; /* Address family not supported by protocol family */

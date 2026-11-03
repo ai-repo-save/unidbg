@@ -63,6 +63,8 @@ public class KernelViewIntegrationTest {
     private static final int SYS_CLOCK_GETTIME = 113;
     private static final int SYS_UNAME = 160;
     private static final int SYS_PRCTL = 167;
+    /** Linux mmap(2) MAP_PRIVATE. */
+    private static final int MAP_PRIVATE = 2;
 
     @Test
     public void kernelViewAnswersFromTheRuntimeFacts() throws Exception {
@@ -201,11 +203,13 @@ public class KernelViewIntegrationTest {
      * alone: the parts of the mapping beside it keep their own lines and the facts they had.
      */
     private static void verifyAddressSpaceNames(AndroidEmulator emulator, RawSyscalls calls,
-                                                UnidbgPointer buffer) {
+                                                UnidbgPointer buffer) throws Exception {
         int page = (int) emulator.getPageAlign();
         UnidbgPointer range = emulator.getMemory().mmap(4 * page,
                 UnicornConst.UC_PROT_READ | UnicornConst.UC_PROT_WRITE);
         UnidbgPointer name = emulator.getMemory().writeStackString(VMA_NAME);
+        String splitName = "runtime-eval-vma-split";
+        UnidbgPointer secondName = emulator.getMemory().writeStackString(splitName);
         long mapped = ProcessMemory.mappedBytes(emulator);
 
         // A range the process did not name carries no path, and the line ends where the header
@@ -241,16 +245,44 @@ public class KernelViewIntegrationTest {
                 range.peer + 3L * page, 2L * page, name.peer));
         assertEquals(mapped, ProcessMemory.mappedBytes(emulator));
 
-        // Two mappings of different permissions are two ranges, not one range the runtime can
-        // name with one set of permissions.
-        UnidbgPointer split = emulator.getMemory().mmap(2 * page,
+        // The kernel names each mapping the range covers, so a range across two protections
+        // names both parts and leaves the mappings beside it as they were.
+        UnidbgPointer split = emulator.getMemory().mmap(4 * page,
                 UnicornConst.UC_PROT_READ | UnicornConst.UC_PROT_WRITE);
         assertEquals(0, emulator.getMemory().mprotect(split.peer + page, page, UnicornConst.UC_PROT_READ));
-        assertEquals(-UnixEmulator.EINVAL, calls.call(SYS_PRCTL, AnonymousName.PR_SET_VMA, 0,
-                split.peer, 2L * page, name.peer));
         assertEquals(0, calls.call(SYS_PRCTL, AnonymousName.PR_SET_VMA, 0, split.peer + page,
-                page, name.peer));
-        assertEquals(mapped + 2L * page, ProcessMemory.mappedBytes(emulator));
+                2L * page, secondName.peer));
+        maps = text(read(calls, buffer, "/proc/self/maps"));
+        assertEquals(String.format("%08x-%08x rw-p 00000000 00:00 0 ", split.peer,
+                split.peer + page), mapsLine(maps, split.peer, split.peer + page));
+        assertEquals(mapsLine(split.peer + page, split.peer + 2L * page, "r--p", page,
+                "[anon:" + splitName + "]"), mapsLine(maps, split.peer + page, split.peer + 2L * page));
+        assertEquals(mapsLine(split.peer + 2L * page, split.peer + 3L * page, "rw-p", 2L * page,
+                "[anon:" + splitName + "]"),
+                mapsLine(maps, split.peer + 2L * page, split.peer + 3L * page));
+        assertEquals(String.format("%08x-%08x rw-p 00003000 00:00 0 ", split.peer + 3L * page,
+                split.peer + 4L * page),
+                mapsLine(maps, split.peer + 3L * page, split.peer + 4L * page));
+        assertEquals(2, namedLines(maps, "[anon:" + splitName + "]"));
+        assertEquals(mapped + 4L * page, ProcessMemory.mappedBytes(emulator));
+
+        // A file-backed range has the name of the file it maps, so the kernel refuses to name
+        // it and leaves the line it reports as it was.
+        File backing = new File(emulator.getFileSystem().getRootDir(), "vma-backing.bin");
+        Files.write(backing.toPath(), new byte[page]);
+        int fd = calls.open("/vma-backing.bin", 0);
+        assertTrue("open vma-backing.bin: " + fd, fd >= 0);
+        long backed = emulator.getMemory().mmap2(0, page, UnicornConst.UC_PROT_READ, MAP_PRIVATE, fd, 0);
+        assertTrue("mmap vma-backing.bin: " + backed, backed > 0);
+        assertEquals(0, calls.call(SYS_CLOSE, fd));
+        String backedLine = mapsLine(text(read(calls, buffer, "/proc/self/maps")), backed,
+                backed + page);
+        assertEquals(-UnixEmulator.EBADF, calls.call(SYS_PRCTL, AnonymousName.PR_SET_VMA, 0,
+                backed, page, name.peer));
+        assertEquals(backedLine, mapsLine(text(read(calls, buffer, "/proc/self/maps")), backed,
+                backed + page));
+        assertEquals(String.format("%08x-%08x r--p 00000000 00:00 0 ", backed, backed + page),
+                backedLine);
     }
 
     /** One address-space line, found by the range it reports. */

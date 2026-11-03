@@ -57,9 +57,9 @@ public interface Memory extends IO, Loader, StackMemory {
     /**
      * Names an anonymous range of the address space, which {@code /proc/self/maps} reports after
      * the range. A named range answers with its own line and its own extent, cut out of the
-     * mapping it lies in. The runtime names one extent of one kind of mapping, so a range the
-     * mappings do not cover, a range of file-backed memory, and a range whose mappings differ in
-     * protection or flags are refused.
+     * mapping it lies in. The kernel walks the mappings the range covers and names each of them,
+     * so a range that spans mappings of different protection or flags names every part. A range
+     * the mappings do not cover, or a range of file-backed memory, is refused.
      *
      * @return the errno of the refusal, or 0 when the range is named
      */

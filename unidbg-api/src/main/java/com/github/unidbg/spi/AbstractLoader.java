@@ -200,7 +200,6 @@ public abstract class AbstractLoader<T extends NewFileIO> implements Memory, Loa
         long start = address;
         long end = address + length;
         List<MemoryMap> affected = new ArrayList<>();
-        MemoryMap first = null;
         long covered = start;
         for (MemoryMap map : memoryMap.values()) {
             if (covered >= end) break;
@@ -208,10 +207,6 @@ public abstract class AbstractLoader<T extends NewFileIO> implements Memory, Loa
             if (mapEnd <= covered) continue;
             if (map.base > covered) return refuseRangeName(start, length, "unmapped", UnixEmulator.ENOMEM);
             if (map.backing != null) return refuseRangeName(start, length, "backed", UnixEmulator.EBADF);
-            if (first != null && (map.prot != first.prot || map.flags != first.flags)) {
-                return refuseRangeName(start, length, "kind", UnixEmulator.EINVAL);
-            }
-            first = map;
             affected.add(map);
             covered = Math.min(mapEnd, end);
         }
@@ -225,12 +220,14 @@ public abstract class AbstractLoader<T extends NewFileIO> implements Memory, Loa
             if (mapEnd > end) {
                 memoryMap.put(end, map.slice(end, mapEnd - end, map.prot));
             }
+            long namedStart = Math.max(map.base, start);
+            long namedEnd = Math.min(mapEnd, end);
+            MemoryMap named = map.slice(namedStart, namedEnd - namedStart, map.prot);
+            named.name = name;
+            memoryMap.put(namedStart, named);
         }
-        MemoryMap named = first.slice(start, end - start, first.prot);
-        named.name = name;
-        memoryMap.put(start, named);
-        log.debug("event=memory_range_named address=0x{} length={} name={}", Long.toHexString(start),
-                length, name);
+        log.debug("event=memory_range_named address=0x{} length={} name={} mappings={}",
+                Long.toHexString(start), length, name, affected.size());
         return 0;
     }
 

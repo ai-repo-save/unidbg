@@ -196,8 +196,9 @@ public class KernelSyscallsIntegrationTest {
         assertEquals(0, field(self, "ru_stime_sec"));
         assertEquals(0, field(self, "ru_stime_usec"));
         assertEquals(mapped / 1024, field(self, "ru_maxrss"));
-        // ru_maxrss is the fifth field of the 64-bit struct rusage and of the four-byte
-        // struct compat_rusage, at the offset each ABI gives it.
+        // ru_maxrss is the third member of struct rusage and of struct compat_rusage, behind the
+        // two timevals: sixteen bytes each in the one structure and eight in the other, at the
+        // offset each ABI gives it.
         assertEquals(mapped / 1024, calls.is64Bit() ? usage.getLong(32) : word(usage, 16));
 
         // The runtime holds no child of the process, so no child spent CPU time and none held a

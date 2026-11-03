@@ -1267,11 +1267,12 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
             log.debug("clock_getres clk_id={} is not a clock of the process", clk_id);
             return -UnixEmulator.EINVAL;
         }
+        long resolution = ClockSource.resolutionNanos(clk_id);
         if (log.isDebugEnabled()) {
-            log.debug("clock_getres clk_id={}, res={}", clk_id, res);
+            log.debug("clock_getres clk_id={}, res={}, resolution={}", clk_id, res, resolution);
         }
-        res.setLong(0, 0);
-        res.setLong(8, ClockSource.CLOCK_RESOLUTION_NANOS);
+        res.setLong(0, resolution / 1_000_000_000L);
+        res.setLong(8, resolution % 1_000_000_000L);
         return 0;
     }
 

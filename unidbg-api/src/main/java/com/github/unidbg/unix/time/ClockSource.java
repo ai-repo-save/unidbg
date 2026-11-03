@@ -14,6 +14,11 @@ import com.github.unidbg.Emulator;
  * the NTP slew, {@code gettimeofday} reads the wall clock, and Android's
  * {@code SystemClock.uptimeMillis} is the millisecond reading of the monotonic timeline.
  *
+ * The coarse clocks read the same timelines truncated to the tick their {@code clock_getres}
+ * reports, the alarm clocks read the timeline of their base clock because the alarm ids only
+ * affect which timers may wake the device, and {@code CLOCK_TAI} is the wall clock plus the
+ * offset the device's timekeeping holds against it.
+ *
  * {@code CLOCK_PROCESS_CPUTIME_ID} and {@code CLOCK_THREAD_CPUTIME_ID} count CPU time instead of
  * elapsed time and come from {@link CpuTimeSource}: a process that sleeps burns neither.
  */
@@ -24,11 +29,26 @@ public final class ClockSource {
     public static final int CLOCK_PROCESS_CPUTIME_ID = 2;
     public static final int CLOCK_THREAD_CPUTIME_ID = 3;
     public static final int CLOCK_MONOTONIC_RAW = 4;
+    public static final int CLOCK_REALTIME_COARSE = 5;
     public static final int CLOCK_MONOTONIC_COARSE = 6;
     public static final int CLOCK_BOOTTIME = 7;
+    public static final int CLOCK_REALTIME_ALARM = 8;
+    public static final int CLOCK_BOOTTIME_ALARM = 9;
+    public static final int CLOCK_TAI = 11;
 
-    /** The resolution {@code clock_getres} reports for every clock of the process. */
+    /** The resolution {@code clock_getres} reports for the clocks that read the timekeeping clock. */
     public static final long CLOCK_RESOLUTION_NANOS = 1;
+    /**
+     * The tick the coarse clocks truncate to, as the reference device's {@code clock_getres}
+     * reports it: the kernel updates their cached reading once per tick of its timer.
+     */
+    public static final long COARSE_RESOLUTION_NANOS = 10_000_000L;
+    /**
+     * Distance of {@code CLOCK_TAI} from {@code CLOCK_REALTIME}, the leap second count the
+     * kernel keeps; the reference device's time daemon leaves it at zero, so its TAI clock
+     * reads the wall clock.
+     */
+    public static final long TAI_OFFSET_NANOS = 0;
 
     private static final String KEY = "unidbg.clockSource";
 
@@ -85,7 +105,8 @@ public final class ClockSource {
     /**
      * Whether the emulated process has this clock. The kernel answers a {@code clock_gettime} or
      * {@code clock_getres} of a clock id it does not know with {@code EINVAL}, and so does the
-     * process for the clocks it does not model.
+     * process for the clocks it does not model. {@code CLOCK_SGI_CYCLE} is hardware specific:
+     * a kernel without a cycle counter refuses it, and so does this process.
      */
     public static boolean isModeled(int clockId) {
         switch (clockId) {
@@ -94,26 +115,49 @@ public final class ClockSource {
             case CLOCK_PROCESS_CPUTIME_ID:
             case CLOCK_THREAD_CPUTIME_ID:
             case CLOCK_MONOTONIC_RAW:
+            case CLOCK_REALTIME_COARSE:
             case CLOCK_MONOTONIC_COARSE:
             case CLOCK_BOOTTIME:
+            case CLOCK_REALTIME_ALARM:
+            case CLOCK_BOOTTIME_ALARM:
+            case CLOCK_TAI:
                 return true;
             default:
                 return false;
         }
     }
 
+    /** The resolution {@code clock_getres} reports for one clock of the process. */
+    public static long resolutionNanos(int clockId) {
+        switch (clockId) {
+            case CLOCK_REALTIME_COARSE:
+            case CLOCK_MONOTONIC_COARSE:
+                return COARSE_RESOLUTION_NANOS;
+            default:
+                return CLOCK_RESOLUTION_NANOS;
+        }
+    }
+
     /** One reading of the kernel's {@code clock_gettime}, in nanoseconds. */
     public static long clockNanos(Emulator<?> emulator, int clockId) {
+        ClockSource source = of(emulator);
         switch (clockId) {
             case CLOCK_REALTIME:
-                return of(emulator).realtimeNanos();
+            case CLOCK_REALTIME_ALARM:
+                return source.realtimeNanos();
+            case CLOCK_REALTIME_COARSE:
+                return truncate(source.realtimeNanos(), COARSE_RESOLUTION_NANOS);
+            case CLOCK_TAI:
+                return source.realtimeNanos() + TAI_OFFSET_NANOS;
             case CLOCK_MONOTONIC:
+                return source.monotonicNanos();
             case CLOCK_MONOTONIC_COARSE:
-                return of(emulator).monotonicNanos();
+                return truncate(source.monotonicNanos(), COARSE_RESOLUTION_NANOS);
             case CLOCK_MONOTONIC_RAW:
-                return of(emulator).monotonicRawNanos();
+                return source.monotonicRawNanos();
             case CLOCK_BOOTTIME:
-                return of(emulator).boottimeNanos();
+            case CLOCK_BOOTTIME_ALARM:
+                return source.boottimeNanos();
             case CLOCK_PROCESS_CPUTIME_ID:
                 return CpuTimeSource.of(emulator).processNanos();
             case CLOCK_THREAD_CPUTIME_ID:
@@ -121,6 +165,11 @@ public final class ClockSource {
             default:
                 throw new IllegalArgumentException("clk_id=" + clockId);
         }
+    }
+
+    /** A coarse clock reports the base reading of the tick it falls into. */
+    private static long truncate(long nanos, long resolution) {
+        return nanos - Math.floorMod(nanos, resolution);
     }
 
     /** Wall clock; {@code gettimeofday} and {@code System.currentTimeMillis} read it. */

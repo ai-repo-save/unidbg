@@ -21,7 +21,9 @@ import static org.junit.Assert.assertTrue;
  * {@code clock_gettime(2)} and {@code clock_getres(2)} of both bitnesses answer from the
  * process's installed clock readings, in read order, and keep the kernel relations between the
  * clock ids. The CPU clocks count the time the guest spent running, so the window it spends in
- * {@code nanosleep(2)} does not advance them.
+ * {@code nanosleep(2)} does not advance them. The coarse clocks read their timeline truncated to
+ * the tick {@code clock_getres} reports, the alarm clocks read the timeline of their base clock,
+ * and {@code CLOCK_TAI} reads the wall clock plus the recorded offset.
  */
 public class ClockReadingsIntegrationTest {
     private static final int CLOCK_REALTIME = 0;
@@ -30,8 +32,15 @@ public class ClockReadingsIntegrationTest {
     private static final int CLOCK_THREAD_CPUTIME_ID = 3;
     private static final int CLOCK_MONOTONIC_RAW = 4;
     private static final int CLOCK_REALTIME_COARSE = 5;
+    private static final int CLOCK_MONOTONIC_COARSE = 6;
     private static final int CLOCK_BOOTTIME = 7;
     private static final int CLOCK_REALTIME_ALARM = 8;
+    private static final int CLOCK_BOOTTIME_ALARM = 9;
+    private static final int CLOCK_SGI_CYCLE = 10;
+    private static final int CLOCK_TAI = 11;
+
+    /** The tick the reference device's coarse clocks report. */
+    private static final long COARSE_NANOS = 10_000_000L;
 
     private static final long SLEEP_NANOS = 50_000_000L;
     /** CPU time the sleeping guest may still spend, a quarter of the sleep window. */
@@ -76,10 +85,25 @@ public class ClockReadingsIntegrationTest {
                     assertEquals(1L, calls.clockGetres(CLOCK_THREAD_CPUTIME_ID, value));
                     assertEquals(1L, calls.clockGetres(CLOCK_PROCESS_CPUTIME_ID, value));
 
-                    assertEquals(-UnixEmulator.EINVAL, calls.clockGettimeReturn(CLOCK_REALTIME_COARSE, value));
-                    assertEquals(-UnixEmulator.EINVAL, calls.clockGettimeReturn(CLOCK_REALTIME_ALARM, value));
-                    assertEquals(-UnixEmulator.EINVAL, calls.clockGetresReturn(CLOCK_REALTIME_ALARM, value));
-                    // The clocks of the process still answer after the rejected clock ids.
+                    // The coarse clocks read their timeline truncated to the tick they report.
+                    assertEquals(COARSE_NANOS, calls.clockGetres(CLOCK_REALTIME_COARSE, value));
+                    assertEquals(COARSE_NANOS, calls.clockGetres(CLOCK_MONOTONIC_COARSE, value));
+                    assertEquals(1L, calls.clockGetres(CLOCK_REALTIME_ALARM, value));
+                    assertEquals(1L, calls.clockGetres(CLOCK_TAI, value));
+                    assertEquals(1_700_000_005_000_000_000L,
+                            calls.clockGettime(CLOCK_REALTIME_COARSE, value));
+                    assertEquals(1_000_500_000_000L, calls.clockGettime(CLOCK_MONOTONIC_COARSE, value));
+                    // An alarm clock reads its base clock, and CLOCK_TAI reads the wall clock
+                    // plus the offset the reference device records.
+                    assertEquals(1_700_000_005_006_000_000L,
+                            calls.clockGettime(CLOCK_REALTIME_ALARM, value));
+                    assertEquals(1_003_500_000_000L, calls.clockGettime(CLOCK_BOOTTIME_ALARM, value));
+                    assertEquals(1_700_000_005_006_000_000L, calls.clockGettime(CLOCK_TAI, value));
+
+                    // CLOCK_SGI_CYCLE is hardware specific: a kernel without a cycle counter
+                    // refuses it, and the clocks of the process still answer afterwards.
+                    assertEquals(-UnixEmulator.EINVAL, calls.clockGettimeReturn(CLOCK_SGI_CYCLE, value));
+                    assertEquals(-UnixEmulator.EINVAL, calls.clockGetresReturn(CLOCK_SGI_CYCLE, value));
                     assertEquals(1_000_500_000_000L, calls.clockGettime(CLOCK_MONOTONIC, value));
                 } finally {
                     scratch.free();

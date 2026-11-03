@@ -26,6 +26,7 @@ import com.github.unidbg.linux.file.LocalSocketIO;
 import com.github.unidbg.linux.file.NetLinkSocket;
 import com.github.unidbg.linux.file.SocketIO;
 import com.github.unidbg.linux.file.UdpSocket;
+import com.github.unidbg.unix.kernel.KernelIdentity;
 import com.github.unidbg.linux.struct.Stat32;
 import com.github.unidbg.linux.struct.SysInfo32;
 import com.github.unidbg.linux.thread.KitKatThread;
@@ -1447,24 +1448,25 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
         }
 
         final int SYS_NMLN = 65;
+        KernelIdentity identity = emulator.getKernelIdentity();
 
         Pointer sysname = buf.share(0);
-        sysname.setString(0, "Linux");
+        sysname.setString(0, KernelIdentity.SYSNAME);
 
         Pointer nodename = sysname.share(SYS_NMLN);
-        nodename.setString(0, "localhost");
+        nodename.setString(0, identity.nodename());
 
         Pointer release = nodename.share(SYS_NMLN);
-        release.setString(0, "1.0.0-unidbg");
+        release.setString(0, identity.release());
 
         Pointer version = release.share(SYS_NMLN);
-        version.setString(0, "#1 SMP PREEMPT Thu Apr 19 14:36:58 CST 2018");
+        version.setString(0, identity.version());
 
         Pointer machine = version.share(SYS_NMLN);
-        machine.setString(0, "armv7l");
+        machine.setString(0, identity.machine());
 
         Pointer domainname = machine.share(SYS_NMLN);
-        domainname.setString(0, "localdomain");
+        domainname.setString(0, identity.domainname());
 
         return 0;
     }

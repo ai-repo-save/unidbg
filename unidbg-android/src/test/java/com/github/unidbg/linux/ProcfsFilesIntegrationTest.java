@@ -111,7 +111,9 @@ public class ProcfsFilesIntegrationTest {
         assertArrayEquals(("/system/bin/app_process64\u0000" + NAME + "\u0000").getBytes(StandardCharsets.UTF_8),
                 read(calls, buffer, "/proc/self/cmdline"));
         String mounts = text(read(calls, buffer, "/proc/self/mounts"));
-        assertTrue(mounts, mounts.startsWith("rootfs / rootfs rw 0 0\nproc /proc proc rw,relatime 0 0\n"));
+        assertTrue(mounts, mounts.startsWith("rootfs / rootfs rw,relatime 0 0\n"
+                + "proc /proc proc rw,nosuid,nodev,noexec,relatime 0 0\n"
+                + "sysfs /sys sysfs rw,nosuid,nodev,noexec,relatime 0 0\n"));
         String mountinfo = text(read(calls, buffer, "/proc/self/mountinfo"));
         assertTrue(mountinfo, mountinfo.contains(" - proc proc rw\n"));
         String maps = text(read(calls, buffer, "/proc/self/maps"));
@@ -131,7 +133,8 @@ public class ProcfsFilesIntegrationTest {
                 "status"), sorted(entries));
         assertEquals(DirectoryEntry.DirentType.DT_LNK, type(entries, "exe"));
         assertEquals(DirectoryEntry.DirentType.DT_REG, type(entries, "status"));
-        assertEquals(Arrays.asList(".", "..", "self"), sorted(directories(calls, buffer, "/proc")));
+        assertEquals(Arrays.asList(".", "..", "self", "uptime", "version"),
+                sorted(directories(calls, buffer, "/proc")));
     }
 
     /** The address space holds one mapping for a runtime page, carrying the mapped permissions. */

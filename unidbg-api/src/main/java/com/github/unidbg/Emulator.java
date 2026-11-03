@@ -18,6 +18,7 @@ import com.github.unidbg.spi.ArmDisassembler;
 import com.github.unidbg.spi.Dlfcn;
 import com.github.unidbg.spi.LibraryFile;
 import com.github.unidbg.spi.SyscallHandler;
+import com.github.unidbg.unix.kernel.KernelIdentity;
 import com.github.unidbg.thread.ThreadDispatcher;
 import com.github.unidbg.unwind.Unwinder;
 
@@ -100,6 +101,16 @@ public interface Emulator<T extends NewFileIO> extends Closeable, ArmDisassemble
 
     /** Replaces the host-process default with the target process id from the same status facts the guest reads. */
     void setPid(int pid);
+
+    /**
+     * The kernel identity the guest reads for the machine it runs on: the {@code uname(2)} fields
+     * and the capability words the auxiliary vector publishes. A platform the runtime emulates
+     * answers the fields it defines itself, and the ones only a kernel build has stay empty.
+     */
+    KernelIdentity getKernelIdentity();
+
+    /** Replaces the platform's kernel identity with what the recorded machine states. */
+    void setKernelIdentity(KernelIdentity identity);
 
     String getProcessName();
 

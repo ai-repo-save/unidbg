@@ -196,6 +196,23 @@ public final class ClockSource {
         return monotonicNanos() / 1_000_000L;
     }
 
+    /**
+     * The reading the monotonic timeline stands at, without taking the next recorded one. An
+     * interface that reports the clock rather than reads it, such as {@code /proc/uptime}, answers
+     * with the reading the process's own clock has reached.
+     */
+    public long currentMonotonicNanos() {
+        if (monotonicReadings == null) {
+            return System.nanoTime() - hostMonotonicOrigin;
+        }
+        return monotonicReadings[Math.min(Math.max(monotonicReads - 1, 0), monotonicReadings.length - 1)];
+    }
+
+    /** The boot clock's current reading: the monotonic timeline plus the suspend time. */
+    public long currentBoottimeNanos() {
+        return currentMonotonicNanos() + suspendNanos;
+    }
+
     /** Monotonic timeline plus suspend time; Android's elapsedRealtime counts the same clock. */
     public long boottimeNanos() {
         return monotonicNanos() + suspendNanos;

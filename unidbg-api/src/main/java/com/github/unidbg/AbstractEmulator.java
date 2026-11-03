@@ -24,6 +24,7 @@ import com.github.unidbg.pointer.UnidbgPointer;
 import com.github.unidbg.spi.Dlfcn;
 import com.github.unidbg.thread.*;
 import com.github.unidbg.unix.UnixSyscallHandler;
+import com.github.unidbg.unix.kernel.KernelIdentity;
 import com.github.unidbg.utils.Inspector;
 import com.sun.jna.Pointer;
 import org.apache.commons.io.FileUtils;
@@ -55,6 +56,8 @@ public abstract class AbstractEmulator<T extends NewFileIO> implements Emulator<
     protected final Backend backend;
 
     private int pid;
+
+    private KernelIdentity kernelIdentity;
 
     protected long timeout = DEFAULT_TIMEOUT;
 
@@ -202,6 +205,30 @@ public abstract class AbstractEmulator<T extends NewFileIO> implements Emulator<
         if (pid < 1) throw new IllegalArgumentException("pid must be positive: " + pid);
         this.pid = pid;
         onPidChanged(pid);
+    }
+
+    @Override
+    public KernelIdentity getKernelIdentity() {
+        return kernelIdentity != null
+                ? kernelIdentity : KernelIdentity.platform(is64Bit());
+    }
+
+    @Override
+    public void setKernelIdentity(KernelIdentity identity) {
+        if (identity == null) throw new IllegalArgumentException("kernel identity must be stated");
+        this.kernelIdentity = identity;
+        log.debug("event=kernel_identity_configured emulator={} nodename={} release={} version={} machine={} domainname={} hwcap={} hwcap2={}",
+                System.identityHashCode(this), identity.nodename(), identity.release(),
+                identity.version(), identity.machine(), identity.domainname(), identity.hwcap(),
+                identity.hwcap2());
+        onKernelIdentityChanged(identity);
+    }
+
+    /**
+     * Called once the kernel identity changed, so what the runtime already derived from the
+     * platform's identity follows it. The caller sets the identity before the guest runs.
+     */
+    protected void onKernelIdentityChanged(KernelIdentity identity) {
     }
 
     /**

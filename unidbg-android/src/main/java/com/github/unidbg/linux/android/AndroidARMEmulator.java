@@ -16,6 +16,7 @@ import com.github.unidbg.memory.SvcMemory;
 import com.github.unidbg.spi.Dlfcn;
 import com.github.unidbg.spi.LibraryFile;
 import com.github.unidbg.unix.UnixSyscallHandler;
+import com.github.unidbg.unix.kernel.KernelIdentity;
 import com.github.unidbg.unwind.Unwinder;
 
 import java.io.File;
@@ -53,6 +54,11 @@ public class AndroidARMEmulator extends AbstractARMEmulator<AndroidFileIO> imple
     @Override
     protected void onPidChanged(int pid) {
         ((AndroidElfLoader) memory).processIdChanged(pid);
+    }
+
+    @Override
+    protected void onKernelIdentityChanged(KernelIdentity identity) {
+        ((AndroidElfLoader) memory).kernelIdentityChanged(identity);
     }
 
     @Override

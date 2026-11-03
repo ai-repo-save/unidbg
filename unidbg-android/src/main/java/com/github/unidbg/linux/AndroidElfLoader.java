@@ -25,6 +25,7 @@ import com.github.unidbg.thread.Task;
 import com.github.unidbg.unix.IO;
 import com.github.unidbg.unix.UnixSyscallHandler;
 import com.github.unidbg.unix.UnixEmulator;
+import com.github.unidbg.unix.kernel.KernelIdentity;
 import com.github.unidbg.virtualmodule.VirtualSymbol;
 import com.sun.jna.Pointer;
 import net.fornwall.jelf.ArmExIdx;
@@ -116,6 +117,43 @@ public class AndroidElfLoader extends AbstractLoader<AndroidFileIO> implements M
         internal.pack();
     }
 
+    /** The {@code AT_HWCAP} and {@code AT_HWCAP2} entries of the auxiliary vector. */
+    private static final int AT_HWCAP = 16;
+    private static final int AT_HWCAP2 = 26;
+    private static final int AT_NULL = 0;
+    private static final int AT_RANDOM = 25; // AT_RANDOM is a pointer to 16 bytes of randomness on the stack.
+    private static final int AT_PAGESZ = 6;
+
+    /** The auxiliary vector the guest's libc reads, kept so a stated identity reaches it. */
+    private UnidbgPointer auxv;
+
+    /**
+     * The auxiliary vector the guest's libc reads: the pointer to the random bytes, the page size
+     * and the capability words of the machine. A word the kernel did not publish has no entry, so
+     * {@code getauxval} answers it with {@code ENOENT} instead of a zero value; the vector ends
+     * where the first zero type is written.
+     */
+    private void writeCapabilityWords(KernelIdentity identity) {
+        final int pointerSize = emulator.getPointerSize();
+        long offset = pointerSize * 4L;
+        if (identity.hwcap() != null) {
+            auxv.setPointer(offset, UnidbgPointer.pointer(emulator, AT_HWCAP));
+            auxv.setPointer(offset += pointerSize, UnidbgPointer.pointer(emulator, identity.hwcap()));
+            offset += pointerSize;
+        }
+        if (identity.hwcap2() != null) {
+            auxv.setPointer(offset, UnidbgPointer.pointer(emulator, AT_HWCAP2));
+            auxv.setPointer(offset += pointerSize, UnidbgPointer.pointer(emulator, identity.hwcap2()));
+            offset += pointerSize;
+        }
+        auxv.setPointer(offset, UnidbgPointer.pointer(emulator, AT_NULL));
+    }
+
+    /** Rewrites the capability words once the machine's identity is stated. */
+    public void kernelIdentityChanged(KernelIdentity identity) {
+        writeCapabilityWords(identity);
+    }
+
     private UnidbgPointer initializeTLS(String[] envs) {
         final Pointer thread = allocateStack(0x400); // reserve space for pthread_internal_t
         PThreadInternal pThread = PThreadInternal.create(emulator, thread);
@@ -130,14 +168,14 @@ public class AndroidElfLoader extends AbstractLoader<AndroidFileIO> implements M
         assert programNamePointer != null;
         programNamePointer.setPointer(0, programName);
 
-        final Pointer auxv = allocateStack(0x100);
+        final UnidbgPointer auxv = allocateStack(0x100);
         assert auxv != null;
-        final int AT_RANDOM = 25; // AT_RANDOM is a pointer to 16 bytes of randomness on the stack.
+        this.auxv = auxv;
         auxv.setPointer(0, UnidbgPointer.pointer(emulator, AT_RANDOM));
         auxv.setPointer(emulator.getPointerSize(), __stack_chk_guard);
-        final int AT_PAGESZ = 6;
         auxv.setPointer(emulator.getPointerSize() * 2L, UnidbgPointer.pointer(emulator, AT_PAGESZ));
         auxv.setPointer(emulator.getPointerSize() * 3L, UnidbgPointer.pointer(emulator, ARMEmulator.PAGE_ALIGN));
+        writeCapabilityWords(emulator.getKernelIdentity());
 
         List<String> envList = new ArrayList<>();
         for (String env : envs) {

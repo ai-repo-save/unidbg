@@ -28,6 +28,7 @@ import com.github.unidbg.linux.file.SocketIO;
 import com.github.unidbg.linux.file.UdpSocket;
 import com.github.unidbg.linux.file.seqpacket.NativeSeqpacketSocketFactory;
 import com.github.unidbg.linux.kernel.KernelSyscalls;
+import com.github.unidbg.unix.kernel.KernelIdentity;
 import com.github.unidbg.linux.struct.Stat64;
 import com.github.unidbg.linux.thread.MarshmallowThread;
 import com.github.unidbg.memory.SvcMemory;
@@ -1112,24 +1113,25 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
         }
 
         final int SYS_NMLN = 65;
+        KernelIdentity identity = emulator.getKernelIdentity();
 
         Pointer sysName = buf.share(0);
-        sysName.setString(0, "Linux"); /* Operating system name (e.g., "Linux") */
+        sysName.setString(0, KernelIdentity.SYSNAME); /* Operating system name (e.g., "Linux") */
 
         Pointer nodeName = sysName.share(SYS_NMLN);
-        nodeName.setString(0, "localhost"); /* Name within "some implementation-defined network" */
+        nodeName.setString(0, identity.nodename()); /* Name within "some implementation-defined network" */
 
         Pointer release = nodeName.share(SYS_NMLN);
-        release.setString(0, "1.0.0-unidbg"); /* Operating system release (e.g., "2.6.28") */
+        release.setString(0, identity.release()); /* Operating system release (e.g., "2.6.28") */
 
         Pointer version = release.share(SYS_NMLN);
-        version.setString(0, "#1 SMP PREEMPT Thu Apr 19 14:36:58 CST 2018"); /* Operating system version */
+        version.setString(0, identity.version()); /* Operating system version */
 
         Pointer machine = version.share(SYS_NMLN);
-        machine.setString(0, "armv8l"); /* Hardware identifier */
+        machine.setString(0, identity.machine()); /* Hardware identifier */
 
         Pointer domainName = machine.share(SYS_NMLN);
-        domainName.setString(0, "localdomain"); /* NIS or YP domain name */
+        domainName.setString(0, identity.domainname()); /* NIS or YP domain name */
 
         return 0;
     }
@@ -1185,10 +1187,10 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
     private static final int PR_SET_NO_NEW_PRIVS = 38;
     private static final int PR_GET_NO_NEW_PRIVS = 39;
     private static final int PR_SET_THP_DISABLE = 41;
+    private static final int BIONIC_PR_SET_VMA = 0x53564d41;
     /** SECCOMP_MODE_FILTER: the mode zygote leaves behind. */
     private static final int SECCOMP_MODE_FILTER = 2;
     private static final int NO_NEW_PRIVS_SET = 1;
-    private static final int BIONIC_PR_SET_VMA = 0x53564d41;
     private static final int PR_SET_PTRACER = 0x59616d61;
 
     private int prctl(Emulator<?> emulator) {

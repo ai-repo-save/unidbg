@@ -10,6 +10,7 @@ import com.github.unidbg.linux.kernel.ProcessCapabilities;
 import com.github.unidbg.linux.kernel.ProcessMemory;
 import com.github.unidbg.memory.Memory;
 import com.github.unidbg.unix.IO;
+import com.github.unidbg.unix.time.ClockSource;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
@@ -54,14 +55,68 @@ public final class ProcfsFiles {
     private static final String MAPS = "maps";
     private static final String EXE = "exe";
     private static final String ATTR = "attr";
+    private static final String VERSION = "version";
+    private static final String UPTIME = "uptime";
 
     /** Names rendered from the runtime when no declaration replaces them. */
     private static final List<String> RENDERED = Collections.unmodifiableList(Arrays.asList(
             STATUS, STAT, COMM, CMDLINE, MOUNTS, MOUNTINFO, MAPS, EXE));
 
-    private static final String MOUNTS_TEXT = "rootfs / rootfs rw 0 0\nproc /proc proc rw,relatime 0 0\n";
-    private static final String MOUNTINFO_TEXT =
-            "1 0 0:1 / / rw - rootfs rootfs rw\n2 1 0:2 / /proc rw,relatime - proc proc rw\n";
+    /**
+     * One file system the runtime serves: the guest root directory, procfs and sysfs. A recording
+     * replaces the whole table, because the mounts of a device are its own; without one the guest
+     * reads the file systems that answer it.
+     */
+    private static final class Mount {
+        private final int id;
+        private final int parent;
+        private final String device;
+        private final String point;
+        private final String type;
+        private final String source;
+        private final String options;
+
+        private Mount(int id, int parent, String device, String point, String type, String source,
+                      String options) {
+            this.id = id;
+            this.parent = parent;
+            this.device = device;
+            this.point = point;
+            this.type = type;
+            this.source = source;
+            this.options = options;
+        }
+
+        /** One mountinfo line, with the optional-field separator of proc(5). */
+        private String mountinfo() {
+            return id + " " + parent + " " + device + " / " + point + " " + options
+                    + " - " + type + " " + source + " rw\n";
+        }
+
+        /** One mounts line: source, mount point, type, options, dump and pass. */
+        private String mounts() {
+            return source + " " + point + " " + type + " " + options + " 0 0\n";
+        }
+    }
+
+    private static final List<Mount> RUNTIME_MOUNTS = Collections.unmodifiableList(Arrays.asList(
+            new Mount(1, 0, "0:1", "/", "rootfs", "rootfs", "rw,relatime"),
+            new Mount(2, 1, "0:2", "/proc", "proc", "proc", "rw,nosuid,nodev,noexec,relatime"),
+            new Mount(3, 1, "0:3", "/sys", "sysfs", "sysfs", "rw,nosuid,nodev,noexec,relatime")));
+
+    /** The mount table of the runtime's file systems, which a guest reads as {@code mountinfo}. */
+    private static String mountinfoText() {
+        StringBuilder builder = new StringBuilder();
+        for (Mount mount : RUNTIME_MOUNTS) builder.append(mount.mountinfo());
+        return builder.toString();
+    }
+
+    /** The same mounts as {@code /proc/self/mounts} reports them. */
+    private static String mountsText() {
+        StringBuilder builder = new StringBuilder();
+        for (Mount mount : RUNTIME_MOUNTS) builder.append(mount.mounts());
+        return builder.toString();
+    }
 
     /** A generated file is read-only: the guest reads it and the runtime answers it. */
     private static final int FILE_MODE = IO.S_IFREG | 0444;
@@ -183,14 +238,21 @@ public final class ProcfsFiles {
             List<DirectoryEntry> entries = processEntries(emulator, path);
             return entries.isEmpty() ? null : directory(entries);
         }
+        // The kernel's own identity: the build it runs and how long the machine has been up.
+        if (path.equals(PROC + "/" + VERSION)) {
+            return file(emulator.getKernelIdentity().procVersion().getBytes(StandardCharsets.UTF_8));
+        }
+        if (path.equals(PROC + "/" + UPTIME)) {
+            return file(renderUptime(emulator).getBytes(StandardCharsets.UTF_8));
+        }
         if (!path.startsWith(SELF + "/")) return null;
         switch (path.substring(SELF.length() + 1)) {
             case STATUS: return file(renderStatus(emulator).getBytes(StandardCharsets.UTF_8));
             case STAT: return file(renderStat(emulator).getBytes(StandardCharsets.UTF_8));
             case COMM: return file((comm(emulator) + "\n").getBytes(StandardCharsets.UTF_8));
             case CMDLINE: return file(renderCmdline(emulator));
-            case MOUNTS: return file(MOUNTS_TEXT.getBytes(StandardCharsets.UTF_8));
-            case MOUNTINFO: return file(MOUNTINFO_TEXT.getBytes(StandardCharsets.UTF_8));
+            case MOUNTS: return file(mountsText().getBytes(StandardCharsets.UTF_8));
+            case MOUNTINFO: return file(mountinfoText().getBytes(StandardCharsets.UTF_8));
             case MAPS: return file(MapsFileIO.getMapsData(emulator, emulator.getMemory().getLoadedModules(), null));
             case EXE: return link(executable(emulator));
             default: return null;
@@ -282,7 +344,7 @@ public final class ProcfsFiles {
     private String mountinfo() {
         Item item = declared.get(SELF + "/" + MOUNTINFO);
         return item != null && item.kind == Item.Kind.FILE
-                ? new String(item.content, StandardCharsets.ISO_8859_1) : MOUNTINFO_TEXT;
+                ? new String(item.content, StandardCharsets.ISO_8859_1) : mountinfoText();
     }
 
     /** The device number of a mountinfo {@code major:minor}, packed as the kernel reports it. */
@@ -379,6 +441,8 @@ public final class ProcfsFiles {
         Map<String, DirectoryEntry> entries = new LinkedHashMap<String, DirectoryEntry>();
         if (directory.equals(PROC)) {
             entries.put("self", new DirectoryEntry(DirectoryEntry.DirentType.DT_LNK, "self"));
+            entries.put(VERSION, new DirectoryEntry(DirectoryEntry.DirentType.DT_REG, VERSION));
+            entries.put(UPTIME, new DirectoryEntry(DirectoryEntry.DirentType.DT_REG, UPTIME));
             for (String path : declared.keySet()) {
                 String process = processComponent(path);
                 if (process != null && !process.equals("self")) {
@@ -443,6 +507,17 @@ public final class ProcfsFiles {
             case LINK: return DirectoryEntry.DirentType.DT_LNK;
             default: return DirectoryEntry.DirentType.DT_REG;
         }
+    }
+
+    /**
+     * {@code /proc/uptime}: the boot clock's reading in seconds and the idle time, which the
+     * runtime keeps no accounting for. The machine's uptime is the process's boot clock, so the
+     * report reads the timeline without taking the next recorded reading of it.
+     */
+    private static String renderUptime(Emulator<AndroidFileIO> emulator) {
+        long boottime = ClockSource.of(emulator).currentBoottimeNanos();
+        return String.format("%d.%02d 0.00\n", boottime / 1_000_000_000L,
+                boottime % 1_000_000_000L / 10_000_000L);
     }
 
     private static String comm(Emulator<AndroidFileIO> emulator) {

@@ -54,6 +54,15 @@ public interface Memory extends IO, Loader, StackMemory {
 
     Collection<MemoryMap> getMemoryMap();
 
+    /**
+     * Names an anonymous range of the address space, which {@code /proc/self/maps} reports after
+     * the range. The kernel splits the range out of the mappings it lies in, so a named range
+     * answers with its own line and its own extent.
+     *
+     * @return whether the range is anonymous memory of this address space
+     */
+    boolean nameAnonymousRange(long address, long length, String name);
+
     void setMMapListener(MMapListener listener);
 
     MMapListener getMMapListener();

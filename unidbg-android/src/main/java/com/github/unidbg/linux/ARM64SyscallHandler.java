@@ -27,6 +27,7 @@ import com.github.unidbg.linux.file.PipedSocketIO;
 import com.github.unidbg.linux.file.SocketIO;
 import com.github.unidbg.linux.file.UdpSocket;
 import com.github.unidbg.linux.file.seqpacket.NativeSeqpacketSocketFactory;
+import com.github.unidbg.linux.kernel.AnonymousName;
 import com.github.unidbg.linux.kernel.KernelSyscalls;
 import com.github.unidbg.unix.kernel.KernelIdentity;
 import com.github.unidbg.linux.struct.Stat64;
@@ -1187,7 +1188,6 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
     private static final int PR_SET_NO_NEW_PRIVS = 38;
     private static final int PR_GET_NO_NEW_PRIVS = 39;
     private static final int PR_SET_THP_DISABLE = 41;
-    private static final int BIONIC_PR_SET_VMA = 0x53564d41;
     /** SECCOMP_MODE_FILTER: the mode zygote leaves behind. */
     private static final int SECCOMP_MODE_FILTER = 2;
     private static final int NO_NEW_PRIVS_SET = 1;
@@ -1207,14 +1207,12 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
                     log.debug("prctl set thread name: {}", threadName.getString(0));
                 }
                 return 0;
-            case BIONIC_PR_SET_VMA:
-                Pointer addr = context.getPointerArg(2);
-                int len = context.getIntArg(3);
-                Pointer pointer = context.getPointerArg(4);
-                if (log.isDebugEnabled()) {
-                    log.debug("prctl set vma addr={}, len={}, pointer={}, name={}", addr, len, pointer, pointer.getString(0));
-                }
-                return 0;
+            case AnonymousName.PR_SET_VMA: {
+                long address = context.getLongArg(2);
+                long length = context.getLongArg(3);
+                return AnonymousName.apply(emulator, arg2, address, length,
+                        context.getLongArg(4));
+            }
             case PR_SET_PTRACER:
                 int pid = (int) arg2;
                 if (log.isDebugEnabled()) {

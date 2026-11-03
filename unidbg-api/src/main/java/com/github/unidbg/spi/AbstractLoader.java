@@ -195,6 +195,36 @@ public abstract class AbstractLoader<T extends NewFileIO> implements Memory, Loa
         }
     }
 
+    @Override
+    public boolean nameAnonymousRange(long address, long length, String name) {
+        long start = address;
+        long end = address + length;
+        List<MemoryMap> affected = new ArrayList<>();
+        for (MemoryMap map : memoryMap.values()) {
+            if (start < map.base + map.size && end > map.base) {
+                if (map.backing != null) return false;
+                affected.add(map);
+            }
+        }
+        if (affected.isEmpty()) return false;
+        for (MemoryMap map : affected) {
+            long mapEnd = map.base + map.size;
+            memoryMap.remove(map.base);
+            if (map.base < start) {
+                memoryMap.put(map.base, map.slice(map.base, start - map.base, map.prot));
+            }
+            if (mapEnd > end) {
+                memoryMap.put(end, map.slice(end, mapEnd - end, map.prot));
+            }
+        }
+        MemoryMap named = affected.get(0).slice(start, end - start, affected.get(0).prot);
+        named.name = name;
+        memoryMap.put(start, named);
+        log.debug("event=memory_range_named address=0x{} length={} name={}", Long.toHexString(start),
+                length, name);
+        return true;
+    }
+
     private int unmapInternal(long start, int length) {
         int aligned = (int) ARM.alignSize(length, emulator.getPageAlign());
         backend.mem_unmap(start, aligned);

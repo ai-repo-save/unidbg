@@ -26,6 +26,7 @@ import com.github.unidbg.linux.file.LocalSocketIO;
 import com.github.unidbg.linux.file.NetLinkSocket;
 import com.github.unidbg.linux.file.SocketIO;
 import com.github.unidbg.linux.file.UdpSocket;
+import com.github.unidbg.linux.kernel.AnonymousName;
 import com.github.unidbg.unix.kernel.KernelIdentity;
 import com.github.unidbg.linux.struct.Stat32;
 import com.github.unidbg.linux.struct.SysInfo32;
@@ -1503,7 +1504,6 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
     private static final int PR_SET_DUMPABLE = 4;
     private static final int PR_SET_NAME = 15;
     private static final int PR_GET_NAME = 16;
-    private static final int BIONIC_PR_SET_VMA = 0x53564d41;
     private static final int PR_SET_PTRACER = 0x59616d61;
 
     private int prctl(Backend backend, Emulator<?> emulator) {
@@ -1536,14 +1536,12 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
                 buffer.setString(0, name);
                 return 0;
             }
-            case BIONIC_PR_SET_VMA:
-                Pointer addr = UnidbgPointer.register(emulator, ArmConst.UC_ARM_REG_R2);
-                int len = backend.reg_read(ArmConst.UC_ARM_REG_R3).intValue();
-                Pointer pointer = UnidbgPointer.register(emulator, ArmConst.UC_ARM_REG_R4);
-                if (log.isDebugEnabled()) {
-                    log.debug("prctl set vma addr={}, len={}, pointer={}, name={}", addr, len, pointer, pointer.getString(0));
-                }
-                return 0;
+            case AnonymousName.PR_SET_VMA: {
+                long address = backend.reg_read(ArmConst.UC_ARM_REG_R2).intValue() & 0xffffffffL;
+                long length = backend.reg_read(ArmConst.UC_ARM_REG_R3).intValue() & 0xffffffffL;
+                long name = backend.reg_read(ArmConst.UC_ARM_REG_R4).intValue() & 0xffffffffL;
+                return AnonymousName.apply(emulator, arg2, address, length, name);
+            }
             case PR_SET_PTRACER:
                 int pid = (int) arg2;
                 if (log.isDebugEnabled()) {

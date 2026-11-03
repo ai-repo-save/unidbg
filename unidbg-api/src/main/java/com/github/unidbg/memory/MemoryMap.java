@@ -15,6 +15,8 @@ public class MemoryMap implements Serializable {
     public final long offset;
     public final MappedFileRegion backing;
     public final boolean mayWrite;
+    /** The name a process gave the range, which {@code /proc/self/maps} reports as {@code [anon:<name>]}. */
+    public String name;
 
     public MemoryMap(long base, long size, int prot) {
         this(base, size, prot, 0, 0, null, true);
@@ -32,7 +34,9 @@ public class MemoryMap implements Serializable {
     }
 
     public MemoryMap slice(long address, long length, int protection) {
-        return new MemoryMap(address, length, protection, flags, offset + address - base, backing, mayWrite);
+        MemoryMap slice = new MemoryMap(address, length, protection, flags, offset + address - base, backing, mayWrite);
+        slice.name = name;
+        return slice;
     }
 
     @Override

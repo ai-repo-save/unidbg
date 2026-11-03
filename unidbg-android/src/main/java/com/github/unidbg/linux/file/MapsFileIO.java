@@ -58,7 +58,10 @@ public class MapsFileIO extends ByteArrayFileIO implements FileIO {
                 }
             }
             if (!contains) {
-                mapItems.add(new MapItem(memoryMap.base, memoryMap.base + memoryMap.size, memoryMap.prot, 0, "00:00", "anonymous"));
+                // The kernel prints no path for a range the process did not name, and the name a
+                // process gave an anonymous range is the one it prints.
+                mapItems.add(new MapItem(memoryMap.base, memoryMap.base + memoryMap.size, memoryMap.prot, 0, "00:00",
+                        memoryMap.name == null ? "" : "[anon:" + memoryMap.name + "]"));
             }
         }
         items.addAll(mapItems);

@@ -239,7 +239,7 @@ public final class KernelSyscalls {
      */
     public long getrlimit32(Emulator<AndroidFileIO> emulator, int resource, Pointer limit) {
         if (!ProcessLimits.isResource(resource)) {
-            log.debug("event=prlimit_rejected pid=0 resource={} errno={}", resource, UnixEmulator.EINVAL);
+            log.debug("event=ugetrlimit_rejected resource={} errno={}", resource, UnixEmulator.EINVAL);
             return -UnixEmulator.EINVAL;
         }
         ProcessLimits limits = ProcessLimits.of(emulator);
@@ -247,7 +247,7 @@ public final class KernelSyscalls {
         values.rlim_cur = capped(limits.soft(resource));
         values.rlim_max = capped(limits.hard(resource));
         values.pack();
-        log.debug("event=prlimit_queried pid=0 resource={} soft={} hard={}", resource, limits.soft(resource),
+        log.debug("event=ugetrlimit_queried resource={} soft={} hard={}", resource, limits.soft(resource),
                 limits.hard(resource));
         return 0;
     }

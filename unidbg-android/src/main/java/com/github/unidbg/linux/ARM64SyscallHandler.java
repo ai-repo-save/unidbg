@@ -1131,9 +1131,12 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
                 flags, UnidbgPointer.nativeValue(new_address));
     }
 
+    private static final int PR_GET_SECCOMP = 21;
     private static final int PR_SET_NAME = 15;
     private static final int PR_SET_NO_NEW_PRIVS = 38;
+    private static final int PR_GET_NO_NEW_PRIVS = 39;
     private static final int PR_SET_THP_DISABLE = 41;
+    private static final int SECCOMP_MODE_DISABLED = 0;
     private static final int BIONIC_PR_SET_VMA = 0x53564d41;
     private static final int PR_SET_PTRACER = 0x59616d61;
 
@@ -1168,8 +1171,19 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
             case PR_SET_NO_NEW_PRIVS:
             case PR_SET_THP_DISABLE:
                 return 0;
+            case PR_GET_NO_NEW_PRIVS:
+                // Nothing in the emulation raises privileges for a child, so the process
+                // reports the flag unset, which is the state a fresh process starts in.
+                return 0;
+            case PR_GET_SECCOMP:
+                // The emulating process itself runs without a seccomp filter, and the
+                // emulation installs none, so the guest sees SECCOMP_MODE_DISABLED.
+                return SECCOMP_MODE_DISABLED;
             default:
-                throw new UnsupportedOperationException("option=" + option);
+                // An option this handler does not model gets the answer the kernel gives an
+                // operation it does not know, so the guest receives -1 with errno ENOSYS
+                // instead of the emulation aborting.
+                return -UnixEmulator.ENOSYS;
         }
     }
 

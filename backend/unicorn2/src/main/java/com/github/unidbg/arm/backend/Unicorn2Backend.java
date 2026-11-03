@@ -48,7 +48,7 @@ class Unicorn2Backend extends AbstractBackend implements Backend, HostMemoryBack
             int value = (int) Long.decode(ctrEl0).longValue();
             unicorn.setCtrEl0(value);
             log.info("event=cache_description_provided register=CTR_EL0 value=0x{}",
-                    Long.toHexString(value));
+                    Integer.toHexString(value));
         }
         if (dczBlocksize != null) {
             int value = (int) Long.decode(dczBlocksize).longValue();

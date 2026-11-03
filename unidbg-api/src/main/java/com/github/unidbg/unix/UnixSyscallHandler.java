@@ -18,6 +18,7 @@ import com.github.unidbg.thread.MainTask;
 import com.github.unidbg.unix.struct.TimeVal32;
 import com.github.unidbg.unix.struct.TimeVal64;
 import com.github.unidbg.unix.struct.TimeZone;
+import com.github.unidbg.unix.time.ClockSource;
 import com.github.unidbg.utils.Inspector;
 import com.sun.jna.Pointer;
 import org.slf4j.Logger;
@@ -330,10 +331,6 @@ public abstract class UnixSyscallHandler<T extends NewFileIO> implements Syscall
 
     protected abstract T createByteArrayFileIO(String pathname, int oflags, byte[] data);
 
-    protected long currentTimeMillis() {
-        return System.currentTimeMillis();
-    }
-
     @SuppressWarnings("unused")
     protected int gettimeofday(Emulator<?> emulator, Pointer tv, Pointer tz) {
         if (log.isDebugEnabled()) {
@@ -349,7 +346,7 @@ public abstract class UnixSyscallHandler<T extends NewFileIO> implements Syscall
             Inspector.inspect(before, "gettimeofday tz");
         }
 
-        long currentTimeMillis = currentTimeMillis();
+        long currentTimeMillis = ClockSource.of(emulator).realtimeMillis();
         long tv_sec = currentTimeMillis / 1000;
         long tv_usec = (currentTimeMillis % 1000) * 1000;
         TimeVal32 timeVal = new TimeVal32(tv);
@@ -377,7 +374,7 @@ public abstract class UnixSyscallHandler<T extends NewFileIO> implements Syscall
         return 0;
     }
 
-    protected int gettimeofday64(Pointer tv, Pointer tz) {
+    protected int gettimeofday64(Emulator<?> emulator, Pointer tv, Pointer tz) {
         if (log.isDebugEnabled()) {
             log.debug("gettimeofday64 tv={}, tz={}", tv, tz);
         }
@@ -391,7 +388,7 @@ public abstract class UnixSyscallHandler<T extends NewFileIO> implements Syscall
             Inspector.inspect(before, "gettimeofday tz");
         }
 
-        long currentTimeMillis = currentTimeMillis();
+        long currentTimeMillis = ClockSource.of(emulator).realtimeMillis();
         long tv_sec = currentTimeMillis / 1000;
         long tv_usec = (currentTimeMillis % 1000) * 1000;
         TimeVal64 timeVal = new TimeVal64(tv);

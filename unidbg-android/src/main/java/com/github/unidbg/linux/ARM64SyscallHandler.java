@@ -38,6 +38,7 @@ import com.github.unidbg.thread.Task;
 import com.github.unidbg.thread.ThreadContextSwitchException;
 import com.github.unidbg.unix.IO;
 import com.github.unidbg.unix.UnixEmulator;
+import com.github.unidbg.unix.time.ClockSource;
 import com.github.unidbg.utils.Inspector;
 import com.sun.jna.Pointer;
 import org.slf4j.Logger;
@@ -1198,13 +1199,11 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
     private static final int CLOCK_MONOTONIC_COARSE = 6;
     private static final int CLOCK_BOOTTIME = 7;
 
-    private final long nanoTime = System.nanoTime();
-
     protected int clock_gettime(Emulator<?> emulator) {
         RegisterContext context = emulator.getContext();
         int clk_id = context.getIntArg(0) & 0x7;
         Pointer tp = context.getPointerArg(1);
-        long offset = clk_id == CLOCK_REALTIME ? currentTimeMillis() * 1000000L : System.nanoTime() - nanoTime;
+        long offset = ClockSource.of(emulator).clockNanos(clk_id);
         long tv_sec = offset / 1000000000L;
         long tv_nsec = offset % 1000000000L;
         if (log.isDebugEnabled()) {
@@ -1331,7 +1330,7 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
     private int gettimeofday(Emulator<?> emulator) {
         Pointer tv = UnidbgPointer.register(emulator, Arm64Const.UC_ARM64_REG_X0);
         Pointer tz = UnidbgPointer.register(emulator, Arm64Const.UC_ARM64_REG_X1);
-        return gettimeofday64(tv, tz);
+        return gettimeofday64(emulator, tv, tz);
     }
 
     private int faccessat(Emulator<AndroidFileIO> emulator) {

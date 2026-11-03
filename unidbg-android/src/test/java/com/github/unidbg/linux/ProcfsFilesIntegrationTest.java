@@ -51,6 +51,10 @@ public class ProcfsFilesIntegrationTest {
     private static final byte[] FOREIGN_STAT =
             "999 (com.example.process) S 17 999 0 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 0 0 0\n"
                     .getBytes(StandardCharsets.UTF_8);
+    /** A recorded mount table: the device numbers of the mounts it lists carry the facts. */
+    private static final byte[] RECORDED_MOUNTINFO = ("1 0 0:1 / / rw - rootfs rootfs rw\n"
+            + "9293 1 0:4 / /proc rw - proc proc rw\n"
+            + "9294 1 0:19 / /sys rw - sysfs sysfs rw\n").getBytes(StandardCharsets.UTF_8);
     private static final byte[] PARENT_STAT = "1 (init) S 0 0 0 0 0 0 0 0 0 0 0\n".getBytes(StandardCharsets.UTF_8);
     private static final byte[] RECORDED_ATTR = "u:r:untrusted_app:s0:c0,c0\n".getBytes(StandardCharsets.UTF_8);
     private static final byte[] LAYOUT_STAT =
@@ -187,6 +191,12 @@ public class ProcfsFilesIntegrationTest {
         files.procfs().declare(PID, "/proc/self/attr/current", RECORDED_ATTR);
         assertArrayEquals(RECORDED_ATTR, read(calls, buffer, "/proc/self/attr/current"));
         assertEquals(Arrays.asList(".", "..", "current"), sorted(directories(calls, buffer, "/proc/self/attr")));
+
+        // One file system is one device: a path takes the device of the mount that holds it.
+        files.procfs().declare(PID, "/proc/self/mountinfo", RECORDED_MOUNTINFO);
+        assertEquals(4L, files.queryMetadata("/proc/self/status", true).value.dev.getAsLong());
+        files.procfs().declare(PID, "/sys/fs/selinux/enforce", RECORDED_ATTR);
+        assertEquals(19L, files.queryMetadata("/sys/fs/selinux/enforce", true).value.dev.getAsLong());
 
         // A path a caller states absent has nothing there, not even the render.
         files.procfs().declareAbsent(PID, "/proc/self/comm");

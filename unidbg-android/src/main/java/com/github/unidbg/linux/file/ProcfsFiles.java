@@ -204,11 +204,12 @@ public final class ProcfsFiles {
     /**
      * The facts of a generated file: a read-only regular file the process may read under the
      * credentials it runs with. Nothing about it is recorded, so the same path answers the same
-     * facts in every run: the device and inode come from the path, and the times are one fixed
-     * instant, because the runtime keeps no creation history for what it generates and a replay
-     * must not depend on when it ran.
+     * facts in every run: the device is the one the mount table gives the mount that holds the
+     * path, the inode comes from the path, and the times are one fixed instant, because the
+     * runtime keeps no creation history for what it generates and a replay must not depend on
+     * when it ran.
      */
-    public static FileMetadata facts(Emulator<AndroidFileIO> emulator, String pathname) {
+    public FileMetadata facts(Emulator<AndroidFileIO> emulator, String pathname) {
         GuestCredentials credentials = credentials(emulator);
         // Every name of one file answers the same numbers, so the view resolves the path first.
         String path = canonical(emulator.getPid(), pathname);
@@ -218,7 +219,7 @@ public final class ProcfsFiles {
                 .gid(credentials.realGid.orElse(0))
                 .nlink(1)
                 .blksize(FILE_BLOCK_SIZE)
-                .dev(hashed(mountOf(path)))
+                .dev(device(path))
                 .ino(hashed(path))
                 .rdev(0)
                 .size(FILE_SIZE)
@@ -229,13 +230,44 @@ public final class ProcfsFiles {
                 .build();
     }
 
-    /** The generated file system a path belongs to: every file of one tree shares its device. */
-    private static String mountOf(String path) {
-        int slash = path.indexOf('/', 1);
-        return slash < 0 ? path : path.substring(0, slash);
+    /**
+     * The device of a path: one file system is one device, so a path belongs to the mount with
+     * the longest mount point that holds it. A path no mount holds reports no device.
+     */
+    private long device(String path) {
+        long device = 0;
+        int length = -1;
+        for (String line : mountinfo().split("\n")) {
+            String[] fields = line.split(" ");
+            if (fields.length < 5) continue;
+            String point = fields[4];
+            boolean holds = point.equals("/")
+                    ? path.startsWith("/") : path.equals(point) || path.startsWith(point + "/");
+            if (!holds || point.length() < length) continue;
+            length = point.length();
+            device = deviceNumber(fields[2]);
+        }
+        return device;
     }
 
-    /** FNV-1a over the UTF-8 bytes, so a path keeps its numbers across runs and processes. */
+    /** The mount table the guest reads: a caller's declaration when there is one. */
+    private String mountinfo() {
+        Item item = declared.get(SELF + "/" + MOUNTINFO);
+        return item != null && item.kind == Item.Kind.FILE
+                ? new String(item.content, StandardCharsets.ISO_8859_1) : MOUNTINFO_TEXT;
+    }
+
+    /** The device number of a mountinfo {@code major:minor}, packed as the kernel reports it. */
+    private static long deviceNumber(String majorMinor) {
+        int colon = majorMinor.indexOf(':');
+        if (colon < 0) throw new IllegalArgumentException("mountinfo device=" + majorMinor);
+        long major = Long.parseLong(majorMinor.substring(0, colon));
+        long minor = Long.parseLong(majorMinor.substring(colon + 1));
+        return (minor & 0xff) | ((major & 0xfff) << 8)
+                | ((minor & ~0xffL) << 12) | ((major & ~0xfffL) << 32);
+    }
+
+    /** FNV-1a over the UTF-8 bytes, so a path keeps its inode across runs and processes. */
     private static long hashed(String value) {
         long hash = 0xcbf29ce484222325L;
         for (byte b : value.getBytes(StandardCharsets.UTF_8)) {

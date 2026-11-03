@@ -62,7 +62,7 @@ public class LinuxFileSystem extends BaseFileSystem<AndroidFileIO> implements Fi
         switch (item.kind) {
             case FILE:
                 return FileResult.success(new ProcfsFileIO(oflags, pathname, item.content,
-                        ProcfsFiles.facts(emulator, pathname)));
+                        procfs.facts(emulator, pathname)));
             case DIRECTORY:
                 return FileResult.success(new DirectoryFileIO(oflags, pathname,
                         item.entries.toArray(new DirectoryEntry[0])));
@@ -86,10 +86,10 @@ public class LinuxFileSystem extends BaseFileSystem<AndroidFileIO> implements Fi
         if (item == null) {
             FileQueryResult<FileMetadata> layout = super.queryMetadata(processPath(pathname), followLinks);
             return keepsViewFacts(pathname, layout)
-                    ? FileQueryResult.success(ProcfsFiles.facts(emulator, pathname)) : layout;
+                    ? FileQueryResult.success(procfs.facts(emulator, pathname)) : layout;
         }
         if (item.kind != ProcfsFiles.Item.Kind.FILE) return facts(item, followLinks, hops);
-        return FileQueryResult.success(ProcfsFiles.facts(emulator, pathname));
+        return FileQueryResult.success(procfs.facts(emulator, pathname));
     }
 
     /**
@@ -183,7 +183,7 @@ public class LinuxFileSystem extends BaseFileSystem<AndroidFileIO> implements Fi
     @Override
     public AndroidFileIO createSimpleFileIO(File file, int oflags, String path) {
         return ProcfsFiles.serves(path)
-                ? new ProcfsLayoutFileIO(oflags, file, path, ProcfsFiles.facts(emulator, path))
+                ? new ProcfsLayoutFileIO(oflags, file, path, procfs.facts(emulator, path))
                 : new SimpleFileIO(oflags, file, path);
     }
 

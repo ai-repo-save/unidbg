@@ -9,9 +9,11 @@ import com.github.unidbg.file.linux.LinuxFileSystem;
 import com.github.unidbg.linux.android.AndroidEmulatorBuilder;
 import com.github.unidbg.linux.android.AndroidResolver;
 import com.github.unidbg.linux.kernel.AnonymousName;
+import com.github.unidbg.linux.kernel.ProcessMemory;
 import com.github.unidbg.memory.MemoryBlock;
 import com.github.unidbg.pointer.UnidbgPointer;
 import com.github.unidbg.unix.IO;
+import com.github.unidbg.unix.UnixEmulator;
 import com.github.unidbg.unix.kernel.KernelIdentity;
 import com.github.unidbg.unix.time.ClockSource;
 import org.junit.Test;
@@ -29,7 +31,6 @@ import java.util.List;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -195,28 +196,91 @@ public class KernelViewIntegrationTest {
         assertEquals(-13, calls.open("/proc/sys/kernel/hostname", 0));
     }
 
-    /** The name a process gives a range is the name the address space reports for it. */
+    /**
+     * The name a process gives a range is the name the address space reports for that range
+     * alone: the parts of the mapping beside it keep their own lines and the facts they had.
+     */
     private static void verifyAddressSpaceNames(AndroidEmulator emulator, RawSyscalls calls,
                                                 UnidbgPointer buffer) {
         int page = (int) emulator.getPageAlign();
-        UnidbgPointer range = emulator.getMemory().mmap(page, UnicornConst.UC_PROT_READ | UnicornConst.UC_PROT_WRITE);
+        UnidbgPointer range = emulator.getMemory().mmap(4 * page,
+                UnicornConst.UC_PROT_READ | UnicornConst.UC_PROT_WRITE);
         UnidbgPointer name = emulator.getMemory().writeStackString(VMA_NAME);
-        assertEquals(0, calls.call(SYS_PRCTL, AnonymousName.PR_SET_VMA, 0, range.peer, page, name.peer));
+        long mapped = ProcessMemory.mappedBytes(emulator);
+
+        // A range the process did not name carries no path, and the line ends where the header
+        // of show_map_vma ends.
         String maps = text(read(calls, buffer, "/proc/self/maps"));
-        String named = null;
-        for (String line : maps.split("\n")) {
-            if (line.contains("[anon:" + VMA_NAME + "]")) named = line;
-        }
-        assertTrue(maps, named != null);
-        String[] fields = named.trim().split(" +");
-        assertEquals(String.format("%08x-%08x", range.peer, range.peer + page), fields[0]);
-        assertEquals("rw-p", fields[1]);
+        assertEquals(String.format("%08x-%08x rw-p 00000000 00:00 0 ", range.peer,
+                range.peer + 4L * page), mapsLine(maps, range.peer, range.peer + 4L * page));
+
+        // Naming the middle of the mapping splits it into the three ranges the kernel reports,
+        // and each part keeps the offset it has in the mapping it comes from.
+        assertEquals(0, calls.call(SYS_PRCTL, AnonymousName.PR_SET_VMA, 0, range.peer + page,
+                2L * page, name.peer));
+        maps = text(read(calls, buffer, "/proc/self/maps"));
+        assertEquals(String.format("%08x-%08x rw-p 00000000 00:00 0 ", range.peer,
+                range.peer + page), mapsLine(maps, range.peer, range.peer + page));
+        assertEquals(mapsLine(range.peer + page, range.peer + 3L * page, "rw-p", page,
+                "[anon:" + VMA_NAME + "]"),
+                mapsLine(maps, range.peer + page, range.peer + 3L * page));
+        assertEquals(String.format("%08x-%08x rw-p 00003000 00:00 0 ", range.peer + 3L * page,
+                range.peer + 4L * page),
+                mapsLine(maps, range.peer + 3L * page, range.peer + 4L * page));
+        assertEquals(1, namedLines(maps, "[anon:" + VMA_NAME + "]"));
+        assertEquals(mapped, ProcessMemory.mappedBytes(emulator));
+
         // A range that is not a whole number of pages is not a range the kernel can name.
-        assertEquals(-22, calls.call(SYS_PRCTL, AnonymousName.PR_SET_VMA, 0, range.peer + 1, page, name.peer));
-        assertEquals(-22, calls.call(SYS_PRCTL, AnonymousName.PR_SET_VMA, 0, range.peer, page / 2, name.peer));
-        // The name belongs to the range: the ranges beside it keep their own lines.
-        assertFalse(maps, named.contains("[anon:" + VMA_NAME + "] ")
-                && maps.indexOf("[anon:" + VMA_NAME + "]") == maps.lastIndexOf("[anon:" + VMA_NAME + "]"));
+        assertEquals(-UnixEmulator.EINVAL, calls.call(SYS_PRCTL, AnonymousName.PR_SET_VMA, 0,
+                range.peer + 1, page, name.peer));
+        assertEquals(-UnixEmulator.EINVAL, calls.call(SYS_PRCTL, AnonymousName.PR_SET_VMA, 0,
+                range.peer, page / 2, name.peer));
+        // A range that leaves the mapping covers an unmapped address, which the kernel answers
+        // with ENOMEM without naming any part of it.
+        assertEquals(-UnixEmulator.ENOMEM, calls.call(SYS_PRCTL, AnonymousName.PR_SET_VMA, 0,
+                range.peer + 3L * page, 2L * page, name.peer));
+        assertEquals(mapped, ProcessMemory.mappedBytes(emulator));
+
+        // Two mappings of different permissions are two ranges, not one range the runtime can
+        // name with one set of permissions.
+        UnidbgPointer split = emulator.getMemory().mmap(2 * page,
+                UnicornConst.UC_PROT_READ | UnicornConst.UC_PROT_WRITE);
+        assertEquals(0, emulator.getMemory().mprotect(split.peer + page, page, UnicornConst.UC_PROT_READ));
+        assertEquals(-UnixEmulator.EINVAL, calls.call(SYS_PRCTL, AnonymousName.PR_SET_VMA, 0,
+                split.peer, 2L * page, name.peer));
+        assertEquals(0, calls.call(SYS_PRCTL, AnonymousName.PR_SET_VMA, 0, split.peer + page,
+                page, name.peer));
+        assertEquals(mapped + 2L * page, ProcessMemory.mappedBytes(emulator));
+    }
+
+    /** One address-space line, found by the range it reports. */
+    private static String mapsLine(String maps, long start, long end) {
+        String range = String.format("%08x-%08x", start, end);
+        for (String line : maps.split("\n")) {
+            if (line.startsWith(range + " ")) return line;
+        }
+        throw new AssertionError("no range " + range + " in\n" + maps);
+    }
+
+    /**
+     * One address-space line as a 64-bit kernel prints it: the header, then the path at the
+     * column {@code seq_pad} pads it to.
+     */
+    private static String mapsLine(long start, long end, String perms, long offset, String label) {
+        StringBuilder line = new StringBuilder(String.format("%08x-%08x %s %08x 00:00 0",
+                start, end, perms, offset));
+        line.append(' ');
+        while (line.length() < 73) line.append(' ');
+        return line.append(label).toString();
+    }
+
+    /** The number of address-space lines that report the given path or name. */
+    private static int namedLines(String maps, String label) {
+        int found = 0;
+        for (String line : maps.split("\n")) {
+            if (line.endsWith(label)) found++;
+        }
+        return found;
     }
 
     /** The facts of a generated file: a read-only regular file of procfs that stores no bytes. */

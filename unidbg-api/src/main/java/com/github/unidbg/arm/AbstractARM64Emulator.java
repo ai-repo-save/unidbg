@@ -103,7 +103,7 @@ public abstract class AbstractARM64Emulator<T extends NewFileIO> extends Abstrac
 
     protected void setupTraps() {
         int size = getPageAlign();
-        backend.mem_map(LR, size, UnicornConst.UC_PROT_READ | UnicornConst.UC_PROT_EXEC);
+        svcMemory.mapPage(LR, size, UnicornConst.UC_PROT_READ | UnicornConst.UC_PROT_EXEC, "[svc-trap]");
         ByteBuffer buffer = ByteBuffer.allocate(size);
         buffer.order(ByteOrder.LITTLE_ENDIAN);
         int code = Arm64Svc.assembleSvc(0);

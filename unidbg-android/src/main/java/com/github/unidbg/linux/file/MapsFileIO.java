@@ -42,6 +42,9 @@ public class MapsFileIO extends ByteArrayFileIO implements FileIO {
         for (MemRegion memRegion : list) {
             items.add(new MapItem(memRegion.virtualAddress, memRegion.end, memRegion.perms, 0, "b3:19", memRegion.getName()));
         }
+        for (MemRegion region : emulator.getSvcMemory().getRegions()) {
+            items.add(new MapItem(region.begin, region.end, region.perms, 0, "00:00", region.getName()));
+        }
         long stackSize = (long) Memory.STACK_SIZE_OF_PAGE * emulator.getPageAlign();
         items.add(new MapItem(Memory.STACK_BASE - stackSize, Memory.STACK_BASE, UnicornConst.UC_PROT_WRITE | UnicornConst.UC_PROT_READ, 0, "00:00", "[stack]"));
 

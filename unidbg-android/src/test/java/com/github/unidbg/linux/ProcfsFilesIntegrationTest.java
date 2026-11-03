@@ -44,6 +44,8 @@ public class ProcfsFilesIntegrationTest {
     private static final byte[] RECORDED_ATTR = "u:r:untrusted_app:s0:c0,c0\n".getBytes(StandardCharsets.UTF_8);
     private static final byte[] LAYOUT_STAT =
             "4242 (recorded) S 1 4242 0 0 0 0 0 0 0 0 0\n".getBytes(StandardCharsets.UTF_8);
+    /** The page of svc instructions a svc return address points into. */
+    private static final long SVC_TRAP = 0x7ffff0000L;
 
     @Test
     public void processViewRendersAliasesAndTakesRecordedDeclarations() throws Exception {
@@ -65,7 +67,7 @@ public class ProcfsFilesIntegrationTest {
             MemoryBlock scratch = emulator.getMemory().malloc(8192, true);
             try {
                 UnidbgPointer buffer = scratch.getPointer();
-                verifyRendered(files, calls, buffer);
+                verifyRendered(emulator, files, calls, buffer);
                 verifyAlias(emulator, calls, buffer);
                 verifyLayoutPrecedence(root, calls, buffer);
                 verifyRecordedDeclarations(emulator, calls, buffer);
@@ -76,7 +78,8 @@ public class ProcfsFilesIntegrationTest {
         }
     }
 
-    private static void verifyRendered(LinuxFileSystem files, RawSyscalls calls, UnidbgPointer buffer) {
+    private static void verifyRendered(AndroidEmulator emulator, LinuxFileSystem files, RawSyscalls calls,
+                                       UnidbgPointer buffer) {
         String status = text(read(calls, buffer, "/proc/self/status"));
         assertTrue(status, status.contains("Name:\t" + COMM + "\n"));
         assertTrue(status, status.contains("Tgid:\t" + PID + "\n"));
@@ -98,6 +101,11 @@ public class ProcfsFilesIntegrationTest {
         assertTrue(mountinfo, mountinfo.contains(" - proc proc rw\n"));
         String maps = text(read(calls, buffer, "/proc/self/maps"));
         assertTrue(maps, maps.contains("[stack]"));
+        // The pages the runtime maps for its own svc code are part of the address space the guest
+        // reads, with the extent and the permissions they were mapped with.
+        assertSingleMapping(maps, emulator.getSvcMemory().getBase(),
+                emulator.getSvcMemory().getBase() + emulator.getSvcMemory().getSize(), "r-xp");
+        assertSingleMapping(maps, SVC_TRAP, SVC_TRAP + emulator.getPageAlign(), "r-xp");
         assertEquals("/system/bin/app_process64", calls.readlink("/proc/self/exe", buffer));
 
         FileMetadata facts = files.queryMetadata("/proc/self/status", true).value;
@@ -110,6 +118,21 @@ public class ProcfsFilesIntegrationTest {
         assertEquals(DirectoryEntry.DirentType.DT_LNK, type(entries, "exe"));
         assertEquals(DirectoryEntry.DirentType.DT_REG, type(entries, "status"));
         assertEquals(Arrays.asList(".", "..", "self"), sorted(directories(calls, buffer, "/proc")));
+    }
+
+    /** The address space holds one mapping for a runtime page, carrying the mapped permissions. */
+    private static void assertSingleMapping(String maps, long start, long end, String perms) {
+        int found = 0;
+        for (String line : maps.split("\n")) {
+            String[] fields = line.split(" +");
+            if (fields.length < 2) continue;
+            String[] range = fields[0].split("-");
+            if (range.length != 2 || Long.parseUnsignedLong(range[0], 16) != start) continue;
+            found++;
+            assertEquals(end, Long.parseUnsignedLong(range[1], 16));
+            assertEquals(perms, fields[1]);
+        }
+        assertEquals("mapping at 0x" + Long.toHexString(start) + " in\n" + maps, 1, found);
     }
 
     private static void verifyAlias(AndroidEmulator emulator, RawSyscalls calls, UnidbgPointer buffer) {

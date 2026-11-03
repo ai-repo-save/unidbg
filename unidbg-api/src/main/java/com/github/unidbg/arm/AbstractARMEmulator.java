@@ -122,7 +122,7 @@ public abstract class AbstractARMEmulator<T extends NewFileIO> extends AbstractE
 
     protected void setupTraps() {
         int size = 0x10000;
-        backend.mem_map(LR, size, UnicornConst.UC_PROT_READ | UnicornConst.UC_PROT_EXEC);
+        svcMemory.mapPage(LR, size, UnicornConst.UC_PROT_READ | UnicornConst.UC_PROT_EXEC, "[svc-trap]");
         int code = ArmSvc.assembleSvc(0);
         ByteBuffer buffer = ByteBuffer.allocate(size);
         buffer.order(ByteOrder.LITTLE_ENDIAN);

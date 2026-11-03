@@ -2,7 +2,6 @@ package com.github.unidbg.arm;
 
 import com.github.unidbg.Emulator;
 import com.github.unidbg.Svc;
-import com.github.unidbg.arm.backend.Backend;
 import com.github.unidbg.memory.MemRegion;
 import com.github.unidbg.memory.SvcMemory;
 import com.github.unidbg.pointer.UnidbgPointer;
@@ -16,6 +15,7 @@ import java.io.DataOutput;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -36,8 +36,7 @@ public class ARMSvcMemory implements SvcMemory {
         this.baseAddr = base;
         this.size = size;
 
-        Backend backend = emulator.getBackend();
-        backend.mem_map(base, size, UnicornConst.UC_PROT_READ | UnicornConst.UC_PROT_EXEC);
+        mapPage(base, size, UnicornConst.UC_PROT_READ | UnicornConst.UC_PROT_EXEC, "[svc]");
     }
 
     @Override
@@ -56,6 +55,19 @@ public class ARMSvcMemory implements SvcMemory {
     @Override
     public int getSize() {
         return size;
+    }
+
+    private final List<MemRegion> pages = new ArrayList<>();
+
+    @Override
+    public void mapPage(long address, int size, int perms, String label) {
+        emulator.getBackend().mem_map(address, size, perms);
+        pages.add(MemRegion.create(address, size, perms, label));
+    }
+
+    @Override
+    public Collection<MemRegion> getRegions() {
+        return pages;
     }
 
     private final List<MemRegion> memRegions = new ArrayList<>();

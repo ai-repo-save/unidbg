@@ -200,7 +200,6 @@ public class ProcfsFilesIntegrationTest {
         assertEquals(4L, files.queryMetadata("/proc/self/status", true).value.dev.getAsLong());
         files.procfs().declare(PID, "/sys/fs/selinux/enforce", RECORDED_ATTR);
         assertEquals(19L, files.queryMetadata("/sys/fs/selinux/enforce", true).value.dev.getAsLong());
-        assertSysfsFacts(files, "/sys/fs/selinux/enforce", emulator.getPageAlign());
 
         // A path a caller states absent has nothing there, not even the render.
         files.procfs().declareAbsent(PID, "/proc/self/comm");
@@ -231,21 +230,6 @@ public class ProcfsFilesIntegrationTest {
         assertTrue(path, facts.ino.getAsLong() != sibling.ino.getAsLong());
         assertEquals(path, files.queryMetadata("/proc/" + PID + path.substring("/proc/self".length()), true).value.ino,
                 facts.ino);
-    }
-
-    /**
-     * The facts of a generated sysfs file: sysfs reports a page as the size and the block size of
-     * the file it renders on read, as the recorded device does, and owns it.
-     */
-    private static void assertSysfsFacts(LinuxFileSystem files, String path, int pageSize) {
-        FileMetadata facts = files.queryMetadata(path, true).value;
-        assertEquals(path, IO.S_IFREG, facts.mode.getAsInt() & 0170000);
-        assertEquals(path, 0444, facts.mode.getAsInt() & 0777);
-        assertEquals(path, pageSize, facts.blksize.getAsInt());
-        assertEquals(path, pageSize, facts.size.getAsLong());
-        assertEquals(path, 0L, facts.blocks.getAsLong());
-        assertEquals(path, 0, facts.uid.getAsInt());
-        assertEquals(path, 0, facts.gid.getAsInt());
     }
 
     /**

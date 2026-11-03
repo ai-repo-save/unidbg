@@ -8,7 +8,6 @@ import com.github.unidbg.file.FileMetadata;
 import com.github.unidbg.file.linux.LinuxFileSystem;
 import com.github.unidbg.linux.android.AndroidEmulatorBuilder;
 import com.github.unidbg.linux.android.AndroidResolver;
-import com.github.unidbg.linux.file.ProcfsFiles;
 import com.github.unidbg.linux.kernel.AnonymousName;
 import com.github.unidbg.memory.MemoryBlock;
 import com.github.unidbg.pointer.UnidbgPointer;

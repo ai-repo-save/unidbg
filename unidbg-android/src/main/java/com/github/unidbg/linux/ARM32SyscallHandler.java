@@ -181,6 +181,12 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
                 case  20: // getpid
                     backend.reg_write(ArmConst.UC_ARM_REG_R0, emulator.getPid());
                     return;
+                case 21:
+                    backend.reg_write(ArmConst.UC_ARM_REG_R0, kernel.mount(
+                            emulator.getContext().getPointerArg(0), emulator.getContext().getPointerArg(1),
+                            emulator.getContext().getPointerArg(2),
+                            emulator.getContext().getIntArg(3) & 0xffffffffL));
+                    return;
                 case 224: // gettid
                     backend.reg_write(ArmConst.UC_ARM_REG_R0, runningThreadId(emulator));
                     return;
@@ -286,7 +292,8 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
                     syscall = "getpgid";
                     break;
                 case 136:
-                    backend.reg_write(ArmConst.UC_ARM_REG_R0, personality(backend));
+                    backend.reg_write(ArmConst.UC_ARM_REG_R0, kernel.personality(emulator,
+                            emulator.getContext().getIntArg(0) & 0xffffffffL));
                     return;
                 case 140:
                     backend.reg_write(ArmConst.UC_ARM_REG_R0, llseek(backend, emulator));
@@ -1046,20 +1053,6 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
             createBreaker(emulator).debug("execve: " + filename.getString(0));
         }
         return -UnixEmulator.EACCES;
-    }
-
-    private long persona;
-
-    private int personality(Backend backend) {
-        long persona = backend.reg_read(ArmConst.UC_ARM_REG_R0).intValue() & 0xffffffffL;
-        if (log.isDebugEnabled()) {
-            log.debug("personality persona=0x{}", Long.toHexString(persona));
-        }
-        int old = (int) this.persona;
-        if (persona != 0xffffffffL) {
-            this.persona = persona;
-        }
-        return old;
     }
 
     private int shutdown(Backend backend, Emulator<?> emulator) {

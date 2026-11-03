@@ -26,15 +26,17 @@ import java.io.IOException;
  * The syscalls a Linux process answers from its own facts and from the machine it runs on:
  * {@code sysinfo(2)}, {@code getrusage(2)}, {@code prlimit64(2)}, {@code epoll_create1(2)},
  * {@code timerfd_create(2)}, {@code memfd_create(2)}, {@code getcpu(2)}, {@code membarrier(2)},
- * {@code capget(2)}, {@code perf_event_open(2)} and {@code ptrace(2)}.
+ * {@code capget(2)}, {@code perf_event_open(2)}, {@code mount(2)}, {@code personality(2)} and
+ * {@code ptrace(2)}.
  *
  * The numbers are the runtime's own: the monotonic timeline of the process, the CPU time it spent,
  * the memory and processors the host gives it, and the descriptors and threads its tables hold. The
  * runtime holds one process, so a call naming another process finds none, and a call that would need
  * a second process, a debugger or performance counters is refused as the kernel refuses it.
  *
- * Both Android ABIs share this implementation: the numbers and the answers are the same, and the
- * width of the ABI's {@code long} decides the layout of the structures a call fills.
+ * Both Android ABIs answer these calls here: the answers are the same, and the width of the ABI's
+ * {@code long} decides the layout of the structures a call fills. The 32-bit ABI reaches
+ * {@code getrlimit(2)} as {@code ugetrlimit(2)}, whose {@code struct rlimit} holds four-byte limits.
  */
 public final class KernelSyscalls {
 

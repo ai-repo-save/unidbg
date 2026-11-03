@@ -338,7 +338,7 @@ public final class KernelSyscalls {
 
     /**
      * {@code mount(2)}. The mount table the runtime serves is the one an observer recorded or the
-     * two entries the view renders, and no process may change it: the platform denies the operation
+     * three entries the view renders, and no process may change it: the platform denies the operation
      * before it looks at the arguments, so no name the caller passes is read.
      */
     public long mount(Pointer source, Pointer target, Pointer type, long flags) {

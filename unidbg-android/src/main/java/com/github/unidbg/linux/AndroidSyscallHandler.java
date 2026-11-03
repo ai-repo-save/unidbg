@@ -1013,9 +1013,61 @@ public abstract class AndroidSyscallHandler extends UnixSyscallHandler<AndroidFi
 
     private static final int SIGKILL = 9;
     private static final int SIGSTOP = 19;
+    private static final int SIGSYS = 31;
     private static final int SIG_ERR = -1;
+    private static final int SA_RESTART = 0x10000000;
+    private static final int SA_SIGINFO = 0x00000004;
+
+    /**
+     * Address the emulation reports for the process's crash handler. bionic's handler is code
+     * inside the device's libc, and its address changes per process, so a device reading of
+     * the disposition cannot be reproduced; the emulation never runs the handler body.
+     */
+    private static final long CRASH_HANDLER = 0x7f00_0000_0000L;
 
     private final Map<Integer, SigAction> sigActionMap = new HashMap<>();
+
+    /**
+     * Dispositions a process has before the guest installs any of its own, keyed by signal.
+     * bionic installs its crash handler for the fatal signals during process start, so a
+     * query reports a handler instead of the default disposition.
+     */
+    private final Map<Integer, SigactionDisposition> initialSigActions = new HashMap<>();
+
+    protected AndroidSyscallHandler() {
+        initialSigActions.put(SIGSYS, new SigactionDisposition(CRASH_HANDLER, SA_RESTART | SA_SIGINFO, 0, 0));
+    }
+
+    /**
+     * Declares the disposition a signal has until the guest installs one. A {@code rt_sigaction}
+     * query for that signal reports this action, and {@code act == null} leaves it in place.
+     */
+    protected final void setInitialSigaction(int signum, long handler, int flags, long mask) {
+        initialSigActions.put(signum, new SigactionDisposition(handler, flags, mask, 0));
+    }
+
+    private static final class SigactionDisposition {
+        final long handler;
+        final int flags;
+        final long mask;
+        final long restorer;
+
+        SigactionDisposition(long handler, int flags, long mask, long restorer) {
+            this.handler = handler;
+            this.flags = flags;
+            this.mask = mask;
+            this.restorer = restorer;
+        }
+    }
+
+    /** The action a query reports: the installed one, otherwise the one the process started with. */
+    private SigactionDisposition reportedDisposition(SigAction installed, int signum) {
+        if (installed == null) {
+            return initialSigActions.get(signum);
+        }
+        return new SigactionDisposition(installed.getSaHandler(), installed.getFlags(),
+                installed.getMask(), installed.getSaRestorer());
+    }
 
     @Override
     public MainTask createSignalHandlerTask(Emulator<?> emulator, int sig) {
@@ -1040,15 +1092,16 @@ public abstract class AndroidSyscallHandler extends UnixSyscallHandler<AndroidFi
             }
             return -UnixEmulator.EINVAL;
         }
-        SigAction lastAction = sigActionMap.put(signum, action);
+        SigAction lastAction = action == null ? sigActionMap.get(signum) : sigActionMap.put(signum, action);
         if (oldAction != null) {
-            if (lastAction == null) {
+            SigactionDisposition reported = reportedDisposition(lastAction, signum);
+            if (reported == null) {
                 oldact.write(0, new byte[oldAction.size()], 0, oldAction.size());
             } else {
-                oldAction.setSaHandler(lastAction.getSaHandler());
-                oldAction.setSaRestorer(lastAction.getSaRestorer());
-                oldAction.setFlags(lastAction.getFlags());
-                oldAction.setMask(lastAction.getMask());
+                oldAction.setSaHandler(reported.handler);
+                oldAction.setSaRestorer(reported.restorer);
+                oldAction.setFlags(reported.flags);
+                oldAction.setMask(reported.mask);
                 oldAction.pack();
             }
         }

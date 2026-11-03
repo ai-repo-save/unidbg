@@ -6,9 +6,10 @@ RESOURCES_DIR="$SCRIPT_DIR/../resources/natives"
 # The backend builds against the project's unicorn fork: upstream tag 2.1.4 plus
 #   fix(apple): keep the jit write protection correct across hooks in a foreign runtime
 #   feat(tcg): give instruction fetch its own view of executable memory
-# The second commit is what UC_CTL_INSN_FETCH_COHERENCY (used by Unicorn2Backend) needs.
+#   feat(ctl): let the caller set CTR_EL0 and DCZID_EL0 of the CPU model
+# Unicorn2Backend needs the controls the last two commits add.
 UNICORN_HOME="${UNICORN_HOME:-$HOME/git/unicorn}"
-UNICORN_MARKER="UC_CTL_INSN_FETCH_COHERENCY"
+UNICORN_MARKERS="UC_CTL_INSN_FETCH_COHERENCY UC_CTL_ARM64_CTR_EL0 UC_CTL_ARM64_DCZ_BLOCKSIZE"
 IMAGE_NAME="unidbg-unicorn2-builder"
 NPROC=$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)
 
@@ -35,11 +36,13 @@ prepare_unicorn_source() {
         git -C "$UNICORN_HOME" status --short >&2
         exit 1
     fi
-    if ! grep -q "$UNICORN_MARKER" "$UNICORN_HOME/include/unicorn/unicorn.h"; then
-        echo "ERROR: $UNICORN_HOME does not carry $UNICORN_MARKER" >&2
-        echo "  HEAD: $(git -C "$UNICORN_HOME" log -1 --format='%h %s' 2>&1)" >&2
-        exit 1
-    fi
+    for marker in $UNICORN_MARKERS; do
+        if ! grep -q "$marker" "$UNICORN_HOME/include/unicorn/unicorn.h"; then
+            echo "ERROR: $UNICORN_HOME does not carry $marker" >&2
+            echo "  HEAD: $(git -C "$UNICORN_HOME" log -1 --format='%h %s' 2>&1)" >&2
+            exit 1
+        fi
+    done
     echo "  unicorn fork: $(git -C "$UNICORN_HOME" log -1 --format='%h %s')"
 
     # qemu/configure aborts without it (it only probes for the binary), and cmake does not

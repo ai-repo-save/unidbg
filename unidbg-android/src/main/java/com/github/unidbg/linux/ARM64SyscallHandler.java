@@ -70,7 +70,7 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
         super();
 
         this.svcMemory = svcMemory;
-        this.kernel = new KernelSyscalls(this);
+        this.kernel = new KernelSyscalls(this, KernelSyscalls.Abi.LP64);
     }
 
     @SuppressWarnings("unchecked")

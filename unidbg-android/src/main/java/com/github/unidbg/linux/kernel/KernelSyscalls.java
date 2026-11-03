@@ -5,8 +5,11 @@ import com.github.unidbg.file.linux.AndroidFileIO;
 import com.github.unidbg.file.linux.IOConstants;
 import com.github.unidbg.linux.file.AnonInodeFileIO;
 import com.github.unidbg.linux.file.SimpleFileIO;
+import com.github.unidbg.linux.struct.RLimit32;
 import com.github.unidbg.linux.struct.RLimit64;
+import com.github.unidbg.linux.struct.Rusage32;
 import com.github.unidbg.linux.struct.Rusage64;
+import com.github.unidbg.linux.struct.SysInfo32;
 import com.github.unidbg.linux.struct.SysInfo64;
 import com.github.unidbg.unix.UnixEmulator;
 import com.github.unidbg.unix.UnixSyscallHandler;
@@ -29,10 +32,21 @@ import java.io.IOException;
  * the memory and processors the host gives it, and the descriptors and threads its tables hold. The
  * runtime holds one process, so a call naming another process finds none, and a call that would need
  * a second process, a debugger or performance counters is refused as the kernel refuses it.
+ *
+ * Both Android ABIs share this implementation: the numbers and the answers are the same, and the
+ * width of the ABI's {@code long} decides the layout of the structures a call fills.
  */
 public final class KernelSyscalls {
 
     private static final Logger log = LoggerFactory.getLogger(KernelSyscalls.class);
+
+    /** The width of the ABI's {@code long}, which the structures the calls fill follow. */
+    public enum Abi {
+        /** Every {@code long} is four bytes wide. */
+        ILP32,
+        /** Every {@code long} is eight bytes wide. */
+        LP64,
+    }
 
     private static final long NANOS_PER_SECOND = 1_000_000_000L;
     private static final long NANOS_PER_MICROSECOND = 1_000L;
@@ -69,23 +83,51 @@ public final class KernelSyscalls {
     private static final String EPOLL_INODE = "anon_inode:[eventpoll]";
     private static final String TIMERFD_INODE = "anon_inode:[timerfd]";
 
-    private final UnixSyscallHandler<AndroidFileIO> descriptors;
+    /** {@code COMPAT_RLIM_INFINITY}: the top of the 32-bit ABI's limit fields. */
+    private static final long COMPAT_RLIM_INFINITY = 0xffffffffL;
 
-    public KernelSyscalls(UnixSyscallHandler<AndroidFileIO> descriptors) {
+    private final UnixSyscallHandler<AndroidFileIO> descriptors;
+    private final Abi abi;
+
+    public KernelSyscalls(UnixSyscallHandler<AndroidFileIO> descriptors, Abi abi) {
         this.descriptors = descriptors;
+        this.abi = abi;
     }
 
     /** {@code sysinfo(2)}: the memory, the process count and the uptime of the emulated machine. */
     public long sysinfo(Emulator<AndroidFileIO> emulator, Pointer info) {
-        SysInfo64 values = new SysInfo64(info);
-        values.uptime = ClockSource.of(emulator).monotonicNanos() / NANOS_PER_SECOND;
-        values.totalRam = MachineFacts.totalMemoryBytes();
-        values.freeRam = MachineFacts.freeMemoryBytes();
-        values.procs = PROCESS_COUNT;
-        values.mem_unit = 1;
-        values.pack();
+        long uptime = ClockSource.of(emulator).monotonicNanos() / NANOS_PER_SECOND;
+        long totalRam = MachineFacts.totalMemoryBytes();
+        long freeRam = MachineFacts.freeMemoryBytes();
+        long memUnit = 1;
+        if (abi == Abi.ILP32 && (totalRam >>> 32) != 0) {
+            // A memory count the four-byte fields cannot hold is reported in units of mem_unit,
+            // which the 32-bit ABI raises to the page size before it divides the counts.
+            while (memUnit < emulator.getPageAlign()) {
+                memUnit <<= 1;
+                totalRam >>= 1;
+                freeRam >>= 1;
+            }
+        }
+        if (abi == Abi.ILP32) {
+            SysInfo32 values = new SysInfo32(info);
+            values.uptime = (int) uptime;
+            values.totalRam = (int) totalRam;
+            values.freeRam = (int) freeRam;
+            values.procs = PROCESS_COUNT;
+            values.mem_unit = (int) memUnit;
+            values.pack();
+        } else {
+            SysInfo64 values = new SysInfo64(info);
+            values.uptime = uptime;
+            values.totalRam = totalRam;
+            values.freeRam = freeRam;
+            values.procs = PROCESS_COUNT;
+            values.mem_unit = (int) memUnit;
+            values.pack();
+        }
         log.debug("event=kernel_sysinfo_answered uptime={} totalram={} freeram={} procs={} mem_unit={}",
-                values.uptime, values.totalRam, values.freeRam, values.procs, values.mem_unit);
+                uptime, totalRam, freeRam, PROCESS_COUNT, memUnit);
         return 0;
     }
 
@@ -116,15 +158,24 @@ public final class KernelSyscalls {
                 log.debug("event=rusage_rejected who={} errno={}", who, UnixEmulator.EINVAL);
                 return -UnixEmulator.EINVAL;
         }
-        Rusage64 values = new Rusage64(usage);
         // The host runs guest instructions and guest syscalls in user mode alike, so the CPU time
         // the runtime measures is user time and none of it is system time.
-        values.ru_utime_sec = nanos / NANOS_PER_SECOND;
-        values.ru_utime_usec = nanos % NANOS_PER_SECOND / NANOS_PER_MICROSECOND;
-        values.ru_maxrss = who == RUSAGE_CHILDREN
+        long maxrss = who == RUSAGE_CHILDREN
                 ? 0 : ProcessMemory.mappedBytes(emulator) / BYTES_PER_KILOBYTE;
-        values.pack();
-        log.debug("event=rusage_answered who={} cpu_nanos={} maxrss={}", who, nanos, values.ru_maxrss);
+        if (abi == Abi.ILP32) {
+            Rusage32 values = new Rusage32(usage);
+            values.ru_utime_sec = (int) (nanos / NANOS_PER_SECOND);
+            values.ru_utime_usec = (int) (nanos % NANOS_PER_SECOND / NANOS_PER_MICROSECOND);
+            values.ru_maxrss = (int) maxrss;
+            values.pack();
+        } else {
+            Rusage64 values = new Rusage64(usage);
+            values.ru_utime_sec = nanos / NANOS_PER_SECOND;
+            values.ru_utime_usec = nanos % NANOS_PER_SECOND / NANOS_PER_MICROSECOND;
+            values.ru_maxrss = maxrss;
+            values.pack();
+        }
+        log.debug("event=rusage_answered who={} cpu_nanos={} maxrss={}", who, nanos, maxrss);
         return 0;
     }
 
@@ -179,6 +230,32 @@ public final class KernelSyscalls {
             log.debug("event=prlimit_queried pid={} resource={} soft={} hard={}", pid, resource, soft, hard);
         }
         return 0;
+    }
+
+    /**
+     * {@code getrlimit(2)} of the 32-bit ABI, which {@code ugetrlimit} names: the two limits of one
+     * resource in a {@code struct rlimit} of four-byte fields. The ABI reports every limit above its
+     * fields as {@code COMPAT_RLIM_INFINITY}.
+     */
+    public long getrlimit32(Emulator<AndroidFileIO> emulator, int resource, Pointer limit) {
+        if (!ProcessLimits.isResource(resource)) {
+            log.debug("event=prlimit_rejected pid=0 resource={} errno={}", resource, UnixEmulator.EINVAL);
+            return -UnixEmulator.EINVAL;
+        }
+        ProcessLimits limits = ProcessLimits.of(emulator);
+        RLimit32 values = new RLimit32(limit);
+        values.rlim_cur = capped(limits.soft(resource));
+        values.rlim_max = capped(limits.hard(resource));
+        values.pack();
+        log.debug("event=prlimit_queried pid=0 resource={} soft={} hard={}", resource, limits.soft(resource),
+                limits.hard(resource));
+        return 0;
+    }
+
+    /** One limit in a four-byte field: a limit above the top of the field reports the top. */
+    private static int capped(long limit) {
+        return Long.compareUnsigned(limit, COMPAT_RLIM_INFINITY) > 0
+                ? (int) COMPAT_RLIM_INFINITY : (int) limit;
     }
 
     /** {@code epoll_create1(2)}: a descriptor on an anonymous inode. */

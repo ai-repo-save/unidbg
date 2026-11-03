@@ -27,9 +27,9 @@ import com.github.unidbg.linux.file.NetLinkSocket;
 import com.github.unidbg.linux.file.SocketIO;
 import com.github.unidbg.linux.file.UdpSocket;
 import com.github.unidbg.linux.kernel.AnonymousName;
+import com.github.unidbg.linux.kernel.KernelSyscalls;
 import com.github.unidbg.unix.kernel.KernelIdentity;
 import com.github.unidbg.linux.struct.Stat32;
-import com.github.unidbg.linux.struct.SysInfo32;
 import com.github.unidbg.linux.thread.KitKatThread;
 import com.github.unidbg.linux.thread.MarshmallowThread;
 import com.github.unidbg.memory.Memory;
@@ -60,11 +60,13 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
     private static final Logger log = LoggerFactory.getLogger(ARM32SyscallHandler.class);
 
     private final SvcMemory svcMemory;
+    private final KernelSyscalls kernel;
 
     public ARM32SyscallHandler(SvcMemory svcMemory) {
         super();
 
         this.svcMemory = svcMemory;
+        this.kernel = new KernelSyscalls(this, KernelSyscalls.Abi.ILP32);
     }
 
     @SuppressWarnings("unchecked")
@@ -180,8 +182,7 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
                     backend.reg_write(ArmConst.UC_ARM_REG_R0, emulator.getPid());
                     return;
                 case 224: // gettid
-                    Task task = emulator.get(Task.TASK_KEY);
-                    backend.reg_write(ArmConst.UC_ARM_REG_R0, task == null ? 0 : task.getId());
+                    backend.reg_write(ArmConst.UC_ARM_REG_R0, runningThreadId(emulator));
                     return;
                 case 33:
                     backend.reg_write(ArmConst.UC_ARM_REG_R0, access(emulator));
@@ -227,6 +228,10 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
                 case 73:
                     backend.reg_write(ArmConst.UC_ARM_REG_R0, rt_sigpending(emulator));
                     return;
+                case 77:
+                    backend.reg_write(ArmConst.UC_ARM_REG_R0, kernel.getrusage(emulator,
+                            emulator.getContext().getIntArg(0), emulator.getContext().getPointerArg(1)));
+                    return;
                 case 78:
                     backend.reg_write(ArmConst.UC_ARM_REG_R0, gettimeofday(emulator));
                     return;
@@ -258,7 +263,8 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
                     backend.reg_write(ArmConst.UC_ARM_REG_R0, setitimer(emulator));
                     return;
                 case 116:
-                    backend.reg_write(ArmConst.UC_ARM_REG_R0, sysinfo(emulator));
+                    backend.reg_write(ArmConst.UC_ARM_REG_R0,
+                            kernel.sysinfo(emulator, emulator.getContext().getPointerArg(0)));
                     return;
                 case 118:
                     backend.reg_write(ArmConst.UC_ARM_REG_R0, fsync(backend));
@@ -342,6 +348,10 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
                 case 180:
                     backend.reg_write(ArmConst.UC_ARM_REG_R0, pread64(emulator));
                     return;
+                case 184:
+                    backend.reg_write(ArmConst.UC_ARM_REG_R0, kernel.capget(emulator,
+                            emulator.getContext().getPointerArg(0), emulator.getContext().getPointerArg(1)));
+                    return;
                 case 183:
                     backend.reg_write(ArmConst.UC_ARM_REG_R0, getcwd(emulator));
                     return;
@@ -350,6 +360,10 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
                     return;
                 case 144:
                     backend.reg_write(ArmConst.UC_ARM_REG_R0, msync(emulator));
+                    return;
+                case 191:
+                    backend.reg_write(ArmConst.UC_ARM_REG_R0, kernel.getrlimit32(emulator,
+                            emulator.getContext().getIntArg(0), emulator.getContext().getPointerArg(1)));
                     return;
                 case 192:
                     backend.reg_write(ArmConst.UC_ARM_REG_R0, mmap2(backend, emulator));
@@ -505,19 +519,47 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
                     backend.reg_write(ArmConst.UC_ARM_REG_R0, pselect6(emulator));
                     return;
                 case 345:
-                    backend.reg_write(ArmConst.UC_ARM_REG_R0, getcpu(emulator));
+                    backend.reg_write(ArmConst.UC_ARM_REG_R0, kernel.getcpu(
+                            runningThreadId(emulator), emulator.getContext().getPointerArg(0),
+                            emulator.getContext().getPointerArg(1)));
                     return;
                 case 348:
                     backend.reg_write(ArmConst.UC_ARM_REG_R0, utimensat(backend, emulator));
                     return;
+                case 350:
+                    backend.reg_write(ArmConst.UC_ARM_REG_R0, kernel.timerfdCreate(
+                            emulator.getContext().getIntArg(0), emulator.getContext().getIntArg(1)));
+                    return;
                 case 356:
                     backend.reg_write(ArmConst.UC_ARM_REG_R0, eventfd2(emulator));
+                    return;
+                case 357:
+                    backend.reg_write(ArmConst.UC_ARM_REG_R0,
+                            kernel.epollCreate1(emulator.getContext().getIntArg(0)));
                     return;
                 case 352:
                     backend.reg_write(ArmConst.UC_ARM_REG_R0, fallocate(emulator));
                     return;
                 case 358:
                     backend.reg_write(ArmConst.UC_ARM_REG_R0, dup3(emulator));
+                    return;
+                case 364:
+                    backend.reg_write(ArmConst.UC_ARM_REG_R0, kernel.perfEventOpen(
+                            emulator.getContext().getPointerArg(0), emulator.getContext().getIntArg(1),
+                            emulator.getContext().getIntArg(2), emulator.getContext().getIntArg(3)));
+                    return;
+                case 369:
+                    backend.reg_write(ArmConst.UC_ARM_REG_R0, kernel.prlimit64(emulator,
+                            emulator.getContext().getIntArg(0), emulator.getContext().getIntArg(1),
+                            emulator.getContext().getPointerArg(2), emulator.getContext().getPointerArg(3)));
+                    return;
+                case 385:
+                    backend.reg_write(ArmConst.UC_ARM_REG_R0, kernel.memFdCreate(
+                            emulator.getContext().getPointerArg(0), emulator.getContext().getIntArg(1)));
+                    return;
+                case 389:
+                    backend.reg_write(ArmConst.UC_ARM_REG_R0, kernel.membarrier(
+                            emulator.getContext().getIntArg(0), emulator.getContext().getIntArg(1)));
                     return;
                 case 359:
                     backend.reg_write(ArmConst.UC_ARM_REG_R0, pipe2(emulator));
@@ -650,34 +692,6 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
         return emulator.getPid();
     }
 
-    private int getcpu(Emulator<?> emulator) {
-        Arm32RegisterContext context = emulator.getContext();
-        Pointer cpu = context.getR0Pointer();
-        Pointer node = context.getR1Pointer();
-        Pointer tcache = context.getR2Pointer();
-        if (log.isDebugEnabled()) {
-            log.debug("getcpu cpu={}, node={}, tcache={}", cpu, node, tcache);
-        }
-        if (cpu != null) {
-            cpu.setInt(0, 0);
-        }
-        if (node != null) {
-            node.setInt(0, 0);
-        }
-        return 0;
-    }
-
-    private int sysinfo(Emulator<?> emulator) {
-        Arm32RegisterContext context = emulator.getContext();
-        Pointer info = context.getR0Pointer();
-        if (log.isDebugEnabled()) {
-            log.debug("sysinfo info={}", info);
-        }
-        SysInfo32 sysInfo32 = new SysInfo32(info);
-        sysInfo32.pack();
-        return 0;
-    }
-
     private int mremap(Emulator<?> emulator) {
         Arm32RegisterContext context = emulator.getContext();
         UnidbgPointer old_address = context.getR0Pointer();
@@ -693,13 +707,13 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
     }
 
     protected int ptrace(Emulator<?> emulator) {
-        Backend backend = emulator.getBackend();
-        int request = backend.reg_read(ArmConst.UC_ARM_REG_R0).intValue();
-        int pid = backend.reg_read(ArmConst.UC_ARM_REG_R1).intValue();
-        Pointer addr = UnidbgPointer.register(emulator, ArmConst.UC_ARM_REG_R2);
-        Pointer data = UnidbgPointer.register(emulator, ArmConst.UC_ARM_REG_R3);
-        log.info("ptrace request=0x{}, pid={}, addr={}, data={}", Integer.toHexString(request), pid, addr, data);
-        return 0;
+        RegisterContext context = emulator.getContext();
+        return (int) kernel.ptrace(emulator, context.getIntArg(0), context.getIntArg(1));
+    }
+
+    private static int runningThreadId(Emulator<?> emulator) {
+        Task task = emulator.get(Task.TASK_KEY);
+        return task == null ? 0 : task.getId();
     }
 
     private int utimes(Emulator<?> emulator) {

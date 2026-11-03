@@ -556,6 +556,12 @@ public abstract class UnixSyscallHandler<T extends NewFileIO> implements Syscall
             if (io != null) {
                 path = io.getPath();
             }
+        } else {
+            String target = emulator.getFileSystem().readlink(path);
+            if (target != null) {
+                buf.setString(0, target);
+                return target.length();
+            }
         }
         buf.setString(0, path);
         return path.length() + 1;

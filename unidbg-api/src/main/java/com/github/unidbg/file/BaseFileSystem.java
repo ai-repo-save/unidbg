@@ -116,6 +116,19 @@ public abstract class BaseFileSystem<T extends NewFileIO> implements FileSystem<
         return file == null ? FileQueryResult.failed(UnixEmulator.EACCES) : HostFileFacts.directory(file);
     }
 
+    @Override
+    public String readlink(String pathname) {
+        // A link target may name a path outside the root directory, so the entry itself is
+        // inspected rather than the canonicalized path the containment check resolves.
+        File file = new File(rootDir, pathname);
+        if (!Files.isSymbolicLink(file.toPath())) return null;
+        try {
+            return Files.readSymbolicLink(file.toPath()).toString();
+        } catch (IOException e) {
+            throw new IllegalStateException("readlink failed: " + file, e);
+        }
+    }
+
     protected abstract T createStdout(int oflags, File stdio, String pathname);
 
     protected abstract T createStdin(int oflags);

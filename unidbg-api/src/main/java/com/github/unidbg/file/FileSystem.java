@@ -14,6 +14,14 @@ public interface FileSystem<T extends NewFileIO> {
     FileQueryResult<FileMetadata> queryMetadata(String pathname, boolean followLinks);
     FileQueryResult<java.util.List<DirectoryEntry>> queryDirectory(String pathname);
 
+    /**
+     * @return the target of the symbolic link stored at the guest path under the root
+     *         directory, or <code>null</code> when that path is no symbolic link
+     */
+    default String readlink(String pathname) {
+        return null;
+    }
+
     void unlink(String path);
 
     /**

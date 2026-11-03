@@ -1028,22 +1028,14 @@ public abstract class AndroidSyscallHandler extends UnixSyscallHandler<AndroidFi
     private final Map<Integer, SigAction> sigActionMap = new HashMap<>();
 
     /**
-     * Dispositions a process has before the guest installs any of its own, keyed by signal.
-     * bionic installs its crash handler for the fatal signals during process start, so a
-     * query reports a handler instead of the default disposition.
+     * The disposition SIGSYS has when the process starts: bionic installs its seccomp crash
+     * handler for it during process start, so a {@code rt_sigaction} query reports a handler
+     * instead of the default disposition. Every other signal starts at the default disposition.
      */
     private final Map<Integer, SigactionDisposition> initialSigActions = new HashMap<>();
 
     protected AndroidSyscallHandler() {
         initialSigActions.put(SIGSYS, new SigactionDisposition(CRASH_HANDLER, SA_RESTART | SA_SIGINFO, 0, 0));
-    }
-
-    /**
-     * Declares the disposition a signal has until the guest installs one. A {@code rt_sigaction}
-     * query for that signal reports this action, and {@code act == null} leaves it in place.
-     */
-    protected final void setInitialSigaction(int signum, long handler, int flags, long mask) {
-        initialSigActions.put(signum, new SigactionDisposition(handler, flags, mask, 0));
     }
 
     private static final class SigactionDisposition {

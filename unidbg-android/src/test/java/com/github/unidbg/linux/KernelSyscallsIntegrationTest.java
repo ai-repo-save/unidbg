@@ -248,6 +248,9 @@ public class KernelSyscallsIntegrationTest {
 
         assertEquals(-UnixEmulator.EINVAL, calls.epollCreate1(1));
         assertEquals(-UnixEmulator.EINVAL, calls.timerfdCreate(CLOCK_MONOTONIC, 0x100));
+        // The name is copied before the file is created, so a call that names no file has no name
+        // to copy.
+        assertEquals(-UnixEmulator.EFAULT, calls.memFdCreate(null, MFD_CLOEXEC));
     }
 
     private static void verifyProcessor(RawSyscalls calls, UnidbgPointer first) {
@@ -305,6 +308,8 @@ public class KernelSyscallsIntegrationTest {
         attributes.setInt(4, 128);  // sizeof(struct perf_event_attr) of the recorded device
         attributes.setLong(8, 0);  // PERF_COUNT_SW_CPU_CLOCK
         assertEquals(-UnixEmulator.EACCES, calls.perfEventOpen(attributes.peer, 0, -1, -1, 0));
+        // The runtime authorizes no performance access, whatever the request names.
+        assertEquals(-UnixEmulator.EACCES, calls.perfEventOpen(0, 0, -1, -1, 0));
 
         assertEquals(-UnixEmulator.EPERM, calls.ptrace(PTRACE_ATTACH, emulator.getPid()));
         assertEquals(-UnixEmulator.EPERM, calls.ptrace(PTRACE_TRACEME, 0));
@@ -317,6 +322,9 @@ public class KernelSyscallsIntegrationTest {
         first.setString(32, "none");
         assertEquals(-UnixEmulator.EACCES, calls.mount(first.peer, first.share(16, 0).peer,
                 first.share(32, 0).peer, 0));
+        // The platform denies the operation before it looks at the names: a call that names neither
+        // source, target nor type is refused like any other.
+        assertEquals(-UnixEmulator.EACCES, calls.mount(0, 0, 0, 0));
 
         // A process starts in PER_LINUX and keeps the domain it was given.
         assertEquals(PER_LINUX, calls.personality(PERSONALITY_QUERY));
@@ -432,8 +440,12 @@ public class KernelSyscallsIntegrationTest {
         }
 
         int memFdCreate(String value, int flags) {
-            name.setString(0, value);
-            return call(MEMFD_CREATE, name.peer, flags);
+            long label = 0;
+            if (value != null) {
+                name.setString(0, value);
+                label = name.peer;
+            }
+            return call(MEMFD_CREATE, label, flags);
         }
 
         int getcpu(long cpu, long node, long cache) {

@@ -214,9 +214,9 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
                     return;
                 case 40:
                     backend.reg_write(Arm64Const.UC_ARM64_REG_X0, kernel.mount(
-                            emulator.getContext().getPointerArg(0).getString(0),
-                            emulator.getContext().getPointerArg(1).getString(0),
-                            emulator.getContext().getPointerArg(2).getString(0),
+                            emulator.getContext().getPointerArg(0),
+                            emulator.getContext().getPointerArg(1),
+                            emulator.getContext().getPointerArg(2),
                             emulator.getContext().getLongArg(3)));
                     return;
                 case 43: {
@@ -361,9 +361,9 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
                     return;
                 case 241: {
                     RegisterContext context = emulator.getContext();
-                    Pointer attributes = context.getPointerArg(0);
-                    backend.reg_write(Arm64Const.UC_ARM64_REG_X0, kernel.perfEventOpen(attributes.getInt(0),
-                            attributes.getLong(8), context.getIntArg(1), context.getIntArg(2), context.getIntArg(3)));
+                    backend.reg_write(Arm64Const.UC_ARM64_REG_X0, kernel.perfEventOpen(
+                            context.getPointerArg(0), context.getIntArg(1), context.getIntArg(2),
+                            context.getIntArg(3)));
                     return;
                 }
                 case 233:
@@ -472,7 +472,7 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
                     return;
                 case 279:
                     backend.reg_write(Arm64Const.UC_ARM64_REG_X0, kernel.memFdCreate(
-                            emulator.getContext().getPointerArg(0).getString(0), emulator.getContext().getIntArg(1)));
+                            emulator.getContext().getPointerArg(0), emulator.getContext().getIntArg(1)));
                     return;
                 case 283:
                     backend.reg_write(Arm64Const.UC_ARM64_REG_X0,

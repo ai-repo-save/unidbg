@@ -227,29 +227,38 @@ public final class KernelSyscalls {
     /**
      * {@code memfd_create(2)}: a file the process reaches only through descriptors. The pages of the
      * file come from the host, which holds them for the runtime the way the kernel holds a memfd.
+     * The name labels the file and is copied before the file is created, so a call that names no
+     * file has no name to copy and answers {@code EFAULT}.
      */
-    public long memFdCreate(String name, int flags) {
+    public long memFdCreate(Pointer name, int flags) {
         if ((flags & ~(MFD_CLOEXEC | MFD_ALLOW_SEALING)) != 0) {
-            log.debug("event=memfd_create_rejected name={} flags=0x{} errno={}", name,
-                    Integer.toHexString(flags), UnixEmulator.EINVAL);
+            log.debug("event=memfd_create_rejected name=0x{} flags=0x{} errno={}",
+                    Long.toHexString(Pointer.nativeValue(name)), Integer.toHexString(flags),
+                    UnixEmulator.EINVAL);
             return -UnixEmulator.EINVAL;
         }
+        if (name == null) {
+            log.debug("event=memfd_create_rejected name=0x0 flags=0x{} errno={}",
+                    Integer.toHexString(flags), UnixEmulator.EFAULT);
+            return -UnixEmulator.EFAULT;
+        }
+        String label = name.getString(0);
         File pages;
         try {
             pages = File.createTempFile("unidbg-memfd-", null);
         } catch (IOException failure) {
-            log.warn("event=memfd_storage_failed name={} errno={}", name, UnixEmulator.ENOMEM, failure);
+            log.warn("event=memfd_storage_failed name={} errno={}", label, UnixEmulator.ENOMEM, failure);
             return -UnixEmulator.ENOMEM;
         }
         int oflags = IOConstants.O_RDWR | ((flags & MFD_CLOEXEC) != 0 ? IOConstants.O_CLOEXEC : 0);
-        AndroidFileIO file = new SimpleFileIO(oflags, pages, name);
+        AndroidFileIO file = new SimpleFileIO(oflags, pages, label);
         // The file stays reachable through the descriptor alone, so it takes no name in the host's
         // file system from here on; the kernel unlinks a memfd the same way.
         if (!pages.delete()) {
             throw new IllegalStateException("Releasing memfd storage: " + pages);
         }
         int fd = descriptors.addFileIO(file);
-        log.debug("event=kernel_descriptor_created kind=memfd fd={} name={}", fd, name);
+        log.debug("event=kernel_descriptor_created kind=memfd fd={} name={}", fd, label);
         return fd;
     }
 
@@ -318,20 +327,23 @@ public final class KernelSyscalls {
      * {@code perf_event_open(2)}. The runtime holds no performance counter, so it refuses the request
      * rather than answer with a descriptor that measures nothing: a kernel refuses performance access
      * to a process it does not authorize for it with {@code EACCES}, and the runtime authorizes none.
+     * The refusal holds for every request, so the attributes the caller names are not read.
      */
-    public long perfEventOpen(int type, long config, int pid, int cpu, int groupFd) {
-        log.debug("event=perf_event_refused type={} config=0x{} pid={} cpu={} group_fd={} errno={}", type,
-                Long.toHexString(config), pid, cpu, groupFd, UnixEmulator.EACCES);
+    public long perfEventOpen(Pointer attributes, int pid, int cpu, int groupFd) {
+        log.debug("event=perf_event_refused attributes=0x{} pid={} cpu={} group_fd={} errno={}",
+                Long.toHexString(Pointer.nativeValue(attributes)), pid, cpu, groupFd, UnixEmulator.EACCES);
         return -UnixEmulator.EACCES;
     }
 
     /**
      * {@code mount(2)}. The mount table the runtime serves is the one an observer recorded or the
-     * two entries the view renders, and no process may change it: the platform denies the operation.
+     * two entries the view renders, and no process may change it: the platform denies the operation
+     * before it looks at the arguments, so no name the caller passes is read.
      */
-    public long mount(String source, String target, String type, long flags) {
-        log.debug("event=mount_refused source={} target={} type={} flags=0x{} errno={}", source, target, type,
-                Long.toHexString(flags), UnixEmulator.EACCES);
+    public long mount(Pointer source, Pointer target, Pointer type, long flags) {
+        log.debug("event=mount_refused source=0x{} target=0x{} type=0x{} flags=0x{} errno={}",
+                Long.toHexString(Pointer.nativeValue(source)), Long.toHexString(Pointer.nativeValue(target)),
+                Long.toHexString(Pointer.nativeValue(type)), Long.toHexString(flags), UnixEmulator.EACCES);
         return -UnixEmulator.EACCES;
     }
 

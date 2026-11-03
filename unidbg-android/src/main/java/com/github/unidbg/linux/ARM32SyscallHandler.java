@@ -38,6 +38,7 @@ import com.github.unidbg.thread.Task;
 import com.github.unidbg.thread.ThreadContextSwitchException;
 import com.github.unidbg.unix.IO;
 import com.github.unidbg.unix.UnixEmulator;
+import com.github.unidbg.unix.time.ClockSource;
 import com.github.unidbg.utils.Inspector;
 import com.sun.jna.Pointer;
 import org.apache.commons.io.FilenameUtils;
@@ -1555,12 +1556,10 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
     private static final int CLOCK_MONOTONIC_COARSE = 6;
     private static final int CLOCK_BOOTTIME = 7;
 
-    private final long nanoTime = System.nanoTime();
-
     protected int clock_gettime(Backend backend, Emulator<?> emulator) {
         int clk_id = backend.reg_read(ArmConst.UC_ARM_REG_R0).intValue();
         Pointer tp = UnidbgPointer.register(emulator, ArmConst.UC_ARM_REG_R1);
-        long offset = clk_id == CLOCK_REALTIME ? System.currentTimeMillis() * 1000000L : System.nanoTime() - nanoTime;
+        long offset = ClockSource.of(emulator).clockNanos(clk_id);
         long tv_sec = offset / 1000000000L;
         long tv_nsec = offset % 1000000000L;
         if (log.isDebugEnabled()) {
@@ -1569,15 +1568,12 @@ public class ARM32SyscallHandler extends AndroidSyscallHandler {
         switch (clk_id) {
             case CLOCK_REALTIME:
             case CLOCK_MONOTONIC:
+            case CLOCK_THREAD_CPUTIME_ID:
             case CLOCK_MONOTONIC_RAW:
             case CLOCK_MONOTONIC_COARSE:
             case CLOCK_BOOTTIME:
                 tp.setInt(0, (int) tv_sec);
                 tp.setInt(4, (int) tv_nsec);
-                return 0;
-            case CLOCK_THREAD_CPUTIME_ID:
-                tp.setInt(0, 0);
-                tp.setInt(4, 1);
                 return 0;
         }
         throw new UnsupportedOperationException("clk_id=" + clk_id);

@@ -16,6 +16,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.OptionalInt;
 
@@ -81,6 +82,31 @@ public class KernelSyscallsIntegrationTest {
     private static final int F_GETFD = 1;
     private static final int FD_CLOEXEC = 1;
 
+    private static final int CLOCK_MONOTONIC_RAW = 4;
+
+    /**
+     * {@code struct sysinfo} of the 32-bit ABI: the counts are four bytes wide and report a memory
+     * count they cannot hold in units of {@code mem_unit}.
+     */
+    private static final int SYSINFO32_UPTIME = 0;
+    private static final int SYSINFO32_TOTALRAM = 16;
+    private static final int SYSINFO32_FREERAM = 20;
+    private static final int SYSINFO32_TOTALSWAP = 32;
+    private static final int SYSINFO32_FREESWAP = 36;
+    private static final int SYSINFO32_PROCS = 40;
+    private static final int SYSINFO32_MEM_UNIT = 52;
+
+    /** {@code struct rusage} of the 32-bit ABI: each timeval is two four-byte fields. */
+    private static final int RUSAGE32_UTIME_SEC = 0;
+    private static final int RUSAGE32_UTIME_USEC = 4;
+    private static final int RUSAGE32_STIME_SEC = 8;
+    private static final int RUSAGE32_STIME_USEC = 12;
+    private static final int RUSAGE32_MAXRSS = 16;
+
+    /** {@code struct rlimit} of the 32-bit ABI: two four-byte limits. */
+    private static final int RLIMIT32_CUR = 0;
+    private static final int RLIMIT32_MAX = 4;
+
     @Test
     public void theKernelAnswersFromTheRuntimeFacts() throws Exception {
         Path parent = Paths.get("target/kernel-syscalls");
@@ -108,6 +134,213 @@ public class KernelSyscallsIntegrationTest {
                 scratch.free();
             }
         }
+    }
+
+    /**
+     * The same calls on the 32-bit ABI: the numbers are the arm ones and the structures the calls
+     * fill are the four-byte ones.
+     */
+    @Test
+    public void theKernelAnswersFromTheRuntimeFactsOnArm32() throws Exception {
+        Path parent = Paths.get("target/kernel-syscalls");
+        Files.createDirectories(parent);
+        Path root = Files.createTempDirectory(parent, "arm32-").toAbsolutePath();
+        try (AndroidEmulator emulator = AndroidEmulatorBuilder.for32Bit()
+                .setRootDir(root.toFile()).addBackendFactory(new Unicorn2Factory(true)).build();
+             Arm32Syscalls calls = new Arm32Syscalls(emulator)) {
+            ClockSource.install(emulator, ClockSource.of(new long[] {WALL_NANOS}, new long[] {UPTIME_NANOS}, 0, 0));
+            MemoryBlock scratch = emulator.getMemory().malloc(16384, true);
+            try {
+                UnidbgPointer first = scratch.getPointer();
+                UnidbgPointer second = first.share(4096, 0);
+                verifyArm32Sysinfo(calls, first);
+                verifyArm32Rusage(emulator, calls, first);
+                verifyArm32Limits(emulator, calls, first, second);
+                verifyArm32Descriptors(calls);
+                verifyArm32Processor(calls, first);
+                verifyArm32Barriers(calls);
+                verifyArm32RootCapabilities(calls, first, second);
+                verifyArm32Refusals(emulator, calls, first);
+                verifyArm32UnprivilegedProcess(emulator, calls, first, second);
+            } finally {
+                scratch.free();
+            }
+        }
+    }
+
+    private static void verifyArm32Sysinfo(Arm32Syscalls calls, UnidbgPointer info) {
+        assertEquals(0, calls.sysinfo(info.peer));
+        assertEquals(UPTIME_NANOS / 1_000_000_000L, info.getInt(SYSINFO32_UPTIME));
+        long memUnit = field32(info, SYSINFO32_MEM_UNIT);
+        long total = field32(info, SYSINFO32_TOTALRAM) * memUnit;
+        long free = field32(info, SYSINFO32_FREERAM) * memUnit;
+        // The four-byte counts report a memory count they cannot hold in units of mem_unit.
+        assertEquals(Runtime.getRuntime().maxMemory(), total);
+        assertTrue("freeram=" + free + ", totalram=" + total, free > 0 && free <= total);
+        assertEquals(1, info.getShort(SYSINFO32_PROCS));
+        assertEquals(0, info.getInt(SYSINFO32_TOTALSWAP));
+        assertEquals(0, info.getInt(SYSINFO32_FREESWAP));
+    }
+
+    private static void verifyArm32Rusage(AndroidEmulator emulator, Arm32Syscalls calls, UnidbgPointer usage) {
+        long mapped = 0;
+        for (MemoryMap map : emulator.getMemory().getMemoryMap()) mapped += map.size;
+
+        assertEquals(0, calls.getrusage(RUSAGE_SELF, usage.peer));
+        long processNanos = cpuNanos(usage);
+        assertTrue("utime=" + processNanos, processNanos < UPTIME_NANOS);
+        assertEquals(0, usage.getInt(RUSAGE32_STIME_SEC));
+        assertEquals(0, usage.getInt(RUSAGE32_STIME_USEC));
+        assertEquals(mapped / 1024, field32(usage, RUSAGE32_MAXRSS));
+
+        assertEquals(0, calls.getrusage(RUSAGE_CHILDREN, usage.peer));
+        assertEquals(0, usage.getInt(RUSAGE32_UTIME_SEC));
+        assertEquals(0, usage.getInt(RUSAGE32_UTIME_USEC));
+        assertEquals(0, usage.getInt(RUSAGE32_MAXRSS));
+
+        assertEquals(0, calls.getrusage(RUSAGE_THREAD, usage.peer));
+        long threadNanos = cpuNanos(usage);
+        assertEquals(mapped / 1024, field32(usage, RUSAGE32_MAXRSS));
+        assertEquals(0, calls.getrusage(RUSAGE_SELF, usage.peer));
+        long laterNanos = cpuNanos(usage);
+        assertTrue("thread=" + threadNanos + ", process=" + laterNanos, threadNanos <= laterNanos);
+
+        assertEquals(-UnixEmulator.EINVAL, calls.getrusage(2, usage.peer));
+    }
+
+    private static long cpuNanos(UnidbgPointer usage) {
+        return field32(usage, RUSAGE32_UTIME_SEC) * 1_000_000_000L
+                + field32(usage, RUSAGE32_UTIME_USEC) * 1_000L;
+    }
+
+    private static void verifyArm32Limits(AndroidEmulator emulator, Arm32Syscalls calls, UnidbgPointer limit,
+                                          UnidbgPointer requested) {
+        long stack = (long) Memory.STACK_SIZE_OF_PAGE * emulator.getPageAlign();
+        assertEquals(0, calls.prlimit64(0, RLIMIT_STACK, 0, limit.peer));
+        assertEquals(stack, limit.getLong(0));
+        assertEquals(stack, limit.getLong(8));
+
+        // ugetrlimit asks the same question in the structure of the 32-bit ABI.
+        assertEquals(0, calls.ugetrlimit(RLIMIT_STACK, limit.peer));
+        assertEquals(stack, field32(limit, RLIMIT32_CUR));
+        assertEquals(stack, field32(limit, RLIMIT32_MAX));
+
+        // The 32-bit ABI reports an unbounded limit as the largest value its fields hold.
+        assertEquals(0, calls.ugetrlimit(RLIMIT_MEMLOCK, limit.peer));
+        assertEquals(0xffffffffL, field32(limit, RLIMIT32_CUR));
+        assertEquals(0xffffffffL, field32(limit, RLIMIT32_MAX));
+
+        requested.setLong(0, 1024);
+        requested.setLong(8, 2048);
+        assertEquals(0, calls.prlimit64(0, RLIMIT_NOFILE, requested.peer, 0));
+        assertEquals(0, calls.ugetrlimit(RLIMIT_NOFILE, limit.peer));
+        assertEquals(1024, field32(limit, RLIMIT32_CUR));
+        assertEquals(2048, field32(limit, RLIMIT32_MAX));
+
+        assertEquals(-UnixEmulator.EINVAL, calls.prlimit64(0, RESOURCE_COUNT, 0, limit.peer));
+        assertEquals(-UnixEmulator.EINVAL, calls.ugetrlimit(RESOURCE_COUNT, limit.peer));
+        assertEquals(-UnixEmulator.ESRCH, calls.prlimit64(emulator.getPid() + 1, RLIMIT_NOFILE, 0, limit.peer));
+        assertEquals(0, calls.prlimit64(emulator.getPid(), RLIMIT_NOFILE, 0, limit.peer));
+    }
+
+    private static void verifyArm32Descriptors(Arm32Syscalls calls) {
+        int eventPoll = calls.epollCreate1(EPOLL_CLOEXEC);
+        assertTrue("epoll fd=" + eventPoll, eventPoll >= 0);
+        int timer = calls.timerfdCreate(CLOCK_MONOTONIC, TFD_CLOEXEC);
+        assertTrue("timerfd fd=" + timer, timer >= 0);
+        int memory = calls.memFdCreate("runtime-evaluation", MFD_CLOEXEC);
+        assertTrue("memfd fd=" + memory, memory >= 0);
+        assertNotEquals(eventPoll, timer);
+        assertNotEquals(timer, memory);
+
+        // Every created descriptor is in the table the file syscalls read.
+        assertEquals(FD_CLOEXEC, calls.fcntl(eventPoll, F_GETFD, 0));
+        assertEquals(FD_CLOEXEC, calls.fcntl(timer, F_GETFD, 0));
+        assertEquals(FD_CLOEXEC, calls.fcntl(memory, F_GETFD, 0));
+        assertEquals(0, calls.close(eventPoll));
+        assertEquals(0, calls.close(timer));
+        assertEquals(0, calls.close(memory));
+        assertEquals(-UnixEmulator.EBADF, calls.fcntl(eventPoll, F_GETFD, 0));
+
+        assertEquals(-UnixEmulator.EINVAL, calls.epollCreate1(1));
+        assertEquals(-UnixEmulator.EINVAL, calls.timerfdCreate(CLOCK_MONOTONIC, 0x100));
+        // A clock the runtime does not model as a timer source is refused.
+        assertEquals(-UnixEmulator.EINVAL, calls.timerfdCreate(CLOCK_MONOTONIC_RAW, TFD_CLOEXEC));
+        assertEquals(-UnixEmulator.EFAULT, calls.memFdCreate(null, MFD_CLOEXEC));
+    }
+
+    private static void verifyArm32Processor(Arm32Syscalls calls, UnidbgPointer first) {
+        int processors = Runtime.getRuntime().availableProcessors();
+        assertEquals(0, calls.getcpu(first.peer, first.share(8, 0).peer, 0));
+        int cpu = first.getInt(0);
+        int node = first.getInt(8);
+        assertEquals("node=" + node, 0, node);
+        assertTrue("cpu=" + cpu + ", processors=" + processors, cpu >= 0 && cpu < processors);
+
+        assertEquals(0, calls.getcpu(first.peer, 0, 0));
+        assertEquals(cpu, first.getInt(0));
+    }
+
+    private static void verifyArm32Barriers(Arm32Syscalls calls) {
+        assertEquals(MEMBARRIER_CMD_GLOBAL, calls.membarrier(MEMBARRIER_CMD_QUERY, 0));
+        assertEquals(0, calls.membarrier(MEMBARRIER_CMD_GLOBAL, 0));
+        assertEquals(-UnixEmulator.EINVAL, calls.membarrier(MEMBARRIER_CMD_PRIVATE_EXPEDITED, 0));
+        assertEquals(-UnixEmulator.EINVAL, calls.membarrier(MEMBARRIER_CMD_QUERY, 1));
+    }
+
+    private static void verifyArm32RootCapabilities(Arm32Syscalls calls, UnidbgPointer header, UnidbgPointer data) {
+        header.setInt(0, CAPABILITY_VERSION_3);
+        header.setInt(4, 0);
+        assertEquals(0, calls.capget(header.peer, data.peer));
+        assertEquals(DEVICE_ROOT_CAPABILITIES, set(data, 0));
+        assertEquals(DEVICE_ROOT_CAPABILITIES, set(data, 4));
+        assertEquals(0, set(data, 8));
+
+        header.setInt(0, CAPABILITY_VERSION_1);
+        assertEquals(-UnixEmulator.EINVAL, calls.capget(header.peer, data.peer));
+        assertEquals(CAPABILITY_VERSION_3, header.getInt(0));
+    }
+
+    private static void verifyArm32Refusals(AndroidEmulator emulator, Arm32Syscalls calls, UnidbgPointer attributes) {
+        attributes.setInt(0, 1);  // PERF_TYPE_SOFTWARE
+        attributes.setInt(4, 128);  // sizeof(struct perf_event_attr) of the recorded device
+        assertEquals(-UnixEmulator.EACCES, calls.perfEventOpen(attributes.peer, 0, -1, -1));
+        assertEquals(-UnixEmulator.EACCES, calls.perfEventOpen(0, 0, -1, -1));
+
+        assertEquals(-UnixEmulator.EPERM, calls.ptrace(PTRACE_ATTACH, emulator.getPid()));
+        assertEquals(-UnixEmulator.EPERM, calls.ptrace(PTRACE_TRACEME, 0));
+
+        // A number the handler does not model keeps the answer of an unknown syscall.
+        assertEquals(-UnixEmulator.ENOSYS, calls.call(Arm32Syscalls.UNMODELED));
+    }
+
+    private static void verifyArm32UnprivilegedProcess(AndroidEmulator emulator, Arm32Syscalls calls,
+                                                       UnidbgPointer header, UnidbgPointer data) {
+        int uid = 10123;
+        ((AndroidSyscallHandler) emulator.getSyscallHandler()).setGuestCredentials(new GuestCredentials(
+                OptionalInt.of(uid), OptionalInt.of(uid), OptionalInt.of(uid), OptionalInt.of(uid),
+                java.util.Optional.of(Collections.emptySet())));
+
+        header.setInt(0, CAPABILITY_VERSION_3);
+        header.setInt(4, 0);
+        assertEquals(0, calls.capget(header.peer, data.peer));
+        assertEquals(0, set(data, 0));
+        assertEquals(0, set(data, 4));
+
+        // A process without CAP_SYS_RESOURCE may not raise a hard limit, but lowering one stands.
+        header.setLong(0, 1024);
+        header.setLong(8, 8192);
+        assertEquals(-UnixEmulator.EPERM, calls.prlimit64(0, RLIMIT_NOFILE, header.peer, 0));
+        header.setLong(8, 2048);
+        assertEquals(0, calls.prlimit64(0, RLIMIT_NOFILE, header.peer, 0));
+        assertEquals(0, calls.ugetrlimit(RLIMIT_NOFILE, data.peer));
+        assertEquals(1024, field32(data, RLIMIT32_CUR));
+        assertEquals(2048, field32(data, RLIMIT32_MAX));
+    }
+
+    /** One four-byte field of a structure, which the structure holds unsigned. */
+    private static long field32(UnidbgPointer struct, int offset) {
+        return struct.getInt(offset) & 0xffffffffL;
     }
 
     private static void verifySysinfo(RawSyscalls calls, UnidbgPointer info) {
@@ -517,6 +750,119 @@ public class KernelSyscallsIntegrationTest {
 
         int call(int number, Number... arguments) {
             return emulator.eFunc(code.peer + number * 16L, arguments).intValue();
+        }
+
+        @Override
+        public void close() {
+            emulator.getMemory().munmap(code.peer, 8192);
+        }
+    }
+
+    /**
+     * arm32 syscalls issued from emulated code, so the dispatcher, the descriptor table and the
+     * guest credentials answer them. The numbers are the arm ones of the ABI.
+     */
+    private static final class Arm32Syscalls implements AutoCloseable {
+        private static final int CLOSE = 6;
+        private static final int PTRACE = 26;
+        private static final int GETRUSAGE = 77;
+        private static final int SYSINFO = 116;
+        private static final int CAPGET = 184;
+        private static final int UGETRLIMIT = 191;
+        private static final int FCNTL = 221;
+        private static final int GETCPU = 345;
+        private static final int TIMERFD_CREATE = 350;
+        private static final int EPOLL_CREATE1 = 357;
+        private static final int PERF_EVENT_OPEN = 364;
+        private static final int PRLIMIT64 = 369;
+        private static final int MEMFD_CREATE = 385;
+        private static final int MEMBARRIER = 389;
+        /** A number the arm ABI defines no call for. */
+        private static final int UNMODELED = 500;
+
+        private final AndroidEmulator emulator;
+        private final UnidbgPointer code;
+        private final UnidbgPointer name;
+
+        Arm32Syscalls(AndroidEmulator emulator) {
+            this.emulator = emulator;
+            code = emulator.getMemory().mmap(8192, 7);
+            name = emulator.getSvcMemory().allocate(256, "kernel-syscalls-test-path");
+            for (int number : new int[] {CLOSE, PTRACE, GETRUSAGE, SYSINFO, CAPGET, UGETRLIMIT, FCNTL,
+                    GETCPU, TIMERFD_CREATE, EPOLL_CREATE1, PERF_EVENT_OPEN, PRLIMIT64, MEMFD_CREATE,
+                    MEMBARRIER, UNMODELED}) {
+                long offset = number * 16L;
+                // movw r7, #number; svc #0; bx lr
+                code.setInt(offset, 0xe3007000 | (number & 0xfff) | ((number & 0xf000) << 4));
+                code.setInt(offset + 4, 0xef000000);
+                code.setInt(offset + 8, 0xe12fff1e);
+            }
+        }
+
+        int sysinfo(long info) {
+            return call(SYSINFO, info);
+        }
+
+        int getrusage(int who, long usage) {
+            return call(GETRUSAGE, who, usage);
+        }
+
+        int ugetrlimit(int resource, long limit) {
+            return call(UGETRLIMIT, resource, limit);
+        }
+
+        int prlimit64(int pid, int resource, long requested, long limit) {
+            return call(PRLIMIT64, pid, resource, requested, limit);
+        }
+
+        int epollCreate1(int flags) {
+            return call(EPOLL_CREATE1, flags);
+        }
+
+        int timerfdCreate(int clockId, int flags) {
+            return call(TIMERFD_CREATE, clockId, flags);
+        }
+
+        int memFdCreate(String value, int flags) {
+            long label = 0;
+            if (value != null) {
+                name.setString(0, value);
+                label = name.peer;
+            }
+            return call(MEMFD_CREATE, label, flags);
+        }
+
+        int getcpu(long cpu, long node, long cache) {
+            return call(GETCPU, cpu, node, cache);
+        }
+
+        int membarrier(int command, int flags) {
+            return call(MEMBARRIER, command, flags);
+        }
+
+        int capget(long header, long data) {
+            return call(CAPGET, header, data);
+        }
+
+        int perfEventOpen(long attributes, int pid, int cpu, int groupFd) {
+            return call(PERF_EVENT_OPEN, attributes, pid, cpu, groupFd);
+        }
+
+        int ptrace(int request, int pid) {
+            return call(PTRACE, request, pid, 0, 0);
+        }
+
+        int fcntl(int fd, int command, long argument) {
+            return call(FCNTL, fd, command, argument);
+        }
+
+        int close(int fd) {
+            return call(CLOSE, fd);
+        }
+
+        int call(int number, Number... arguments) {
+            return emulator.eFunc(code.peer + number * 16L,
+                    Arrays.stream(arguments).map(Number::intValue).toArray(Number[]::new)).intValue();
         }
 
         @Override

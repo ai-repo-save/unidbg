@@ -45,6 +45,14 @@ import static org.junit.Assert.assertTrue;
  *
  * Every assertion runs on both Android ABIs: the calls and their answers are the same, and only the
  * structure one ABI fills differs from the structure the other fills.
+ *
+ * Each structure is also read at the offsets its ABI defines, which the kernel headers give:
+ * {@code struct sysinfo} of {@code include/uapi/linux/sysinfo.h} and {@code struct compat_sysinfo}
+ * of {@code kernel/sys.c}, {@code struct rusage} and {@code struct rlimit} of
+ * {@code include/uapi/linux/resource.h} with {@code struct compat_rusage} and
+ * {@code struct compat_rlimit} of {@code include/linux/compat.h}, and {@code struct stat} of
+ * {@code include/uapi/asm-generic/stat.h} with the arm {@code struct stat64} of
+ * {@code arch/arm/include/uapi/asm/stat.h}.
  */
 public class KernelSyscallsIntegrationTest {
     /** The monotonic reading an observer installed, which {@code sysinfo(2)} counts as uptime. */
@@ -147,6 +155,19 @@ public class KernelSyscallsIntegrationTest {
         assertEquals(0, field(values, "freeSwap"));
         // The eight-byte fields hold every count of the machine as it is.
         if (calls.is64Bit()) assertEquals(1, memUnit);
+
+        // The same facts at the offsets the ABI defines, so a field order or width the packing
+        // classes got wrong cannot pass through the unpacking classes that share it.
+        if (calls.is64Bit()) {
+            assertEquals(UPTIME_NANOS / 1_000_000_000L, info.getLong(0));      // uptime
+            assertEquals(Runtime.getRuntime().maxMemory(), info.getLong(32));   // totalram
+            assertEquals(1, info.getInt(104));                                  // mem_unit
+        } else {
+            assertEquals(UPTIME_NANOS / 1_000_000_000L, word(info, 0));         // uptime
+            assertEquals(Runtime.getRuntime().maxMemory(), word(info, 16) * word(info, 52));
+            // mem_unit doubles while the count does not fit its four-byte field.
+            assertTrue("mem_unit=" + word(info, 52), Long.bitCount(word(info, 52)) == 1);
+        }
     }
 
     private static void verifyRusage(AndroidEmulator emulator, KernelSyscallsGuest calls, UnidbgPointer usage) {
@@ -161,6 +182,9 @@ public class KernelSyscallsIntegrationTest {
         assertEquals(0, field(self, "ru_stime_sec"));
         assertEquals(0, field(self, "ru_stime_usec"));
         assertEquals(mapped / 1024, field(self, "ru_maxrss"));
+        // ru_maxrss is the fifth field of the 64-bit struct rusage and of the four-byte
+        // struct compat_rusage, at the offset each ABI gives it.
+        assertEquals(mapped / 1024, calls.is64Bit() ? usage.getLong(32) : word(usage, 16));
 
         // The runtime holds no child of the process, so no child spent CPU time and none held a
         // resident set.
@@ -226,6 +250,15 @@ public class KernelSyscallsIntegrationTest {
         assertEquals(0, calls.getrlimit(RLIMIT_NOFILE, limit.peer));
         assertEquals(1024, limit(calls, limit, "rlim_cur"));
         assertEquals(2048, limit(calls, limit, "rlim_max"));
+        // The same limits at the offsets the ABI's struct rlimit gives them: two kernel longs, four
+        // bytes each in the struct compat_rlimit the 32-bit call fills.
+        if (calls.is64Bit()) {
+            assertEquals(1024, limit.getLong(0));
+            assertEquals(2048, limit.getLong(8));
+        } else {
+            assertEquals(1024, word(limit, 0));
+            assertEquals(2048, word(limit, 4));
+        }
 
         requested.setLong(0, 4096);
         requested.setLong(8, 1024);
@@ -261,6 +294,15 @@ public class KernelSyscallsIntegrationTest {
         StatStructure timerStat = stat(calls, second);
         assertNotEquals(eventPollStat.st_ino, timerStat.st_ino);
         assertEquals(0600, timerStat.st_mode);
+        // The same entries at the offsets the ABI's struct stat gives st_mode and st_ino: a live
+        // inode number per descriptor, distinct like the fields are.
+        assertEquals(0600, word(first, 16));
+        assertEquals(0600, word(second, 16));
+        long eventPollInode = ino(calls, first);
+        long timerInode = ino(calls, second);
+        assertNotEquals(0, eventPollInode);
+        assertNotEquals(0, timerInode);
+        assertNotEquals(eventPollInode, timerInode);
         assertEquals(FD_CLOEXEC, calls.fcntl(eventPoll, F_GETFD, 0));
         assertEquals(FD_CLOEXEC, calls.fcntl(timer, F_GETFD, 0));
         assertEquals(FD_CLOEXEC, calls.fcntl(memory, F_GETFD, 0));
@@ -275,6 +317,9 @@ public class KernelSyscallsIntegrationTest {
         assertArrayEquals(payload, second.getByteArray(0, payload.length));
         assertEquals(0, calls.fstat(memory, first.peer));
         assertEquals(8, stat(calls, first).st_size);
+        // st_size sits at the same offset in the 64-bit struct stat and in the arm stat64 the arm
+        // table's fstat(2) fills.
+        assertEquals(8, first.getLong(48));
 
         assertEquals(0, calls.close(eventPoll));
         assertEquals(0, calls.close(timer));
@@ -425,6 +470,20 @@ public class KernelSyscallsIntegrationTest {
     /** One field of the {@code struct rlimit} {@code getrlimit(2)} writes in this ABI. */
     private static long limit(KernelSyscallsGuest calls, UnidbgPointer limits, String name) {
         return field(unpack(calls.is64Bit() ? new RLimit64(limits) : new RLimit32(limits)), name);
+    }
+
+    /**
+     * The {@code st_ino} of the {@code struct stat} {@code fstat(2)} wrote, at the offset the ABI
+     * gives it: below {@code st_dev} of the 64-bit structure and past the times of the arm
+     * {@code stat64} the arm table's {@code fstat(2)} fills.
+     */
+    private static long ino(KernelSyscallsGuest calls, UnidbgPointer stat) {
+        return stat.getLong(calls.is64Bit() ? 8 : 96);
+    }
+
+    /** A four-byte field at an offset of a structure, which the ABIs hold unsigned. */
+    private static long word(UnidbgPointer memory, int offset) {
+        return memory.getInt(offset) & 0xffffffffL;
     }
 
     /** The CPU time one {@code struct rusage} reports: the user time of the measured entity. */

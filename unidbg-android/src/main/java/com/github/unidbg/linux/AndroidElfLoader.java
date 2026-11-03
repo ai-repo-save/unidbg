@@ -99,6 +99,23 @@ public class AndroidElfLoader extends AbstractLoader<AndroidFileIO> implements M
         return new ElfLibraryFile(file, emulator.is64Bit());
     }
 
+    /**
+     * Keeps the bionic thread identity in step with the process id: the guest reads
+     * {@code gettid()} from the thread structure in its thread-local storage, so that value
+     * follows the id the runtime runs as rather than the one it started with.
+     */
+    public void processIdChanged(int pid) {
+        UnidbgPointer tls = UnidbgPointer.register(emulator,
+                emulator.is32Bit() ? ArmConst.UC_ARM_REG_C13_C0_3 : Arm64Const.UC_ARM64_REG_TPIDR_EL0);
+        if (tls == null) return;
+        UnidbgPointer thread = tls.getPointer(emulator.getPointerSize());
+        if (thread == null) return;
+        PThreadInternal internal = PThreadInternal.create(emulator, thread);
+        internal.unpack();
+        internal.tid = pid;
+        internal.pack();
+    }
+
     private UnidbgPointer initializeTLS(String[] envs) {
         final Pointer thread = allocateStack(0x400); // reserve space for pthread_internal_t
         PThreadInternal pThread = PThreadInternal.create(emulator, thread);

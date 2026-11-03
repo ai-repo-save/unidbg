@@ -112,9 +112,13 @@ public final class ProcfsFiles {
         this.exe = path;
     }
 
-    /** Replaces the bytes of one file, which may name this process. */
+    /**
+     * Replaces the bytes of one file, which may name this process. The process's own identity
+     * fields are rendered from its pid, because the pid is what the runtime runs as and not what
+     * an observer happened to record.
+     */
     public void declare(long pid, String path, byte[] content) {
-        declared.put(canonical(pid, path), new Item(Item.Kind.FILE, content, null, null, null));
+        declared.put(canonical(pid, path), new Item(Item.Kind.FILE, identity(pid, path, content), null, null, null));
     }
 
     /** States that the process has no file at this path, whatever the root directory holds. */
@@ -252,6 +256,56 @@ public final class ProcfsFiles {
 
     private static Item file(byte[] content) {
         return new Item(Item.Kind.FILE, content, null, null, null);
+    }
+
+    /**
+     * The recorded bytes of one file with this process's identity in the fields that hold it:
+     * {@code status} names the pid and thread group id, {@code stat} names the pid in its first
+     * field. Everything else, the parent included, stays what the observer recorded, because the
+     * runtime has no parent and no kernel counters of its own.
+     */
+    private static byte[] identity(long pid, String path, byte[] content) {
+        String canonical = canonical(pid, path);
+        if (canonical.equals(SELF + "/" + STATUS)) return rewritten(content, line -> identityLine(line, pid));
+        if (canonical.equals(SELF + "/" + STAT)) return rewritten(content, line -> identityStat(line, pid));
+        return content;
+    }
+
+    private static byte[] rewritten(byte[] content, java.util.function.UnaryOperator<String> rewrite) {
+        // The bytes are decoded one to one: only ASCII digits are replaced, everything else is
+        // written back as it was recorded.
+        String text = new String(content, StandardCharsets.ISO_8859_1);
+        StringBuilder result = new StringBuilder(text.length());
+        int start = 0;
+        while (start < text.length()) {
+            int end = text.indexOf('\n', start);
+            end = end < 0 ? text.length() : end + 1;
+            result.append(rewrite.apply(text.substring(start, end)));
+            start = end;
+        }
+        return result.toString().getBytes(StandardCharsets.ISO_8859_1);
+    }
+
+    /** One {@code status} line, with the value of an identity field replaced. */
+    private static String identityLine(String line, long pid) {
+        for (String field : new String[] {"Pid:", "Tgid:"}) {
+            if (!line.startsWith(field)) continue;
+            int value = field.length();
+            while (value < line.length() && (line.charAt(value) == ' ' || line.charAt(value) == '\t')) value++;
+            int end = value;
+            while (end < line.length() && Character.isDigit(line.charAt(end))) end++;
+            if (end == value) return line;
+            return line.substring(0, value) + pid + line.substring(end);
+        }
+        return line;
+    }
+
+    /** The {@code stat} line, whose first field is the pid and whose second is the name. */
+    private static String identityStat(String line, long pid) {
+        int name = line.indexOf('(');
+        int end = name < 0 ? line.indexOf(' ') : line.lastIndexOf(' ', name);
+        if (end < 1) return line;
+        return pid + line.substring(end);
     }
 
     private String executable(Emulator<AndroidFileIO> emulator) {

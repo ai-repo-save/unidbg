@@ -8,10 +8,12 @@ import com.github.unidbg.file.FileQueryResult;
 import com.github.unidbg.file.linux.LinuxFileSystem;
 import com.github.unidbg.linux.android.AndroidEmulatorBuilder;
 import com.github.unidbg.linux.file.ProcfsFiles;
+import com.github.unidbg.linux.thread.PThreadInternal;
 import com.github.unidbg.memory.MemoryBlock;
 import com.github.unidbg.pointer.UnidbgPointer;
 import com.github.unidbg.unix.IO;
 import org.junit.Test;
+import unicorn.Arm64Const;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
@@ -42,6 +44,13 @@ public class ProcfsFilesIntegrationTest {
     private static final String COMM = "com.example.pro";
     private static final byte[] RECORDED_STATUS =
             "Name:\tcom.example.process\nPid:\t4242\nPPid:\t17\nTracerPid:\t0\n".getBytes(StandardCharsets.UTF_8);
+    /** A recording names the process it came from, which is not the process this runtime is. */
+    private static final byte[] FOREIGN_STATUS = ("Name:\tcom.example.process\nState:\tS (sleeping)\n"
+            + "Tgid:\t999\nPid:\t999\nPPid:\t17\nTracerPid:\t0\nSeccomp:\t2\n")
+            .getBytes(StandardCharsets.UTF_8);
+    private static final byte[] FOREIGN_STAT =
+            "999 (com.example.process) S 17 999 0 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 0 0 0\n"
+                    .getBytes(StandardCharsets.UTF_8);
     private static final byte[] PARENT_STAT = "1 (init) S 0 0 0 0 0 0 0 0 0 0 0\n".getBytes(StandardCharsets.UTF_8);
     private static final byte[] RECORDED_ATTR = "u:r:untrusted_app:s0:c0,c0\n".getBytes(StandardCharsets.UTF_8);
     private static final byte[] LAYOUT_STAT =
@@ -205,6 +214,55 @@ public class ProcfsFilesIntegrationTest {
         assertTrue(path, facts.ino.getAsLong() != sibling.ino.getAsLong());
         assertEquals(path, files.queryMetadata("/proc/" + PID + path.substring("/proc/self".length()), true).value.ino,
                 facts.ino);
+    }
+
+    /**
+     * One pid source: the id the runtime runs as answers getpid, the thread id the guest reads,
+     * and the identity fields of the files that report them, whatever the recording named.
+     */
+    @Test
+    public void processIdentityComesFromOnePid() throws Exception {
+        Path parent = Paths.get("target/procfs");
+        Files.createDirectories(parent);
+        Path root = Files.createTempDirectory(parent, "identity-").toAbsolutePath();
+        try (AndroidEmulator emulator = AndroidEmulatorBuilder.for64Bit()
+                .setRootDir(root.toFile()).setProcessName(NAME)
+                .addBackendFactory(new Unicorn2Factory(true)).build();
+             RawSyscalls calls = new RawSyscalls(emulator)) {
+            // The host gives the id before anything runs; the recording names another process.
+            emulator.setPid(PID);
+            LinuxFileSystem files = (LinuxFileSystem) emulator.getFileSystem();
+            files.procfs().declare(PID, "/proc/self/status", FOREIGN_STATUS);
+            files.procfs().declare(PID, "/proc/self/stat", FOREIGN_STAT);
+
+            MemoryBlock scratch = emulator.getMemory().malloc(4096, true);
+            try {
+                UnidbgPointer buffer = scratch.getPointer();
+                assertEquals(PID, calls.call(172));
+                assertEquals(PID, calls.call(178));
+                assertEquals(PID, threadId(emulator));
+                String status = text(read(calls, buffer, "/proc/self/status"));
+                assertTrue(status, status.contains("Pid:\t" + PID + "\n"));
+                assertTrue(status, status.contains("Tgid:\t" + PID + "\n"));
+                // The parent is a device fact the runtime cannot derive, so it stays recorded.
+                assertTrue(status, status.contains("PPid:\t17\n"));
+                assertTrue(status, status.contains("Seccomp:\t2\n"));
+                String stat = text(read(calls, buffer, "/proc/self/stat"));
+                assertTrue(stat, stat.startsWith(PID + " (com.example.process) S 17 "));
+                assertTrue(stat, stat.startsWith(PID + " "));
+            } finally {
+                scratch.free();
+            }
+        }
+    }
+
+    /** The thread id bionic keeps in the thread structure the guest's thread-local storage names. */
+    private static int threadId(AndroidEmulator emulator) {
+        UnidbgPointer tls = UnidbgPointer.register(emulator, Arm64Const.UC_ARM64_REG_TPIDR_EL0);
+        UnidbgPointer thread = tls.getPointer(emulator.getPointerSize());
+        PThreadInternal internal = PThreadInternal.create(emulator, thread);
+        internal.unpack();
+        return internal.tid;
     }
 
     private static void verifyAncestry(RawSyscalls calls, UnidbgPointer buffer) {

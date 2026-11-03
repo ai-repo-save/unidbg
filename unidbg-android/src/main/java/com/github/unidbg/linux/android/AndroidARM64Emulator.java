@@ -49,6 +49,11 @@ public class AndroidARM64Emulator extends AbstractARM64Emulator<AndroidFileIO> i
     }
 
     @Override
+    protected void onPidChanged(int pid) {
+        ((AndroidElfLoader) memory).processIdChanged(pid);
+    }
+
+    @Override
     protected UnixSyscallHandler<AndroidFileIO> createSyscallHandler(SvcMemory svcMemory) {
         return new ARM64SyscallHandler(svcMemory);
     }

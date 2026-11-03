@@ -201,6 +201,15 @@ public abstract class AbstractEmulator<T extends NewFileIO> implements Emulator<
     public void setPid(int pid) {
         if (pid < 1) throw new IllegalArgumentException("pid must be positive: " + pid);
         this.pid = pid;
+        onPidChanged(pid);
+    }
+
+    /**
+     * Called once the process id changed, so whatever the runtime already derived from the id it
+     * started with follows it. The caller sets the id before the guest runs; this is the one place
+     * every consumer hears about that id.
+     */
+    protected void onPidChanged(int pid) {
     }
 
     @Override

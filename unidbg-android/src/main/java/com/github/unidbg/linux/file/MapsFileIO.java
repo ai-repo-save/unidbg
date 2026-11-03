@@ -38,15 +38,18 @@ public class MapsFileIO extends ByteArrayFileIO implements FileIO {
             list.addAll(module.getRegions());
         }
         Collections.sort(list);
+        // show_vma_header_prefix sets the width 25 + sizeof(void*) * 6 - 1 and show_map_vma pads
+        // the path to it with seq_pad(' '), so the path starts one column past that width.
+        int labelColumn = 25 + emulator.getPointerSize() * 6 - 1;
         List<MapItem> items = new ArrayList<>();
         for (MemRegion memRegion : list) {
-            items.add(new MapItem(memRegion.virtualAddress, memRegion.end, memRegion.perms, 0, "b3:19", memRegion.getName()));
+            items.add(new MapItem(memRegion.virtualAddress, memRegion.end, memRegion.perms, 0, "b3:19", memRegion.getName(), labelColumn));
         }
         for (MemRegion region : emulator.getSvcMemory().getRegions()) {
-            items.add(new MapItem(region.begin, region.end, region.perms, 0, "00:00", region.getName()));
+            items.add(new MapItem(region.begin, region.end, region.perms, 0, "00:00", region.getName(), labelColumn));
         }
         long stackSize = (long) Memory.STACK_SIZE_OF_PAGE * emulator.getPageAlign();
-        items.add(new MapItem(Memory.STACK_BASE - stackSize, Memory.STACK_BASE, UnicornConst.UC_PROT_WRITE | UnicornConst.UC_PROT_READ, 0, "00:00", "[stack]"));
+        items.add(new MapItem(Memory.STACK_BASE - stackSize, Memory.STACK_BASE, UnicornConst.UC_PROT_WRITE | UnicornConst.UC_PROT_READ, 0, "00:00", "[stack]", labelColumn));
 
         List<MapItem> mapItems = new ArrayList<>();
         for (MemoryMap memoryMap : emulator.getMemory().getMemoryMap()) {
@@ -60,8 +63,9 @@ public class MapsFileIO extends ByteArrayFileIO implements FileIO {
             if (!contains) {
                 // The kernel prints no path for a range the process did not name, and the name a
                 // process gave an anonymous range is the one it prints.
-                mapItems.add(new MapItem(memoryMap.base, memoryMap.base + memoryMap.size, memoryMap.prot, 0, "00:00",
-                        memoryMap.name == null ? "" : "[anon:" + memoryMap.name + "]"));
+                mapItems.add(new MapItem(memoryMap.base, memoryMap.base + memoryMap.size, memoryMap.prot,
+                        memoryMap.offset, "00:00",
+                        memoryMap.name == null ? "" : "[anon:" + memoryMap.name + "]", labelColumn));
             }
         }
         items.addAll(mapItems);
@@ -84,16 +88,19 @@ public class MapsFileIO extends ByteArrayFileIO implements FileIO {
         private final long start;
         private final long end;
         private final int perms;
-        private final int offset;
+        private final long offset;
         private final String device;
         private final String label;
-        public MapItem(long start, long end, int perms, int offset, String device, String label) {
+        private final int labelColumn;
+        public MapItem(long start, long end, int perms, long offset, String device, String label,
+                       int labelColumn) {
             this.start = start;
             this.end = end;
             this.perms = perms;
             this.offset = offset;
             this.device = device;
             this.label = label;
+            this.labelColumn = labelColumn;
         }
         @Override
         public String toString() {
@@ -116,11 +123,13 @@ public class MapsFileIO extends ByteArrayFileIO implements FileIO {
             }
             builder.append("p ");
             builder.append(String.format("%08x", offset));
-            builder.append(" ").append(device).append(" 0");
-            for (int i = 0; i < 10; i++) {
-                builder.append(' ');
+            builder.append(' ').append(device).append(" 0 ");
+            if (!label.isEmpty()) {
+                while (builder.length() < labelColumn) {
+                    builder.append(' ');
+                }
+                builder.append(' ').append(label);
             }
-            builder.append(label);
             builder.append('\n');
             return builder.toString();
         }

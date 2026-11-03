@@ -32,6 +32,31 @@ class Unicorn2Backend extends AbstractBackend implements Backend, HostMemoryBack
                 || "1".equals(System.getenv("UNIDBG_INSN_FETCH_COHERENCY"));
     }
 
+    /**
+     * The cache description of the machine this run copies: CTR_EL0 and DCZID_EL0.BS, from
+     * {@code unidbg.ctrEl0} and {@code unidbg.dczBlocksize}. The guest sizes its cache
+     * maintenance from them, so a run that reports the values of the model the engine borrowed
+     * maintains lines the copied machine does not have. Both reach the CPU model while it is
+     * built, so they are applied before the coherency model below initialises the engine; an
+     * absent key keeps the model's own value.
+     */
+    private void applyCacheDescription() {
+        String ctrEl0 = System.getProperty("unidbg.ctrEl0");
+        String dczBlocksize = System.getProperty("unidbg.dczBlocksize");
+        if (ctrEl0 == null && dczBlocksize == null) return;
+        if (ctrEl0 != null) {
+            int value = (int) Long.decode(ctrEl0).longValue();
+            unicorn.setCtrEl0(value);
+            log.info("event=cache_description_provided register=CTR_EL0 value=0x{}",
+                    Long.toHexString(value));
+        }
+        if (dczBlocksize != null) {
+            int value = (int) Long.decode(dczBlocksize).longValue();
+            unicorn.setDczBlocksize(value);
+            log.info("event=cache_description_provided register=DCZID_EL0 bs={}", value);
+        }
+    }
+
     Unicorn2Backend(Emulator<?> emulator, boolean is64Bit) throws BackendException {
         this.emulator = emulator;
         this.is64Bit = is64Bit;
@@ -41,6 +66,7 @@ class Unicorn2Backend extends AbstractBackend implements Backend, HostMemoryBack
             } else {
                 this.unicorn = new Unicorn(UnicornConst.UC_ARCH_ARM, UnicornConst.UC_MODE_ARM);
             }
+            applyCacheDescription();
             boolean coherency = insnFetchCoherency();
             this.unicorn.setInsnFetchCoherency(coherency);
             log.info("event=instruction_fetch_coherency enabled={} line_size=64"

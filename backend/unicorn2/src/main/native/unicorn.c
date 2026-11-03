@@ -139,6 +139,28 @@ JNIEXPORT jboolean JNICALL Java_com_github_unidbg_arm_backend_unicorn_Unicorn_se
 
 /*
  * Class:     com_github_unidbg_arm_backend_unicorn_Unicorn
+ * Method:    setCtrEl0
+ * Signature: (JI)V
+ */
+JNIEXPORT void JNICALL Java_com_github_unidbg_arm_backend_unicorn_Unicorn_setCtrEl0
+  (JNIEnv *env, jclass cls, jlong handle, jint value) {
+  t_unicorn unicorn = (t_unicorn) handle;
+  throwException(env, uc_ctl_arm64_ctr_el0(unicorn->uc, (uint32_t) value));
+}
+
+/*
+ * Class:     com_github_unidbg_arm_backend_unicorn_Unicorn
+ * Method:    setDczBlocksize
+ * Signature: (JI)V
+ */
+JNIEXPORT void JNICALL Java_com_github_unidbg_arm_backend_unicorn_Unicorn_setDczBlocksize
+  (JNIEnv *env, jclass cls, jlong handle, jint value) {
+  t_unicorn unicorn = (t_unicorn) handle;
+  throwException(env, uc_ctl_arm64_dcz_blocksize(unicorn->uc, (uint32_t) value));
+}
+
+/*
+ * Class:     com_github_unidbg_arm_backend_unicorn_Unicorn
  * Method:    mem_map
  * Signature: (JJJI)V
  */

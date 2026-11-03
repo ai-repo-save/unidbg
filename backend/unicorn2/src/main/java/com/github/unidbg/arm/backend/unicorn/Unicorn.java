@@ -154,6 +154,33 @@ public class Unicorn {
     private static native boolean setInsnFetchCoherency(long handle, boolean enable) throws UnicornException;
 
     /**
+     * Set the value the guest reads from CTR_EL0, replacing the one the CPU model starts with.
+     * The register is an {@code ARM_CP_CONST} entry whose reset value is taken from the model
+     * while the CPU is built, so this has to be called before anything initialises the engine:
+     * see UC_CTL_ARM64_CTR_EL0.
+     *
+     * @param  value  the 32-bit value CTR_EL0 reports
+     */
+    public void setCtrEl0(int value) throws UnicornException {
+        setCtrEl0(nativeHandle, value);
+    }
+
+    private static native void setCtrEl0(long handle, int value) throws UnicornException;
+
+    /**
+     * Set DCZID_EL0.BS, the log2 of the DC ZVA block length in words, replacing the one the CPU
+     * model starts with. Same timing constraint as {@link #setCtrEl0(int)}: see
+     * UC_CTL_ARM64_DCZ_BLOCKSIZE.
+     *
+     * @param  value  the block size field, 0 to 15
+     */
+    public void setDczBlocksize(int value) throws UnicornException {
+        setDczBlocksize(nativeHandle, value);
+    }
+
+    private static native void setDczBlocksize(long handle, int value) throws UnicornException;
+
+    /**
      * Read register value.
      *
      * @param regid  Register ID that is to be retrieved.

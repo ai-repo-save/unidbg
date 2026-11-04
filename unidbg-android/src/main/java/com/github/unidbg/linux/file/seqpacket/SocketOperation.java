@@ -3,6 +3,7 @@ package com.github.unidbg.linux.file.seqpacket;
 import com.github.unidbg.linux.file.socket.LinuxSocketCalls;
 import com.github.unidbg.Emulator;
 import com.github.unidbg.signal.SignalTask;
+import com.github.unidbg.thread.GuestActivity;
 import com.github.unidbg.thread.Waiter;
 import com.sun.jna.Native;
 import com.sun.jna.NativeLong;
@@ -28,6 +29,10 @@ final class SocketOperation implements Waiter {
     private final Pointer destination;
     /** Longest single kernel wait, which keeps the emulator's other guest threads on their turn. */
     private static final int WAIT_SLICE_MILLIS = 1;
+    private final long timeout;
+    /** Time the peer stayed silent, which excludes the time another host thread ran guest code. */
+    private long quietNanos;
+    private long lastSample = System.nanoTime();
     private boolean finished, closed, interrupted;
     private int result, errno;
 
@@ -48,16 +53,32 @@ final class SocketOperation implements Waiter {
                 throw new IllegalStateException("fcntl(F_GETFL) host_fd=" + fd + ", errno=" + error);
             }
             nonblocking = (flags & LinuxSocketCalls.MSG_DONTWAIT) != 0 || (status & LinuxSocketCalls.O_NONBLOCK) != 0;
+            timeout = timeoutNanos();
         } catch (RuntimeException | Error failure) {
             LinuxSocketCalls.close(fd);
             throw failure;
         }
         this.id = owner.register(this);
-        log.debug("event=native_socket_operation_started pair={} operation={} host_fd={} sending={} size={} flags={}",
-                pair, id, fd, sending, size, flags);
+        log.debug("event=native_socket_operation_started pair={} operation={} host_fd={} sending={} size={} flags={} timeout_ns={}",
+                pair, id, fd, sending, size, flags, timeout);
         if (sending && log.isDebugEnabled()) {
             log.debug("event=native_socket_send_data pair={} operation={} hex={}", pair, id, Hex.encodeHexString(source));
         }
+    }
+
+    /** The timeout the guest set on this socket, in nanoseconds; zero waits until the peer acts. */
+    private long timeoutNanos() {
+        byte[] value = new byte[16];
+        if (LinuxSocketCalls.LIBC.getsockopt(fd, LinuxSocketCalls.SOL_SOCKET,
+                sending ? LinuxSocketCalls.SO_SNDTIMEO : LinuxSocketCalls.SO_RCVTIMEO,
+                value, new IntByReference(value.length)) < 0) {
+            int error = Native.getLastError();
+            throw new IllegalStateException("getsockopt(timeout) host_fd=" + fd + ", errno=" + error);
+        }
+        ByteBuffer buffer = ByteBuffer.wrap(value).order(ByteOrder.nativeOrder());
+        long seconds = TimeUnit.SECONDS.toNanos(buffer.getLong());
+        long micros = TimeUnit.MICROSECONDS.toNanos(buffer.getLong());
+        return Long.MAX_VALUE - seconds < micros ? Long.MAX_VALUE : seconds + micros;
     }
 
     @Override
@@ -75,6 +96,17 @@ final class SocketOperation implements Waiter {
                 : LinuxSocketCalls.LIBC.recv(fd, bytes, new NativeLong(size), hostFlags).longValue();
         int error = count < 0 ? Native.getLastError() : 0;
         if (count < 0 && error == LinuxSocketCalls.EAGAIN && !nonblocking) {
+            if (timeout != 0) {
+                long sampled = System.nanoTime();
+                if (!GuestActivity.elsewhere()) {
+                    quietNanos += sampled - lastSample;
+                }
+                lastSample = sampled;
+                if (quietNanos >= timeout) {
+                    complete(-1, LinuxSocketCalls.EAGAIN);
+                    return true;
+                }
+            }
             awaitPeer();
             return false;
         }
@@ -87,10 +119,8 @@ final class SocketOperation implements Waiter {
      * and ends on the peer's progress. One slice at most, because the emulator's other guest threads
      * share this host thread.
      *
-     * The socket's receive and send timeouts do not end the wait: they are host time, and a peer that
-     * another host thread runs is present but far slower than the device's, so a wall-clock deadline
-     * would decide the guest's behavior instead of its peer's answer. The replay's own budget bounds a
-     * peer that never answers.
+     * The wait lasts one slice, which is the granularity at which this emulator's other guest threads get
+     * their turn; a caller that must keep waiting returns and is called again.
      */
     private void awaitPeer() {
         LinuxSocketCalls.await(fd, sending ? LinuxSocketCalls.POLLOUT : LinuxSocketCalls.POLLIN, WAIT_SLICE_MILLIS);

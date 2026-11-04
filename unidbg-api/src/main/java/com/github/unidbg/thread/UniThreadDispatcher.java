@@ -411,7 +411,13 @@ public class UniThreadDispatcher implements ThreadDispatcher {
                                     SignalOps ops = task.isMainThread() ? this : task;
                                     try {
                                         this.runningTask = signalTask;
-                                        Number ret = signalTask.callHandler(ops, emulator);
+                                        GuestActivity.enter();
+                                        Number ret;
+                                        try {
+                                            ret = signalTask.callHandler(ops, emulator);
+                                        } finally {
+                                            GuestActivity.leave();
+                                        }
                                         log.debug("End run signalTask={}, ret={}", signalTask, ret);
                                         if (ret != null) {
                                             signalTask.setResult(emulator, ret);
@@ -445,9 +451,11 @@ public class UniThreadDispatcher implements ThreadDispatcher {
                             CpuTimeSource cpuTime = CpuTimeSource.of(emulator);
                             Number ret;
                             cpuTime.beginSlice((Task) active);
+                            GuestActivity.enter();
                             try {
                                 ret = ((Task) active).dispatch(emulator);
                             } finally {
+                                GuestActivity.leave();
                                 cpuTime.endSlice();
                             }
                             log.debug("End dispatch task={}, ret={}", active, ret);

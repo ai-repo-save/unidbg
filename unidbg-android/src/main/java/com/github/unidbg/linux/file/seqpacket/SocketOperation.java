@@ -103,6 +103,8 @@ final class SocketOperation implements Waiter {
                 }
                 lastSample = sampled;
                 if (quietNanos >= timeout) {
+                    log.debug("event=native_socket_operation_expired pair={} operation={} host_fd={} sending={} quiet_ns={} timeout_ns={}",
+                            pair, id, fd, sending, quietNanos, timeout);
                     complete(-1, LinuxSocketCalls.EAGAIN);
                     return true;
                 }

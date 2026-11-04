@@ -28,6 +28,8 @@ final class SocketOperation implements Waiter {
     private final Pointer destination;
     private final long started = System.nanoTime();
     private final long timeout;
+    /** Longest single kernel wait, which keeps the emulator's other guest threads on their turn. */
+    private static final int WAIT_SLICE_MILLIS = 1;
     private boolean finished, closed, interrupted;
     private int result, errno;
 
@@ -91,10 +93,28 @@ final class SocketOperation implements Waiter {
         int error = count < 0 ? Native.getLastError() : 0;
         if (count < 0 && error == LinuxSocketCalls.EAGAIN && !nonblocking &&
                 (timeout == 0 || System.nanoTime() - started < timeout)) {
+            awaitPeer();
             return false;
         }
         complete((int) count, error);
         return true;
+    }
+
+    /**
+     * Parks this host thread in the kernel until the peer writes or the wait's remaining budget runs
+     * out, so a blocking transfer costs no CPU and ends on the peer's progress rather than on a
+     * caller's retry cadence. One slice at most, because the emulator's other guest threads share this
+     * host thread.
+     */
+    private void awaitPeer() {
+        long remainingMillis = timeout == 0
+                ? WAIT_SLICE_MILLIS
+                : Math.min(WAIT_SLICE_MILLIS,
+                        TimeUnit.NANOSECONDS.toMillis(timeout - (System.nanoTime() - started)) + 1);
+        if (remainingMillis > 0) {
+            LinuxSocketCalls.await(fd, sending ? LinuxSocketCalls.POLLOUT : LinuxSocketCalls.POLLIN,
+                    (int) remainingMillis);
+        }
     }
 
     private void complete(int result, int errno) {

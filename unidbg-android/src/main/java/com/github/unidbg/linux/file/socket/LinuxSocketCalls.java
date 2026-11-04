@@ -62,6 +62,20 @@ public final class LinuxSocketCalls {
         return result;
     }
 
+    /**
+     * Waits until the descriptor reports {@code events} or the millisecond budget elapses, which parks
+     * the calling host thread in the kernel the way a process waits on its own socket. A negative
+     * budget waits without a deadline. An interrupted wait leaves the descriptor state to the caller's
+     * next readiness check.
+     */
+    public static void await(int fd, short events, int timeoutMillis) {
+        byte[] descriptor = ByteBuffer.allocate(8).order(ByteOrder.nativeOrder())
+                .putInt(fd).putShort(events).putShort((short) 0).array();
+        if (LIBC.poll(descriptor, new NativeLong(1), timeoutMillis) < 0) {
+            log.debug("event=native_socket_await_end host_fd={} events={} errno={}", fd, events, Native.getLastError());
+        }
+    }
+
     public static short poll(int fd, short events) {
         byte[] descriptor = ByteBuffer.allocate(8).order(ByteOrder.nativeOrder())
                 .putInt(fd).putShort(events).putShort((short) 0).array();

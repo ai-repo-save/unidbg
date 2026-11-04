@@ -26,8 +26,6 @@ final class SocketOperation implements Waiter {
     private final boolean sending, nonblocking;
     private final byte[] bytes;
     private final Pointer destination;
-    private final long started = System.nanoTime();
-    private final long timeout;
     /** Longest single kernel wait, which keeps the emulator's other guest threads on their turn. */
     private static final int WAIT_SLICE_MILLIS = 1;
     private boolean finished, closed, interrupted;
@@ -50,31 +48,16 @@ final class SocketOperation implements Waiter {
                 throw new IllegalStateException("fcntl(F_GETFL) host_fd=" + fd + ", errno=" + error);
             }
             nonblocking = (flags & LinuxSocketCalls.MSG_DONTWAIT) != 0 || (status & LinuxSocketCalls.O_NONBLOCK) != 0;
-            timeout = timeoutNanos();
         } catch (RuntimeException | Error failure) {
             LinuxSocketCalls.close(fd);
             throw failure;
         }
         this.id = owner.register(this);
-        log.debug("event=native_socket_operation_started pair={} operation={} host_fd={} sending={} size={} flags={} timeout_ns={}",
-                pair, id, fd, sending, size, flags, timeout);
+        log.debug("event=native_socket_operation_started pair={} operation={} host_fd={} sending={} size={} flags={}",
+                pair, id, fd, sending, size, flags);
         if (sending && log.isDebugEnabled()) {
             log.debug("event=native_socket_send_data pair={} operation={} hex={}", pair, id, Hex.encodeHexString(source));
         }
-    }
-
-    private long timeoutNanos() {
-        byte[] value = new byte[16];
-        if (LinuxSocketCalls.LIBC.getsockopt(fd, LinuxSocketCalls.SOL_SOCKET,
-                sending ? LinuxSocketCalls.SO_SNDTIMEO : LinuxSocketCalls.SO_RCVTIMEO,
-                value, new IntByReference(value.length)) < 0) {
-            int error = Native.getLastError();
-            throw new IllegalStateException("getsockopt(timeout) host_fd=" + fd + ", errno=" + error);
-        }
-        ByteBuffer buffer = ByteBuffer.wrap(value).order(ByteOrder.nativeOrder());
-        long seconds = TimeUnit.SECONDS.toNanos(buffer.getLong());
-        long micros = TimeUnit.MICROSECONDS.toNanos(buffer.getLong());
-        return Long.MAX_VALUE - seconds < micros ? Long.MAX_VALUE : seconds + micros;
     }
 
     @Override
@@ -91,8 +74,7 @@ final class SocketOperation implements Waiter {
                 ? LinuxSocketCalls.LIBC.send(fd, bytes, new NativeLong(size), hostFlags | LinuxSocketCalls.MSG_NOSIGNAL).longValue()
                 : LinuxSocketCalls.LIBC.recv(fd, bytes, new NativeLong(size), hostFlags).longValue();
         int error = count < 0 ? Native.getLastError() : 0;
-        if (count < 0 && error == LinuxSocketCalls.EAGAIN && !nonblocking &&
-                (timeout == 0 || System.nanoTime() - started < timeout)) {
+        if (count < 0 && error == LinuxSocketCalls.EAGAIN && !nonblocking) {
             awaitPeer();
             return false;
         }
@@ -101,20 +83,17 @@ final class SocketOperation implements Waiter {
     }
 
     /**
-     * Parks this host thread in the kernel until the peer writes or the wait's remaining budget runs
-     * out, so a blocking transfer costs no CPU and ends on the peer's progress rather than on a
-     * caller's retry cadence. One slice at most, because the emulator's other guest threads share this
-     * host thread.
+     * Parks this host thread in the kernel until the peer is ready, so a blocking transfer costs no CPU
+     * and ends on the peer's progress. One slice at most, because the emulator's other guest threads
+     * share this host thread.
+     *
+     * The socket's receive and send timeouts do not end the wait: they are host time, and a peer that
+     * another host thread runs is present but far slower than the device's, so a wall-clock deadline
+     * would decide the guest's behavior instead of its peer's answer. The replay's own budget bounds a
+     * peer that never answers.
      */
     private void awaitPeer() {
-        long remainingMillis = timeout == 0
-                ? WAIT_SLICE_MILLIS
-                : Math.min(WAIT_SLICE_MILLIS,
-                        TimeUnit.NANOSECONDS.toMillis(timeout - (System.nanoTime() - started)) + 1);
-        if (remainingMillis > 0) {
-            LinuxSocketCalls.await(fd, sending ? LinuxSocketCalls.POLLOUT : LinuxSocketCalls.POLLIN,
-                    (int) remainingMillis);
-        }
+        LinuxSocketCalls.await(fd, sending ? LinuxSocketCalls.POLLOUT : LinuxSocketCalls.POLLIN, WAIT_SLICE_MILLIS);
     }
 
     private void complete(int result, int errno) {

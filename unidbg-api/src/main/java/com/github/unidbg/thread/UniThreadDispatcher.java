@@ -392,96 +392,9 @@ public class UniThreadDispatcher implements ThreadDispatcher {
                         return null;
                     }
                 }
-                for (Task task : new ArrayList<>(taskList)) {
-                    if (task.isFinish()) {
-                        taskList.remove(task);
-                        destroyTask(task);
-                        continue;
-                    }
-                    RunnableTask active = activeTask(task);
-                    if (active.canDispatch()) {
-                        log.debug("Start dispatch task={}", task);
-                        emulator.set(Task.TASK_KEY, task);
-
-                        if (active.isContextSaved()) {
-                            active.restoreContext(emulator);
-                            for (SignalTask signalTask : task.getSignalTaskList()) {
-                                if (signalTask.canDispatch()) {
-                                    log.debug("Start run signalTask={}", signalTask);
-                                    SignalOps ops = task.isMainThread() ? this : task;
-                                    try {
-                                        this.runningTask = signalTask;
-                                        Number ret = signalTask.callHandler(ops, emulator);
-                                        log.debug("End run signalTask={}, ret={}", signalTask, ret);
-                                        if (ret != null) {
-                                            signalTask.setResult(emulator, ret);
-                                            signalTask.destroy(emulator);
-                                            task.removeSignalTask(signalTask);
-                                        } else {
-                                            signalTask.saveContext(emulator);
-                                        }
-                                    } catch (PopContextException e) {
-                                        this.runningTask.popContext(emulator);
-                                    } catch (RuntimeException | Error failure) {
-                                        signalTask.destroy(emulator);
-                                        task.removeSignalTask(signalTask);
-                                        throw failure;
-                                    }
-                                } else {
-                                    log.debug("Skip call handler signalTask={}", signalTask);
-                                }
-                            }
-                        }
-
-                        try {
-                            this.runningTask = active;
-                            if (active != task && !active.isContextSaved()) {
-                                nativeFrames.get(task).getLast().restoreInitial(emulator);
-                            }
-                            Long stack = stackPoints.get(active);
-                            if (stack != null) {
-                                emulator.getMemory().setStackPoint(stack);
-                            }
-                            CpuTimeSource cpuTime = CpuTimeSource.of(emulator);
-                            Number ret;
-                            cpuTime.beginSlice((Task) active);
-                            try {
-                                ret = ((Task) active).dispatch(emulator);
-                            } finally {
-                                cpuTime.endSlice();
-                            }
-                            log.debug("End dispatch task={}, ret={}", active, ret);
-                            if (ret != null) {
-                                if (active != task) {
-                                    finishNativeFrame(task, ret, null);
-                                } else {
-                                    task.setResult(emulator, ret);
-                                    taskList.remove(task);
-                                    destroyTask(task);
-                                    if (task.isMainThread()) {
-                                        return ret;
-                                    }
-                                }
-                            } else {
-                                active.saveContext(emulator);
-                                stackPoints.put(active, emulator.getMemory().getStackPoint());
-                            }
-                        } catch (PopContextException e) {
-                            this.runningTask.popContext(emulator);
-                        } catch (RuntimeException | Error failure) {
-                            if (active != task) {
-                                finishNativeFrame(task, null, failure);
-                            } else {
-                                taskList.remove(task);
-                                try {
-                                    destroyTask(task);
-                                } catch (RuntimeException | Error cleanupFailure) {
-                                    collectFailure(failure, cleanupFailure);
-                                }
-                                throw failure;
-                            }
-                        }
-                    }
+                PassOutcome outcome = dispatchRunnableTasks();
+                if (outcome.mainResult != null) {
+                    return outcome.mainResult;
                 }
 
                 promotePendingThreads();
@@ -502,6 +415,143 @@ public class UniThreadDispatcher implements ThreadDispatcher {
             this.runningTask = null;
             emulator.set(Task.TASK_KEY, null);
         }
+    }
+
+    @Override
+    public int dispatchPass() {
+        if (closed) {
+            throw new IllegalStateException("Thread dispatcher is closed");
+        }
+        promotePendingThreads();
+        if (!canDispatchAnyTask()) {
+            log.debug("event=thread_dispatch_idle emulator={} tasks={}",
+                    System.identityHashCode(emulator), getTaskCount());
+            return 0;
+        }
+        Backend backend = emulator.getBackend();
+        long context = backend.context_alloc();
+        backend.context_save(context);
+        long stack = emulator.getMemory().getStackPoint();
+        try {
+            return dispatchRunnableTasks().dispatched;
+        } finally {
+            emulator.getMemory().setStackPoint(stack);
+            backend.context_restore(context);
+            backend.context_free(context);
+        }
+    }
+
+    private boolean canDispatchAnyTask() {
+        for (Task task : taskList) {
+            if (!task.isFinish() && activeTask(task).canDispatch()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private final class PassOutcome {
+        private int dispatched;
+        private Number mainResult;
+    }
+
+    /** Dispatches every task that can run; the caller decides what a pass that ran none means. */
+    private PassOutcome dispatchRunnableTasks() {
+        PassOutcome outcome = new PassOutcome();
+        for (Task task : new ArrayList<>(taskList)) {
+            if (task.isFinish()) {
+                taskList.remove(task);
+                destroyTask(task);
+                continue;
+            }
+            RunnableTask active = activeTask(task);
+            if (active.canDispatch()) {
+                outcome.dispatched++;
+                log.debug("Start dispatch task={}", task);
+                emulator.set(Task.TASK_KEY, task);
+
+                if (active.isContextSaved()) {
+                    active.restoreContext(emulator);
+                    for (SignalTask signalTask : task.getSignalTaskList()) {
+                        if (signalTask.canDispatch()) {
+                            log.debug("Start run signalTask={}", signalTask);
+                            SignalOps ops = task.isMainThread() ? this : task;
+                            try {
+                                this.runningTask = signalTask;
+                                Number ret = signalTask.callHandler(ops, emulator);
+                                log.debug("End run signalTask={}, ret={}", signalTask, ret);
+                                if (ret != null) {
+                                    signalTask.setResult(emulator, ret);
+                                    signalTask.destroy(emulator);
+                                    task.removeSignalTask(signalTask);
+                                } else {
+                                    signalTask.saveContext(emulator);
+                                }
+                            } catch (PopContextException e) {
+                                this.runningTask.popContext(emulator);
+                            } catch (RuntimeException | Error failure) {
+                                signalTask.destroy(emulator);
+                                task.removeSignalTask(signalTask);
+                                throw failure;
+                            }
+                        } else {
+                            log.debug("Skip call handler signalTask={}", signalTask);
+                        }
+                    }
+                }
+
+                try {
+                    this.runningTask = active;
+                    if (active != task && !active.isContextSaved()) {
+                        nativeFrames.get(task).getLast().restoreInitial(emulator);
+                    }
+                    Long stack = stackPoints.get(active);
+                    if (stack != null) {
+                        emulator.getMemory().setStackPoint(stack);
+                    }
+                    CpuTimeSource cpuTime = CpuTimeSource.of(emulator);
+                    Number ret;
+                    cpuTime.beginSlice((Task) active);
+                    try {
+                        ret = ((Task) active).dispatch(emulator);
+                    } finally {
+                        cpuTime.endSlice();
+                    }
+                    log.debug("End dispatch task={}, ret={}", active, ret);
+                    if (ret != null) {
+                        if (active != task) {
+                            finishNativeFrame(task, ret, null);
+                        } else {
+                            task.setResult(emulator, ret);
+                            taskList.remove(task);
+                            destroyTask(task);
+                            if (task.isMainThread()) {
+                                outcome.mainResult = ret;
+                                return outcome;
+                            }
+                        }
+                    } else {
+                        active.saveContext(emulator);
+                        stackPoints.put(active, emulator.getMemory().getStackPoint());
+                    }
+                } catch (PopContextException e) {
+                    this.runningTask.popContext(emulator);
+                } catch (RuntimeException | Error failure) {
+                    if (active != task) {
+                        finishNativeFrame(task, null, failure);
+                    } else {
+                        taskList.remove(task);
+                        try {
+                            destroyTask(task);
+                        } catch (RuntimeException | Error cleanupFailure) {
+                            collectFailure(failure, cleanupFailure);
+                        }
+                        throw failure;
+                    }
+                }
+            }
+        }
+        return outcome;
     }
 
     private void promotePendingThreads() {

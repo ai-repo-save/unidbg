@@ -10,6 +10,8 @@ Each receive or send uses `MSG_DONTWAIT`. A blocking guest call installs a task 
 
 Each operation snapshots the kernel-normalized SO_RCVTIMEO or SO_SNDTIMEO and measures how long its peer stayed silent with a monotonic clock. Silence excludes the time during which another host thread ran guest code (`GuestActivity`): a peer that is itself an emulator runs orders of magnitude slower than the device's, so counting its execution as silence would expire the guest's timeout while the peer was producing the answer, and host speed would decide the guest's result. A zero timeout waits indefinitely. A guest nonblocking operation returns EAGAIN immediately. No scheduler budget becomes a native socket timeout, and one emulator's host thread waiting on its own socket counts as silence, so two peers that both wait still observe their timeouts.
 
+The timeout measures silence and not the wait: it does not bound how long an operation blocks. While the peer executes guest code, silence does not accumulate and the operation keeps waiting; with a zero timeout it never ends through silence. The replay's own budget bounds a peer that never answers.
+
 Guest `dup` and `dup3` create independent owned host descriptors sharing the kernel socket state. Pending operations hold private duplicate descriptors, preserving Linux's open-file-description lifetime when another guest thread closes its descriptor. Completion releases the operation descriptor. Replacing/destroying a task's Waiter cancels its operation through `Waiter.onDestroy`; the existing task DestroyListener remains independent. Emulator shutdown cancels outstanding socket operations before closing guest descriptors and destroying the backend.
 
 Enable `setEnableThreadDispatcher(true)` for SDK23 Bionic pthreads. `runThreads` promotes pending children after the previous main returns and restores the caller's CPU context and stack afterward, including its TLS register. Debug logging does not add scheduling sleeps.
@@ -38,6 +40,6 @@ mkdir -p target/native-ipc
 
 The required library property names the generated fixture. Native source and test remain versioned; the fixture binary and Maven reports are reproducible outputs under `target/`.
 
-The adapter's debug events use pair and operation identifiers and retain send/receive bytes, socket option bytes and host errno. They use the existing SLF4J logging configuration.
+The adapter's debug events use pair and operation identifiers and retain send/receive bytes, socket option bytes and host errno. An operation whose timeout expires on silence logs `native_socket_operation_expired` with the accumulated silence and the guest's timeout; an operation the kernel answered with EAGAIN logs only its completion. They use the existing SLF4J logging configuration.
 
 Kernel contracts: https://man7.org/linux/man-pages/man7/unix.7.html, https://man7.org/linux/man-pages/man2/recv.2.html, https://man7.org/linux/man-pages/man7/socket.7.html, https://man7.org/linux/man-pages/man2/dup.2.html and https://man7.org/linux/man-pages/man2/close.2.html.

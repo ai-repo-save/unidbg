@@ -122,7 +122,9 @@ final class SocketOperation implements Waiter {
      * share this host thread.
      *
      * The wait lasts one slice, which is the granularity at which this emulator's other guest threads get
-     * their turn; a caller that must keep waiting returns and is called again.
+     * their turn; a caller that must keep waiting returns and is called again. The slice is not the
+     * operation's upper bound: the operation ends when the peer acts or when its timeout expires on
+     * silence, and the replay's own budget bounds a peer that never answers.
      */
     private void awaitPeer() {
         LinuxSocketCalls.await(fd, sending ? LinuxSocketCalls.POLLOUT : LinuxSocketCalls.POLLIN, WAIT_SLICE_MILLIS);

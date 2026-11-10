@@ -28,6 +28,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -155,6 +156,13 @@ public class LinuxModule extends Module {
     }
 
     final Map<String, ModuleSymbol> resolvedSymbols = new HashMap<>();
+    private final Map<Long, ImportedSymbol> importedSymbolsByRelocationAddress = new HashMap<>();
+
+    void registerImportedSymbol(long relocationAddress, String moduleName, String symbolName, long targetAddress) {
+        if (relocationAddress != 0 && symbolName != null && !symbolName.isEmpty()) {
+            importedSymbolsByRelocationAddress.put(relocationAddress, new ImportedSymbol(relocationAddress, moduleName, symbolName, targetAddress));
+        }
+    }
 
     @Override
     public Symbol findSymbolByName(String name, boolean withDependencies) {
@@ -300,6 +308,16 @@ public class LinuxModule extends Module {
     @Override
     public void registerSymbol(String symbolName, long address) {
         hookMap.put(symbolName, address);
+    }
+
+    @Override
+    public Collection<ImportedSymbol> getImportedSymbols() {
+        return Collections.unmodifiableCollection(importedSymbolsByRelocationAddress.values());
+    }
+
+    @Override
+    public ImportedSymbol findImportedSymbolByRelocationAddress(long relocationAddress) {
+        return importedSymbolsByRelocationAddress.get(relocationAddress);
     }
 
     @Override

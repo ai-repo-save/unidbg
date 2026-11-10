@@ -542,13 +542,41 @@ public abstract class UnixSyscallHandler<T extends NewFileIO> implements Syscall
 
     private static final Pattern FD_PATTERN = Pattern.compile("/proc/self/fd/(\\d+)");
 
+    private Integer currentPidFd(String path, int pid) {
+        String prefix = "/proc/" + pid + "/fd/";
+        if (!path.startsWith(prefix)) {
+            return null;
+        }
+        String fd = path.substring(prefix.length());
+        if (fd.isEmpty()) {
+            return null;
+        }
+        if (fd.length() > 10) {
+            return null;
+        }
+        for (int i = 0; i < fd.length(); i++) {
+            char c = fd.charAt(i);
+            if (c < '0' || c > '9') {
+                return null;
+            }
+        }
+        long value = Long.parseLong(fd);
+        if (value > Integer.MAX_VALUE) {
+            return null;
+        }
+        if (log.isDebugEnabled()) {
+            log.debug("event=readlink_current_pid_fd path={} fd={}", path, value);
+        }
+        return (int) value;
+    }
+
     protected int readlink(Emulator<?> emulator, String path, Pointer buf, int bufSize) {
         if (log.isDebugEnabled()) {
             log.debug("readlink path={}, buf={}, bufSize={}", path, buf, bufSize);
         }
         Matcher matcher = FD_PATTERN.matcher(path);
-        if (matcher.find()) {
-            int fd = Integer.parseInt(matcher.group(1));
+        Integer fd = matcher.find() ? Integer.parseInt(matcher.group(1)) : currentPidFd(path, emulator.getPid());
+        if (fd != null) {
             FileIO io = fdMap.get(fd);
             if (io != null) {
                 path = io.getPath();

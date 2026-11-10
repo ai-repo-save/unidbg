@@ -138,12 +138,11 @@ class ElfParser implements ElfDataIn {
 		int limit = fsFile.limit();
 		try {
 			int capacity = fsFile.capacity();
-			int end = fsFile.position() + length;
+			int position = fsFile.position();
+			int end = position + length;
 			if (end > capacity) {
-				if (!overflowLogged) {
-					log.warn("event=elf_read_truncated offset={} file_length={}", end, capacity);
-					overflowLogged = true;
-				}
+				log.warn("event=elf_read_truncated requested_length={} offset={} file_length={}", length, position, capacity);
+				overflowLogged = true;
 				end = capacity;
 			}
 			fsFile.limit(end);

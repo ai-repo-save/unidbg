@@ -152,7 +152,7 @@ public class ElfSegment {
 						return new PtLoadData(ByteBuffer.allocate(0), 0);
 					}
 					if (file_size > capacity - segmentOffset) {
-						log.warn("event=elf_segment_truncated offset={} file_length={}", segmentOffset + file_size, capacity);
+						log.warn("event=elf_segment_truncated offset={} file_size={} file_length={}", segmentOffset, file_size, capacity);
 					}
 					parser.seek(segmentOffset);
 					int readSize = (int) Math.min(file_size, capacity - segmentOffset);

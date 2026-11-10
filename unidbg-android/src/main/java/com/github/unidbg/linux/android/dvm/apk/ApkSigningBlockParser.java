@@ -42,7 +42,7 @@ final class ApkSigningBlockParser {
     static CertificateMeta[] parse(File apkFile) {
         List<X509Certificate> certificates;
         try {
-            certificates = parseSigningBlock(readSigningBlock(apkFile));
+            certificates = parseSigningBlock(readSigningBlock(apkFile), apkFile.getAbsolutePath());
         } catch (IOException e) {
             throw new IllegalStateException(e);
         }
@@ -116,7 +116,7 @@ final class ApkSigningBlockParser {
         return -1;
     }
 
-    private static List<X509Certificate> parseSigningBlock(byte[] block) {
+    private static List<X509Certificate> parseSigningBlock(byte[] block, String apkPath) {
         if (block == null) {
             return Collections.emptyList();
         }
@@ -124,7 +124,7 @@ final class ApkSigningBlockParser {
         ByteBuffer buffer = ByteBuffer.wrap(block).order(ByteOrder.LITTLE_ENDIAN);
         long size = buffer.getLong();
         if (size != block.length - 8) {
-            log.warn("event=apk_signing_block_length_invalid declared_size={} block_length={}", size, block.length);
+            log.warn("event=apk_signing_block_length_invalid apk={} declared_size={} block_length={}", apkPath, size, block.length);
             return Collections.emptyList();
         }
 
@@ -136,6 +136,8 @@ final class ApkSigningBlockParser {
             buffer.position(position);
             long length = buffer.getLong();
             if (length < 4 || position + 8 + length > pairsEnd) {
+                log.warn("event=apk_signing_block_pair_length_invalid apk={} position={} length={} pairs_end={}",
+                        apkPath, position, length, pairsEnd);
                 break;
             }
             int id = buffer.getInt();
@@ -148,7 +150,11 @@ final class ApkSigningBlockParser {
             position += 8 + length;
         }
         ByteBuffer signers = v3Block != null ? v3Block : v2Block; // v3 优先
-        return signers == null ? Collections.<X509Certificate>emptyList() : parseSigners(signers);
+        if (signers == null) {
+            log.warn("event=apk_signing_block_missing apk={} reason=scheme_absent", apkPath);
+            return Collections.emptyList();
+        }
+        return parseSigners(signers);
     }
 
     private static List<X509Certificate> parseSigners(ByteBuffer signers) {

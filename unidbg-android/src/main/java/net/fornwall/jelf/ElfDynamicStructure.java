@@ -71,6 +71,8 @@ import java.util.List;
 public class ElfDynamicStructure {
 
 	private static final Logger log = LoggerFactory.getLogger(ElfDynamicStructure.class);
+	private boolean soNameFallbackLogged;
+	private boolean neededFallbackLogged;
 
 	private static final int DT_NULL = 0;
 	private static final int DT_NEEDED = 1;
@@ -401,7 +403,14 @@ public class ElfDynamicStructure {
 
 	public String getSOName(String fileName) throws IOException {
 		ElfStringTable stringTable = dtStringTable == null ? null : dtStringTable.getValue();
-		return soName == -1 || stringTable == null ? fileName : stringTable.get(soName);
+		if (stringTable == null) {
+			if (!soNameFallbackLogged) {
+				log.warn("event=elf_string_table_missing result=file_name file_name={} soname_offset={} table_present={}", fileName, soName, dtStringTable != null);
+				soNameFallbackLogged = true;
+			}
+			return fileName;
+		}
+		return soName == -1 ? fileName : stringTable.get(soName);
 	}
 
 	public int getInit() {
@@ -412,6 +421,10 @@ public class ElfDynamicStructure {
 		List<String> result = new ArrayList<>();
 		ElfStringTable stringTable = dtStringTable == null ? null : dtStringTable.getValue();
 		if (stringTable == null) {
+			if (!neededFallbackLogged) {
+				log.warn("event=elf_string_table_missing result=empty_needed needed_count={} table_present={}", dtNeeded.length, dtStringTable != null);
+				neededFallbackLogged = true;
+			}
 			return result;
 		}
 		for (int needed : dtNeeded) {

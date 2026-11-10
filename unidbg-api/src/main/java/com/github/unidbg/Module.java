@@ -89,16 +89,10 @@ public abstract class Module {
         return Collections.emptyList();
     }
 
-    /**
-     * 已重定位的导入符号，按 GOT/PLT 槽位登记。
-     */
     public Collection<ImportedSymbol> getImportedSymbols() {
         return Collections.emptyList();
     }
 
-    /**
-     * 按重定位地址（GOT/PLT 槽位）查找导入的符号，未记录时返回 null。
-     */
     public ImportedSymbol findImportedSymbolByRelocationAddress(long relocationAddress) {
         return null;
     }

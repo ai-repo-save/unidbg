@@ -5,6 +5,9 @@ import net.dongliu.apk.parser.bean.ApkSigner;
 import net.dongliu.apk.parser.bean.CertificateMeta;
 import net.dongliu.apk.parser.exception.ParserException;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.File;
 import java.io.IOException;
 import java.security.cert.CertificateException;
@@ -12,6 +15,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 class ApkFile implements Apk {
+
+    private static final Logger log = LoggerFactory.getLogger(ApkFile.class);
 
     private final File apkFile;
 
@@ -82,7 +87,8 @@ class ApkFile implements Apk {
             }
         } catch (IOException e) {
             throw new IllegalStateException(e);
-        } catch (CertificateException ignored) { // 没有 v1 签名
+        } catch (CertificateException e) {
+            log.error("event=v1_certificate_parse_failed apk={}", this.apkFile.getAbsolutePath(), e);
         }
 
         if (!v1Signatures.isEmpty()) {

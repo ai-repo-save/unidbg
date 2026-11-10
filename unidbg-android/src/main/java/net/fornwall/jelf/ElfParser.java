@@ -1,12 +1,19 @@
 package net.fornwall.jelf;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.nio.ByteBuffer;
 
 /** Package internal class used for parsing ELF files. */
 class ElfParser implements ElfDataIn {
 
+	private static final Logger log = LoggerFactory.getLogger(ElfParser.class);
+
 	final ElfFile elfFile;
 	private final ByteBuffer fsFile;
+	private boolean overflowLogged;
+	private long loggedOverflowOffset = Long.MIN_VALUE;
 
 	ElfParser(ElfFile elfFile, ByteBuffer fsFile) {
 		this.elfFile = elfFile;
@@ -14,11 +21,18 @@ class ElfParser implements ElfDataIn {
 	}
 
 	void seek(long offset) {
+		int capacity = fsFile.capacity();
 		int position = (int) offset;
-		if (position < 0) {
-			position = 0;
-		} else if (position > fsFile.capacity()) {
-			position = fsFile.capacity();
+		if (position < 0 || position > capacity) {
+			if (offset != loggedOverflowOffset) {
+				log.warn("event=elf_offset_clamped offset={} file_length={}", offset, capacity);
+				loggedOverflowOffset = offset;
+			}
+			overflowLogged = true;
+			position = position < 0 ? 0 : capacity;
+		} else {
+			overflowLogged = false;
+			loggedOverflowOffset = Long.MIN_VALUE;
 		}
 		fsFile.position(position);
 	}
@@ -45,6 +59,10 @@ class ElfParser implements ElfDataIn {
 	@Override
 	public short readUnsignedByte() {
 		if (!fsFile.hasRemaining()) {
+			if (!overflowLogged) {
+				log.warn("event=elf_read_truncated offset={} file_length={}", fsFile.position(), fsFile.capacity());
+				overflowLogged = true;
+			}
 			return 0;
 		}
 		int val = fsFile.get() & 0xff;
@@ -119,7 +137,16 @@ class ElfParser implements ElfDataIn {
 	ByteBuffer readBuffer(int length) {
 		int limit = fsFile.limit();
 		try {
-			fsFile.limit(Math.min(fsFile.position() + length, fsFile.capacity()));
+			int capacity = fsFile.capacity();
+			int end = fsFile.position() + length;
+			if (end > capacity) {
+				if (!overflowLogged) {
+					log.warn("event=elf_read_truncated offset={} file_length={}", end, capacity);
+					overflowLogged = true;
+				}
+				end = capacity;
+			}
+			fsFile.limit(end);
 			return fsFile.slice();
 		} finally {
 			fsFile.limit(limit);

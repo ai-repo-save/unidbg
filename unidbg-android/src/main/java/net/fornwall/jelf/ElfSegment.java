@@ -1,5 +1,8 @@
 package net.fornwall.jelf;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
@@ -17,6 +20,8 @@ import java.nio.ByteBuffer;
  */
 @SuppressWarnings("unused")
 public class ElfSegment {
+
+	private static final Logger log = LoggerFactory.getLogger(ElfSegment.class);
 
 	/** Type defining that the array element is unused. Other member values are undefined. */
 	public static final int PT_NULL = 0;
@@ -143,7 +148,11 @@ public class ElfSegment {
 					long segmentOffset = ElfSegment.this.offset;
 					int capacity = parser.getCapacity();
 					if (segmentOffset >= capacity) {
+						log.warn("event=elf_segment_truncated offset={} file_length={}", segmentOffset, capacity);
 						return new PtLoadData(ByteBuffer.allocate(0), 0);
+					}
+					if (file_size > capacity - segmentOffset) {
+						log.warn("event=elf_segment_truncated offset={} file_length={}", segmentOffset + file_size, capacity);
 					}
 					parser.seek(segmentOffset);
 					int readSize = (int) Math.min(file_size, capacity - segmentOffset);

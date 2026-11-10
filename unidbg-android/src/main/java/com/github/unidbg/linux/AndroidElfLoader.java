@@ -765,7 +765,7 @@ public class AndroidElfLoader extends AbstractLoader<AndroidFileIO> implements M
 
         SymbolLocator dynsym = dynamicStructure.getSymbolStructure();
         if (dynsym == null) {
-            log.warn("dynsym is null for {}, SO may be packed", libraryFile.getName());
+            log.warn("event=dynsym_missing library={} path={} file_size={}", libraryFile.getName(), libraryFile.getPath(), libraryFile.getFileSize());
             dynsym = new EmptySymbolLocator();
         }
         ElfSection symbolTableSection = null;
